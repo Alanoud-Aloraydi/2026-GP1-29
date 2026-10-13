@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>إنشاء حساب — HARASS</title>
+    <link rel="stylesheet" href="assets/css/styles.css?v=9" />
+  </head>
+  <body data-page="signup">
+    <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
+    <div class="page">
+      <header data-shell-header></header>
+      <main class="main" id="main">
+        <div class="container form-container">
+          <div class="page-head">
+            <h1>إنشاء حساب</h1>
+            <p>احتفظ باتصالاتك وتقارير التقييم في حسابك.</p>
+          </div>
+          <div
+            id="pageError"
+            class="alert alert-error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          ></div>
+          <form id="authForm" class="form-panel">
+            <div class="form-group">
+              <label for="full_name">الاسم الكامل</label>
+              <input
+                id="full_name"
+                name="full_name"
+                type="text"
+                minlength="2"
+                maxlength="100"
+                required
+                autocomplete="name"
+              />
+            </div>
+            <div class="form-group">
+              <label for="email">البريد الإلكتروني</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                autocomplete="email"
+              />
+            </div>
+            <div class="form-group">
+              <label for="password">كلمة المرور</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                minlength="15"
+                maxlength="128"
+                required
+                autocomplete="new-password"
+                aria-describedby="passwordHint"
+              />
+              <p class="hint" id="passwordHint">
+                من 15 إلى 128 حرفًا. يمكنك استخدام عبارة طويلة يسهل تذكرها.
+              </p>
+            </div>
+            <div class="form-group">
+              <label for="confirm">تأكيد كلمة المرور</label>
+              <input
+                id="confirm"
+                name="confirm"
+                type="password"
+                required
+                autocomplete="new-password"
+              />
+            </div>
+            <button class="btn btn-primary" type="submit">إنشاء الحساب</button>
+          </form>
+          <p class="mt-4">
+            لديك حساب؟
+            <a href="login.html">تسجيل الدخول</a>
+          </p>
+        </div>
+      </main>
+      <footer class="app-footer" data-shell-footer></footer>
+    </div>
+    <script src="assets/js/harass.js?v=9"></script>
+    <script src="assets/js/api.js?v=9"></script>
+    <script src="assets/js/app.js?v=9"></script>
+  </body>
+</html>
