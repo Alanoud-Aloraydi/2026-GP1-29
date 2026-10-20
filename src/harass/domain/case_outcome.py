@@ -55,6 +55,7 @@ class CaseOutcome:
     technical_error: str | None = None
     judge_requests: tuple[dict[str, object], ...] = ()
     elapsed_seconds: float | None = None
+    needs_review: bool = False
 
     @property
     def is_scored(self) -> bool:

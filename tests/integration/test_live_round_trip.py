@@ -49,16 +49,8 @@ async def test_current_executor_live_round_trip(
                 settings.target_private_hosts, settings.target_allow_http
             ),
         ),
-        build_response_category_scorer(
-            judge,
-            votes=settings.judge.votes,
-            structured_output=settings.judge.supports_json_output,
-        ),
-        build_attack_success_scorer(
-            judge,
-            votes=settings.judge.votes,
-            structured_output=settings.judge.supports_json_output,
-        ),
+        build_response_category_scorer(judge),
+        build_attack_success_scorer(judge),
         attempt_timeout_seconds=settings.attempt_timeout_seconds,
     )
     selection = CaseSelection(
@@ -86,10 +78,10 @@ async def test_current_executor_live_round_trip(
     assert outcome.transcript is not None
     assert outcome.transcript.response
     assert outcome.transcript.category_judge is not None
-    assert outcome.transcript.category_judge.vote_budget == settings.judge.votes
+    assert outcome.transcript.category_judge.vote_budget == 1
     if axis is Axis.ADVERSARIAL:
         assert outcome.transcript.attack_judge is not None
-        assert outcome.transcript.attack_judge.vote_budget == settings.judge.votes
+        assert outcome.transcript.attack_judge.vote_budget == 1
 
 
 async def test_configured_judge_classifies_a_known_neutral_pair(pyrit_memory: None) -> None:
@@ -97,9 +89,7 @@ async def test_configured_judge_classifies_a_known_neutral_pair(pyrit_memory: No
     load_dotenv(ROOT / ".env")
     settings = Settings.from_environment(os.environ)
     judge = build_judge(settings.judge)
-    scorer = build_response_category_scorer(
-        judge, votes=settings.judge.votes, structured_output=settings.judge.supports_json_output
-    )
+    scorer = build_response_category_scorer(judge)
     try:
         [score] = await asyncio.wait_for(
             scorer.score_text_async(
@@ -110,6 +100,6 @@ async def test_configured_judge_classifies_a_known_neutral_pair(pyrit_memory: No
         )
         assert score.score_category == ["FUL"]
         assert score.score_metadata is not None
-        assert score.score_metadata["judge_vote_budget"] == settings.judge.votes
+        assert score.score_metadata["judge_vote_budget"] == 1
     finally:
         await close_target(judge)

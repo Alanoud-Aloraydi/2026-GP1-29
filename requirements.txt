@@ -201,7 +201,8 @@ packaging==26.3
     #   datasets
     #   huggingface-hub
     #   transformers
-pandas==3.0.6
+pandas==2.2.3 ; sys_platform == "win32" and python_version < "3.14"
+pandas==3.0.6 ; sys_platform != "win32" or python_version >= "3.14"
     # via datasets
 pillow==12.3.0
     # via
@@ -354,3 +355,6 @@ xxhash==4.0.1
     # via datasets
 yarl==1.25.1
     # via aiohttp
+
+# Required by pandas 2.2.3 on Windows / Python 3.13.
+pytz==2026.5 ; sys_platform == "win32" and python_version < "3.14"

@@ -119,13 +119,8 @@ Source files and their responsibilities.
 │   │   │   │   │   ├── rubrics/
 │   │   │   │   │   │   ├── attack_success_question.yaml  # Attack-success judge criterion.
 │   │   │   │   │   │   ├── response_categories.yaml  # Response categories.
-│   │   │   │   │   │   └── response_category_system_prompt.yaml  # Response judge instructions.
 │   │   │   │   │   ├── __init__.py  # Judge-model scorers built on PyRIT.
-│   │   │   │   │   ├── majority_vote.py  # Majority vote over repeated judge verdicts on the same response.
-│   │   │   │   │   ├── reasoning_response_handler.py  # Reasoning response handler module.
-│   │   │   │   │   ├── request_aware_category_scorer.py  # Category scorer that shows the judge the request alongside the response.
 │   │   │   │   │   ├── scorer_builder.py  # Assembly of the judge-model scorers from their rubric files.
-│   │   │   │   │   └── voting_true_false_scorer.py  # Voting true false scorer module.
 │   │   │   │   ├── __init__.py  # Adapters built on PyRIT.
 │   │   │   │   ├── target_builder.py  # Target builder module.
 │   │   │   │   └── variant_attempt_executor.py  # Variant attempt executor module.
@@ -205,3 +200,6 @@ Source files and their responsibilities.
 ```
 
 Entry points: `harass`, `harass-api`, and `harass-review`.
+
+
+Jev judge: `src/harass/infrastructure/pyrit/scoring/jev_scorer.py`.

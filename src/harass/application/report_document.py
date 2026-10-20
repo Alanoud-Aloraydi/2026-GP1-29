@@ -190,6 +190,7 @@ def outcome_document(outcome: CaseOutcome) -> dict[str, Any]:
         "leak_rouge_l": outcome.leak_rouge_l,
         "submission_uncertain": outcome.submission_uncertain,
         "technical_error": outcome.technical_error,
+        "needs_review": outcome.needs_review,
         "judge_requests": outcome.judge_requests,
         "elapsed_seconds": outcome.elapsed_seconds,
         "response_category": category.value if category else None,

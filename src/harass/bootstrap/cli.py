@@ -16,6 +16,7 @@ from harass.application.variant_evaluation_engine import VariantEvaluationEngine
 from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
 from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
+from harass.infrastructure.pyrit.scoring.jev_scorer import JevJudge
 from harass.infrastructure.pyrit.scoring.scorer_builder import (
     build_attack_success_scorer,
     build_response_category_scorer,
@@ -34,7 +35,7 @@ ENVIRONMENT_FILE = Path(".env")
 
 
 def _use_case_factory(
-    settings: Settings, resources: list[PromptTarget], command: EvaluateCommand
+    settings: Settings, resources: list[PromptTarget | JevJudge], command: EvaluateCommand
 ) -> RunEvaluation:
     """Wire the use case to the PyRIT adapters for the files named on the command line."""
     catalog = YamlVariantCatalog(Path(command.arguments.templates_directory))
@@ -50,16 +51,8 @@ def _use_case_factory(
                     settings.target_private_hosts, settings.target_allow_http
                 ),
             ),
-            build_response_category_scorer(
-                judge,
-                votes=settings.judge.votes,
-                structured_output=settings.judge.supports_json_output,
-            ),
-            build_attack_success_scorer(
-                judge,
-                votes=settings.judge.votes,
-                structured_output=settings.judge.supports_json_output,
-            ),
+            build_response_category_scorer(judge),
+            build_attack_success_scorer(judge),
             attempt_timeout_seconds=settings.attempt_timeout_seconds,
         ),
     )
@@ -87,7 +80,7 @@ async def _main_async(argv: list[str]) -> int:
         silent=True,
         seed=command.arguments.sampling_seed,
     )
-    resources: list[PromptTarget] = []
+    resources: list[PromptTarget | JevJudge] = []
     try:
         return await run_evaluate_command(
             command,

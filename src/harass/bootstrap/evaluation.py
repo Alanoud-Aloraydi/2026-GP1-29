@@ -10,6 +10,7 @@ from harass.application.use_cases.run_evaluation import RunEvaluation
 from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
 from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
+from harass.infrastructure.pyrit.scoring.jev_scorer import JevJudge
 from harass.infrastructure.settings import Settings
 
 if TYPE_CHECKING:
@@ -53,7 +54,7 @@ def build_evaluation(
     settings: Settings,
     dataset_file: Path = DATASET_FILE,
     templates_directory: Path = TEMPLATES_DIR,
-) -> tuple[RunEvaluation, "PromptTarget"]:
+) -> tuple[RunEvaluation, "PromptTarget | JevJudge"]:
     """Build model resources only in an evaluation process, not the HTTP application."""
     from harass.application.variant_evaluation_engine import VariantEvaluationEngine
     from harass.infrastructure.pyrit.scoring.scorer_builder import (
@@ -76,16 +77,8 @@ def build_evaluation(
                         settings.target_private_hosts, settings.target_allow_http
                     ),
                 ),
-                build_response_category_scorer(
-                    judge,
-                    votes=settings.judge.votes,
-                    structured_output=settings.judge.supports_json_output,
-                ),
-                build_attack_success_scorer(
-                    judge,
-                    votes=settings.judge.votes,
-                    structured_output=settings.judge.supports_json_output,
-                ),
+                build_response_category_scorer(judge),
+                build_attack_success_scorer(judge),
                 attempt_timeout_seconds=settings.attempt_timeout_seconds,
             ),
         ),

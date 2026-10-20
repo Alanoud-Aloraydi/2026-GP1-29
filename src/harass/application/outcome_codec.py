@@ -60,6 +60,7 @@ def read_outcome(document: dict[str, Any], *, lightweight: bool = False) -> Case
         technical_error=document.get("technical_error"),
         judge_requests=tuple(document.get("judge_requests", ())),
         elapsed_seconds=document.get("elapsed_seconds"),
+        needs_review=document.get("needs_review", False),
     )
 
 
