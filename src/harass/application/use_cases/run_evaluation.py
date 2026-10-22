@@ -18,10 +18,17 @@ logger = logging.getLogger(__name__)
 class RunEvaluation:
     """Orchestrate a run through framework-independent dataset and engine ports."""
 
-    def __init__(self, seed_source: SeedSource, engine: EvaluationEngine) -> None:
-        """Store the source and engine supplied by the composition root."""
+    def __init__(
+        self,
+        seed_source: SeedSource,
+        engine: EvaluationEngine,
+        *,
+        execution_settings: dict[str, object] | None = None,
+    ) -> None:
+        """Store the source, engine, and non-secret execution settings."""
         self._seed_source = seed_source
         self._engine = engine
+        self._execution_settings = dict(execution_settings or {})
 
     async def execute(
         self, request: EvaluationRequest, *, journal: EvaluationJournal | None = None
@@ -67,4 +74,9 @@ class RunEvaluation:
             adaptive_settings=request.adaptive_settings,
             variant_selection=request.variant_selection,
             selection=request.selection,
+            execution_settings={
+            **self._execution_settings,
+            "sampling_seed": request.sampling_seed,
+            "max_base_cases_per_axis": request.max_base_cases_per_axis,
+            },
         )

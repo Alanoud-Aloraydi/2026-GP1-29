@@ -42,6 +42,7 @@ def report_document(report: EvaluationReport, *, include_outcomes: bool = True) 
         "format_version": REPORT_FORMAT_VERSION,
         "run_identifier": report.run_identifier,
         "target_model": report.target_model,
+        "execution_settings": report.execution_settings,
         "variants": list(report.variant_names),
         "include_baseline": report.include_baseline,
         "evaluation_mode": report.adaptive_settings.mode.value,
@@ -109,17 +110,25 @@ def _metrics_document(metrics: EvaluationMetrics) -> dict[str, Any]:
         "unscored_outcomes": metrics.unscored_outcomes,
     }
 
-
 def _coverage(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
     result: dict[str, dict[str, int]] = {}
     for outcome in outcomes:
         counts = result.setdefault(
-            outcome.case.axis.value, {"submitted": 0, "unscored": 0, "unclear": 0}
+            outcome.case.axis.value,
+            {
+                "submitted": 0,
+                "unscored": 0,
+                "unclear": 0,
+                "attack_scored": 0,
+                "category_scored": 0,
+            },
         )
         counts["submitted"] += 1
         counts["unscored"] += not outcome.is_scored
+        counts["attack_scored"] += outcome.is_attack_scored
+        counts["category_scored"] += outcome.is_category_scored
         counts["unclear"] += (
-            outcome.error is None
+            outcome.is_category_scored
             and outcome.response_category is not None
             and outcome.response_category.value == "UNC"
         )

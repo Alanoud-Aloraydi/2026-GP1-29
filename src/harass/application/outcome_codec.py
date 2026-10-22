@@ -30,13 +30,14 @@ def read_outcome(document: dict[str, Any], *, lightweight: bool = False) -> Case
     transcript = document.get("transcript")
     recorded = None
     if transcript and not lightweight:
-        recorded = AttemptTranscript(
+               recorded = AttemptTranscript(
             transcript["sent_prompt"],
             transcript["response"],
             transcript.get("category_rationale"),
             transcript.get("attack_rationale"),
             _trace(transcript.get("category_judge")),
             _trace(transcript.get("attack_judge")),
+            target_metadata=dict(transcript.get("target_metadata") or {}),
         )
     return CaseOutcome(
         case=case,

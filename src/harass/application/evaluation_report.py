@@ -36,3 +36,4 @@ class EvaluationReport:
     adaptive_settings: AdaptiveSettings = field(default_factory=AdaptiveSettings)
     variant_selection: VariantSelection | None = None
     selection: CaseSelection = field(default_factory=CaseSelection)
+    execution_settings: dict[str, object] = field(default_factory=dict)

@@ -130,23 +130,52 @@ class PyritAttemptExecutor(AttemptExecutor):
                 prompt_ids=[result.last_response.id]
             )
             needs_review = any(
-                (score.score_metadata or {}).get("needs_review") == 1 for score in scores
+                (score.score_metadata or {}).get("needs_review") == 1
+                for score in scores
             )
             categories = {category.value for category in ResponseCategory}
+
             category_score = max(
-                (score for score in scores if set(score.score_category or ()) & categories),
+                (
+                    score
+                    for score in scores
+                    if set(score.score_category or ()) & categories
+                ),
                 key=lambda score: score.timestamp,
                 default=None,
             )
+
+            category_evidence = max(
+                (
+                    score
+                    for score in scores
+                    if set(score.score_category or ()) & categories
+                    or (score.score_metadata or {}).get("task")
+                    == "response_category"
+                ),
+                key=lambda score: score.timestamp,
+                default=None,
+            )
+
             transcript = AttemptTranscript(
                 variant.sent_prompt,
                 response,
-                category_score.score_rationale if category_score else None,
+                category_evidence.score_rationale if category_evidence else None,
                 result.last_score.score_rationale
                 if result.last_score and case.axis is Axis.ADVERSARIAL
                 else None,
-                category_judge=_judge_trace(category_score),
-                attack_judge=_judge_trace(result.last_score) if model_attack_judgment else None,
+                category_judge=_judge_trace(category_evidence),
+                attack_judge=_judge_trace(result.last_score)
+                if model_attack_judgment
+                else None,
+                                target_metadata={
+                    key: value
+                    for key, value in (
+                        result.last_response.prompt_metadata or {}
+                    ).items()
+                    if key == "finish_reason"
+                    or key.startswith("token_usage_")
+                },
             )
             category = (
                 ResponseCategory(category_score.score_category[0])
@@ -218,7 +247,16 @@ def _recover_response(conversation_id: str, sent_prompt: str) -> AttemptTranscri
         for response in sorted(pieces, key=lambda piece: piece.timestamp, reverse=True):
             request = memory.get_request_from_response(response=Message(message_pieces=[response]))
             if any(piece.original_value == sent_prompt for piece in request.message_pieces):
-                return AttemptTranscript(sent_prompt, response.converted_value)
+                               return AttemptTranscript(
+                    sent_prompt,
+                    response.converted_value,
+                    target_metadata={
+                        key: value
+                        for key, value in (response.prompt_metadata or {}).items()
+                        if key == "finish_reason"
+                        or key.startswith("token_usage_")
+                    },
+                )
         return None
     except Exception as error:
         logger.warning("Response evidence unavailable: %s", type(error).__name__)
@@ -255,3 +293,5 @@ def _judge_trace(score: Score | None) -> JudgeTrace | None:
         tuple(str(metadata["judge_votes"]).split(",")),
         float(metadata["judge_elapsed_seconds"]),
     )
+
+   

@@ -80,3 +80,42 @@ async def test_empty_selection_stops_before_engine_execution() -> None:
             )
         )
     assert not engine.plans
+async def test_execution_settings_are_exported() -> None:
+    """Preserve execution and sampling settings in the JSON report."""
+    import json
+
+    from harass.application.report_document import report_document
+
+    settings = {
+        "target_generation": {
+            "temperature": 0.0,
+            "max_completion_tokens": 4096,
+        },
+        "judge": {
+            "provider": "typesafe",
+            "model": "jev-1.13.0",
+            "min_confidence": 0.8,
+        },
+        "dataset_sha256": "test-dataset-fingerprint",
+    }
+
+    report = await RunEvaluation(
+        InMemorySeedSource(),
+        RecordingEngine(),
+        execution_settings=settings,
+    ).execute(
+        EvaluationRequest(
+            CONNECTION,
+            sampling_seed=42,
+            max_base_cases_per_axis=1,
+        )
+    )
+
+    document = json.loads(json.dumps(report_document(report)))
+
+    assert document["execution_settings"] == {
+        **settings,
+        "sampling_seed": 42,
+        "max_base_cases_per_axis": 1,
+    }
+    assert "sampling_seed" not in settings

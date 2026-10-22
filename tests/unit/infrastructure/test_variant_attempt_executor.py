@@ -231,35 +231,122 @@ async def test_judge_timeout_retains_target_response(pyrit_memory: None) -> None
     assert outcome.elapsed_seconds is not None
 
 
-@pytest.mark.parametrize("identifier", ["OR-DIN-VIO-MSA-00001", "AT-HSB-PRV-DIR-LLM01-MSA-00001"])
-async def test_low_confidence_is_review_not_failure(pyrit_memory: None, identifier: str) -> None:
-    """A review retains evidence without counting as safe, harmful, or a technical error."""
+@pytest.mark.parametrize(
+    "identifier",
+    ["OR-DIN-VIO-MSA-00001", "AT-HSB-PRV-DIR-LLM01-MSA-00001"],
+)
+async def test_low_confidence_is_review_not_failure(
+    pyrit_memory: None, identifier: str
+) -> None:
+    """Retain proposed judgments without accepting low-confidence verdicts."""
+    from harass.application.outcome_codec import read_outcome
+    from harass.application.report_document import outcome_document
+    from harass.domain.metrics import compute_metrics
+
     judge = ScriptedJudge()
     judge.confidence = 0.58
-    executor = PyritAttemptExecutor(
-        lambda connection: ScriptedTarget(),
-        build_response_category_scorer(judge),
-        build_attack_success_scorer(judge),
-    )
-    outcome = await executor.execute(
-        make_case(identifier, "test objective"),
-        PromptVariant("baseline", "baseline", "neutral"),
-        CONNECTION,
-        "review-test",
-    )
-    assert outcome.needs_review
-    assert not outcome.is_scored
-    assert outcome.technical_error is None
-    assert outcome.attack_succeeded is None
-    assert outcome.transcript is not None
-    assert outcome.transcript.response == ANSWER_TEXT
-    assert outcome.error and not outcome.error.startswith("Attempt failed:")
-    assert any(row.get("finish_reason") == "needs_review" for row in outcome.judge_requests)
+
+    try:
+        executor = PyritAttemptExecutor(
+            lambda connection: ScriptedTarget(),
+            build_response_category_scorer(judge),
+            build_attack_success_scorer(judge),
+        )
+        outcome = await executor.execute(
+            make_case(identifier, "test objective"),
+            PromptVariant("baseline", "baseline", "neutral"),
+            CONNECTION,
+            "review-test",
+        )
+
+        assert outcome.needs_review
+        assert not outcome.is_scored
+        assert outcome.technical_error is None
+        assert outcome.attack_succeeded is None
+        assert outcome.response_category is None
+
+        assert outcome.transcript is not None
+        assert outcome.transcript.response == ANSWER_TEXT
+        assert outcome.transcript.category_rationale is not None
+        assert "Selected=FUL" in outcome.transcript.category_rationale
+        assert "confidence=0.58" in outcome.transcript.category_rationale
+        assert "needs_review=True" in outcome.transcript.category_rationale
+        assert outcome.transcript.category_judge is not None
+        assert outcome.transcript.category_judge.votes == ("FUL",)
+
+        assert outcome.error and not outcome.error.startswith("Attempt failed:")
+        assert any(
+            row.get("finish_reason") == "needs_review"
+            for row in outcome.judge_requests
+        )
+
+        restored = read_outcome(outcome_document(outcome))
+        assert restored.needs_review
+        assert restored.response_category is None
+        assert restored.transcript == outcome.transcript
+
+        assert compute_metrics([outcome]).unscored_outcomes == 1
+    finally:
+        await judge.aclose()
+
+
+class MetadataTarget(ScriptedTarget):
+    """Return a scripted response carrying provider metadata."""
+
+    async def _send_prompt_to_target_async(
+        self, *, normalized_conversation: list[Message]
+    ) -> list[Message]:
+        responses = await super()._send_prompt_to_target_async(
+            normalized_conversation=normalized_conversation
+        )
+        responses[0].message_pieces[0].prompt_metadata.update(
+            {
+                "finish_reason": "length",
+                "token_usage_output_tokens": 900,
+                "test_note": "must not be exported",
+            }
+        )
+        return responses
+
+
+@pytest.mark.parametrize("judge_timeout", [False, True])
+async def test_target_metadata_survives_execution_and_storage(
+    pyrit_memory: None, judge_timeout: bool
+) -> None:
+    """Keep metadata on normal execution and when judging times out."""
     from harass.application.outcome_codec import read_outcome
     from harass.application.report_document import outcome_document
 
-    assert read_outcome(outcome_document(outcome)).needs_review
-    from harass.domain.metrics import compute_metrics
+    judge = DelayedJudge() if judge_timeout else ScriptedJudge()
 
-    assert compute_metrics([outcome]).unscored_outcomes == 1
-    await judge.aclose()
+    try:
+        executor = PyritAttemptExecutor(
+            lambda connection: MetadataTarget(),
+            build_response_category_scorer(judge),
+            build_attack_success_scorer(judge),
+            attempt_timeout_seconds=0.1 if judge_timeout else 10,
+        )
+        outcome = await executor.execute(
+            make_case("OR-DIN-VIO-MSA-00001", "test objective"),
+            PromptVariant("baseline", "baseline", "neutral"),
+            CONNECTION,
+            "metadata-test",
+        )
+
+        if judge_timeout:
+            assert outcome.technical_error == "timeout"
+        else:
+            assert outcome.error is None
+
+        expected = {
+            "finish_reason": "length",
+            "token_usage_output_tokens": 900,
+        }
+        assert outcome.transcript is not None
+        assert outcome.transcript.target_metadata == expected
+
+        restored = read_outcome(outcome_document(outcome))
+        assert restored.transcript is not None
+        assert restored.transcript.target_metadata == expected
+    finally:
+        await judge.aclose() 

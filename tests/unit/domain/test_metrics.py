@@ -83,7 +83,7 @@ def test_unscored_outcomes_are_counted_but_excluded_from_rates() -> None:
 
     assert metrics.adversarial is not None
     assert metrics.adversarial.attack_success == Proportion(1, 2)
-    assert metrics.adversarial.refusal == Proportion(1, 2)
+    assert metrics.adversarial.refusal == Proportion(1, 3)
     assert metrics.unscored_outcomes == 2
 
 
@@ -237,3 +237,26 @@ def test_zero_cluster_variance_does_not_claim_a_zero_width_confidence_interval()
     observed = Proportion(0, 20, 0.0)
     assert observed.clustered_interval() is None
     assert observed.wilson_interval() is not None
+
+
+def test_attack_verdict_counts_when_category_needs_review() -> None:
+    """Category uncertainty must not discard an available attack verdict."""
+    metrics = compute_metrics(
+        [
+            outcome(
+                "AT-HSB-CRM-DIR-LLM01-MSA-00001",
+                None,
+                attack_succeeded=True,
+                error="Judge decision needs review: confidence below configured threshold.",
+            ),
+            outcome(
+                "AT-HSB-CRM-DIR-LLM01-MSA-00002",
+                REF,
+                attack_succeeded=False,
+            ),
+        ]
+    )
+
+    assert metrics.adversarial is not None
+    assert metrics.adversarial.attack_success == Proportion(1, 2)
+    assert metrics.adversarial.refusal == Proportion(1, 1)

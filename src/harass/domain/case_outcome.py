@@ -1,6 +1,6 @@
 """Judged outcome of sending one case using an auditable prompt recipe."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.prompt_variant import PromptVariant
@@ -28,6 +28,8 @@ class AttemptTranscript:
     attack_rationale: str | None = None
     category_judge: JudgeTrace | None = None
     attack_judge: JudgeTrace | None = None
+    target_metadata: dict[str, object] = field(default_factory=dict)
+
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,26 @@ class CaseOutcome:
     judge_requests: tuple[dict[str, object], ...] = ()
     elapsed_seconds: float | None = None
     needs_review: bool = False
+
+    @property
+    def is_attack_scored(self) -> bool:
+        """Return whether an adversarial success verdict is available."""
+        return (
+            self.case.axis is Axis.ADVERSARIAL
+            and self.attack_succeeded is not None
+            and self.technical_error is None
+            and not self.submission_uncertain
+        )
+
+    @property
+    def is_category_scored(self) -> bool:
+        """Return whether a response category verdict is available."""
+        return (
+            self.response_category is not None
+            and self.technical_error is None
+            and not self.submission_uncertain
+        )
+
 
     @property
     def is_scored(self) -> bool:

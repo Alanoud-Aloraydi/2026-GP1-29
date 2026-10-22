@@ -448,66 +448,86 @@
     );
   }
 
-  function coverageTable(report) {
-    if (report.coverage) {
-      return (
-        table(
-          "تغطية الأحكام",
-          [
-            "المحور",
-            "المحاولات المسجلة",
-            "أحكام غير مكتملة",
-            "ردود غير مفهومة · UNC",
-          ],
-          Object.entries(report.coverage).map(([axis, counts]) =>
-            tableRow(axes[axis], [
-              escape(counts.submitted),
-              escape(counts.unscored),
-              escape(counts.unclear),
-            ]),
-          ),
-        ) +
-        '<p class="hint">UNC يبقى ضمن مقام المعدل. الطلب غير المقيّم يُستبعد منه.</p>'
-      );
-    }
-    const baseline = report.run_type === "baseline";
-    const outcomes = report.outcomes.filter(
-      (outcome) => (outcome.variant_name === "baseline") === baseline,
+function coverageTable(report) {
+  const headers = [
+    "المحور",
+    "المحاولات المسجلة",
+    "أحكام نجاح الهجوم المتاحة",
+    "تصنيفات الرد المتاحة",
+    "حالات لم تكتمل كل أحكامها",
+    "ردود غير مفهومة · UNC",
+  ];
+
+  const hint =
+    '<p class="hint">لكل مقياس مقام مستقل: ASR يستخدم أحكام نجاح الهجوم المتاحة، ' +
+    "ومعدل الرفض يستخدم تصنيفات الرد المتاحة. " +
+    "قد تدخل الحالة في أحد المقياسين فقط. " +
+    "UNC يبقى ضمن مقام مقاييس التصنيف. " +
+    "«غير متاح» يعني أن التقرير القديم لا يحفظ هذا العدد.</p>";
+
+  if (report.coverage) {
+    const rows = Object.entries(report.coverage).map(([axis, counts]) =>
+      tableRow(axes[axis], [
+        escape(counts.submitted),
+        axis === "AT"
+          ? escape(counts.attack_scored ?? "غير متاح")
+          : "لا ينطبق",
+        escape(counts.category_scored ?? "غير متاح"),
+        escape(counts.unscored),
+        escape(counts.unclear),
+      ]),
     );
-    const rows = Object.keys(axes).flatMap((axis) => {
-      const items = outcomes.filter((outcome) => outcome.axis === axis);
-      if (!items.length) return [];
-      const missing = items.filter(
-        (outcome) =>
-          outcome.error ||
-          !outcome.response_category ||
-          (axis === "AT" && outcome.attack_succeeded == null),
-      ).length;
-      const unclear = items.filter(
-        (outcome) => !outcome.error && outcome.response_category === "UNC",
-      ).length;
-      return [
-        tableRow(axes[axis], [
-          escape(items.length),
-          escape(missing),
-          escape(unclear),
-        ]),
-      ];
-    });
-    return (
-      table(
-        "تغطية الأحكام",
-        [
-          "المحور",
-          "المحاولات المسجلة",
-          "أحكام غير مكتملة",
-          "ردود غير مفهومة · UNC",
-        ],
-        rows,
-      ) +
-      '<p class="hint">UNC يبقى ضمن مقام المعدل. الطلب غير المقيّم يُستبعد منه.</p>'
-    );
+
+    return table("تغطية الأحكام", headers, rows) + hint;
   }
+
+  const baseline = report.run_type === "baseline";
+  const outcomes = (report.outcomes || []).filter(
+    (outcome) => (outcome.variant_name === "baseline") === baseline,
+  );
+
+  const usable = (outcome) =>
+    !outcome.technical_error && !outcome.submission_uncertain;
+
+  const rows = Object.keys(axes).flatMap((axis) => {
+    const items = outcomes.filter((outcome) => outcome.axis === axis);
+    if (!items.length) return [];
+
+    const attackScored = items.filter(
+      (outcome) =>
+        usable(outcome) && outcome.attack_succeeded != null,
+    ).length;
+
+    const categoryScored = items.filter(
+      (outcome) =>
+        usable(outcome) && outcome.response_category != null,
+    ).length;
+
+    const missing = items.filter(
+      (outcome) =>
+        outcome.error ||
+        !outcome.response_category ||
+        (axis === "AT" && outcome.attack_succeeded == null),
+    ).length;
+
+    const unclear = items.filter(
+      (outcome) =>
+        usable(outcome) && outcome.response_category === "UNC",
+    ).length;
+
+    return [
+      tableRow(axes[axis], [
+        escape(items.length),
+        axis === "AT" ? escape(attackScored) : "لا ينطبق",
+        escape(categoryScored),
+        escape(missing),
+        escape(unclear),
+      ]),
+    ];
+  });
+
+  return table("تغطية الأحكام", headers, rows) + hint;
+}
 
   function classificationTables(report) {
     const dimensions = {
@@ -543,6 +563,37 @@
   function attemptEvidence(outcome) {
     const transcript = outcome.transcript || {};
     const variant = outcome.variant || {};
+        const targetMetadata = transcript.target_metadata || {};
+    const finishReasons = {
+      stop: "انتهى الرد بصورة طبيعية",
+      length: "وصل إلى حد التوكنز؛ قد يكون الرد ناقصًا",
+      content_filter: "توقف بسبب تصفية المحتوى",
+      tool_calls: "توقف لطلب استخدام أداة",
+    };
+    const tokenLabels = {
+      input_tokens: "توكنز الإدخال",
+      output_tokens: "توكنز الإخراج، بما فيها التفكير إن وُجد",
+      total_tokens: "إجمالي التوكنز",
+      reasoning_tokens: "توكنز التفكير",
+      cached_tokens: "توكنز الإدخال المخزنة مؤقتًا",
+    };
+    const targetFields =
+      evidenceField(
+        "سبب توقف النموذج",
+        finishReasons[targetMetadata.finish_reason] ||
+          targetMetadata.finish_reason ||
+          "غير متاح في بيانات هذا التقرير",
+      ) +
+      Object.entries(targetMetadata)
+        .filter(([key]) => key.startsWith("token_usage_"))
+        .map(([key, value]) => {
+          const name = key.slice("token_usage_".length);
+          return evidenceField(
+            tokenLabels[name] || "إحصائية إضافية للتوكنز",
+            typeof value === "object" ? JSON.stringify(value) : value,
+          );
+        })
+        .join("");
     const title =
       outcome.attempt_number === 0
         ? "الطلب الأصلي"
@@ -553,6 +604,7 @@
           .filter(Boolean)
           .join(" · ");
     const fields =
+      targetFields +
       evidenceField(
         "الطلب المرسل",
         transcript.sent_prompt ||
@@ -617,21 +669,27 @@
       "</article>"
     );
   }
+function failureReason(outcome) {
+  if (outcome.submission_uncertain)
+    return "انقطع التنفيذ قبل تثبيت النتيجة؛ حالة الإرسال غير مؤكدة.";
 
-  function failureReason(outcome) {
-    if (outcome.submission_uncertain)
-      return "انقطع التنفيذ قبل تثبيت النتيجة؛ حالة الإرسال غير مؤكدة.";
-    if (outcome.error?.includes("no majority"))
-      return "لم تتفق أغلبية أصوات المحكّم.";
-    if (
-      outcome.technical_error === "timeout" ||
-      outcome.error?.includes("configured execution timeout")
-    )
-      return "انتهت المهلة قبل اكتمال الحكم.";
-    if (outcome.technical_error === "invalid_judge_output")
-      return "تعذّر قراءة حكم صالح من رد المحكّم.";
-    return "تعذّر إكمال المحاولة بسبب خطأ تقني.";
-  }
+  if (outcome.needs_review)
+    return "يحتاج الحكم إلى مراجعة بشرية بسبب انخفاض ثقة المحكّم.";
+
+  if (outcome.error?.includes("no majority"))
+    return "لم تتفق أغلبية أصوات المحكّم.";
+
+  if (
+    outcome.technical_error === "timeout" ||
+    outcome.error?.includes("configured execution timeout")
+  )
+    return "انتهت المهلة قبل اكتمال الحكم.";
+
+  if (outcome.technical_error === "invalid_judge_output")
+    return "تعذّر قراءة حكم صالح من رد المحكّم.";
+
+  return "تعذّر إكمال المحاولة بسبب خطأ تقني.";
+}
 
   function evidence(report) {
     if (report.evidence_paged)

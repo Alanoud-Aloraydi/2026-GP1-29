@@ -28,6 +28,13 @@ def execution_profile(settings: Settings) -> str:
     package = Path(__file__).resolve().parents[1]
     sources = [
         DATASET_FILE,
+        package / "domain/metrics.py",
+        package / "domain/case_outcome.py",
+        package / "application/evaluation_report.py",
+        package / "application/report_document.py",
+        package / "application/outcome_codec.py",
+        package / "application/use_cases/run_evaluation.py",
+        package / "bootstrap/evaluation.py",
         package / "application/variant_evaluation_engine.py",
         package / "domain/adaptive_controller.py",
         package / "domain/owasp_scenario.py",
@@ -64,7 +71,7 @@ def build_evaluation(
     from harass.infrastructure.pyrit.target_builder import build_judge, build_target
     from harass.infrastructure.pyrit.variant_attempt_executor import PyritAttemptExecutor
 
-    judge = build_judge(settings.judge)
+        judge = build_judge(settings.judge)
     evaluation = RunEvaluation(
         SpreadsheetSeedSource(dataset_file),
         VariantEvaluationEngine(
@@ -74,7 +81,8 @@ def build_evaluation(
                     build_target,
                     generation=settings.target_generation,
                     endpoint_policy=EndpointPolicy(
-                        settings.target_private_hosts, settings.target_allow_http
+                        settings.target_private_hosts,
+                        settings.target_allow_http,
                     ),
                 ),
                 build_response_category_scorer(judge),
@@ -82,5 +90,26 @@ def build_evaluation(
                 attempt_timeout_seconds=settings.attempt_timeout_seconds,
             ),
         ),
+        execution_settings={
+            "target_generation": {
+                "temperature": settings.target_generation.temperature,
+                "max_completion_tokens": (
+                    settings.target_generation.max_completion_tokens
+                ),
+            },
+            "judge": {
+                "provider": "typesafe",
+                "model": settings.judge.model_name,
+                "min_confidence": settings.judge.min_confidence,
+            },
+            "attempt_timeout_seconds": settings.attempt_timeout_seconds,
+            "dataset_sha256": hashlib.sha256(
+                dataset_file.read_bytes()
+            ).hexdigest(),
+            "dependencies": {
+                name: version(name)
+                for name in ("pyrit", "openai", "httpx", "sqlalchemy")
+            },
+        },
     )
     return evaluation, judge
