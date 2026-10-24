@@ -15,10 +15,11 @@ from harass.domain.taxonomy import (
 
 @dataclass(frozen=True)
 class CaseSelection:
-    """Filter over evaluation cases; an empty criterion places no restriction.
+    """Filter cases; empty criteria impose no restriction.
 
-    Strategy criteria apply to adversarial cases only, because over-refusal cases carry no
-    bypass strategy. An adversarial case matches when its strategy is one of those selected.
+    Strategy criteria apply to adversarial cases only, because over-refusal
+    cases carry no bypass strategy. An adversarial case matches when its
+    strategy is one of those selected.
     """
 
     axis: Axis | None = None
@@ -28,7 +29,7 @@ class CaseSelection:
     strategies: frozenset[BypassStrategy] = frozenset()
 
     def __post_init__(self) -> None:
-        """Reject strategy criteria on a selection limited to over-refusal cases."""
+        """Reject strategy filters restricted to over-refusal cases."""
         if self.axis is Axis.OVER_REFUSAL and self.strategies:
             raise InvalidCaseSelectionError(
                 "Bypass strategies cannot be selected for over-refusal cases."
@@ -39,9 +40,15 @@ class CaseSelection:
         identifier = case.identifier
         if self.axis is not None and identifier.axis is not self.axis:
             return False
-        if self.subject_domains and identifier.subject_domain not in self.subject_domains:
+        if (
+            self.subject_domains
+            and identifier.subject_domain not in self.subject_domains
+        ):
             return False
-        if self.risk_categories and identifier.risk_category not in self.risk_categories:
+        if (
+            self.risk_categories
+            and identifier.risk_category not in self.risk_categories
+        ):
             return False
         if self.varieties and identifier.variety not in self.varieties:
             return False

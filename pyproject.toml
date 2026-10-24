@@ -1,3 +1,4 @@
+# Package metadata, dependency constraints and automated quality rules.
 [build-system]
 requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
@@ -44,10 +45,10 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-harass = ["**/*.yaml", "**/*.mako", "**/migrations/versions/*.py", "**/migrations/env.py"]
+harass = ["**/*.yaml", "**/*.mako", "**/*.sha256", "**/migrations/versions/*.py", "**/migrations/env.py"]
 
 [tool.ruff]
-line-length = 99
+line-length = 79
 target-version = "py313"
 src = ["src", "tests"]
 

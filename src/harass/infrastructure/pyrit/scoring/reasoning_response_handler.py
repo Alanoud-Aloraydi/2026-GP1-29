@@ -1,28 +1,36 @@
-"""Response handling for judge models that emit a reasoning trace before their verdict."""
+"""Separate judge reasoning traces from structured verdicts."""
 
 import uuid
 from collections.abc import Sequence
 
-from pyrit.models import ComponentIdentifier, JsonResponseConfig, UnvalidatedScore
+from pyrit.models import (
+    ComponentIdentifier,
+    JsonResponseConfig,
+    UnvalidatedScore,
+)
 from pyrit.score import ResponseHandler
 
 REASONING_END_TAG = "</think>"
 
 
 def remove_reasoning_trace(response_text: str) -> str:
-    """Return the text after the last reasoning block, or the text unchanged when there is none.
+    """Remove text through the final reasoning block when present.
 
-    Splitting on the closing tag also covers chat templates that inject the opening tag into
-    the prompt, in which case the model output contains only the closing tag.
+    Splitting on the closing tag also covers chat templates that inject the
+    opening tag into the prompt, in which case the model output contains only
+    the closing tag.
     """
     return response_text.rsplit(REASONING_END_TAG, maxsplit=1)[-1]
 
 
 class ReasoningModelResponseHandler(ResponseHandler):
-    """Strip legacy thinking tags before validating a free-form or structured verdict."""
+    """Remove legacy thinking tags before verdict validation."""
 
     def __init__(
-        self, wire_format_handler: ResponseHandler, *, structured_output: bool = False
+        self,
+        wire_format_handler: ResponseHandler,
+        *,
+        structured_output: bool = False,
     ) -> None:
         """Wrap the handler that parses the verdict itself."""
         self._wire_format_handler = wire_format_handler

@@ -1,6 +1,7 @@
 """Persistence and cryptographic contracts for authentication."""
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from harass.domain.authentication import AuthenticationSession, User
 
@@ -10,7 +11,7 @@ class AuthenticationStore(ABC):
 
     @abstractmethod
     def register(self, user: User, session: AuthenticationSession) -> bool:
-        """Insert the account and first session atomically; reject duplicate email."""
+        """Register the account and first session atomically."""
 
     @abstractmethod
     def find_user(self, email: str) -> User | None:
@@ -21,8 +22,10 @@ class AuthenticationStore(ABC):
         """Find an account by its immutable identifier."""
 
     @abstractmethod
-    def add_session(self, session: AuthenticationSession) -> None:
-        """Persist a new session."""
+    def add_session(
+        self, session: AuthenticationSession, password_hash: str
+    ) -> bool:
+        """Persist a session if the authenticated password is unchanged."""
 
     @abstractmethod
     def get_session(self, session_id: str) -> AuthenticationSession | None:
@@ -31,6 +34,32 @@ class AuthenticationStore(ABC):
     @abstractmethod
     def revoke_session(self, session_id: str) -> None:
         """Remove the session, idempotently."""
+
+    @abstractmethod
+    def rotate_session(
+        self,
+        session_id: str,
+        digest: str,
+        replacement: str,
+        expires_at: datetime,
+    ) -> AuthenticationSession | None:
+        """Rotate refresh secrets atomically and revoke replayed families."""
+
+    @abstractmethod
+    def list_sessions(self, user_id: str) -> list[AuthenticationSession]:
+        """Return the account's unexpired sessions without their secrets."""
+
+    @abstractmethod
+    def revoke_user_sessions(
+        self, user_id: str, session_id: str | None = None
+    ) -> None:
+        """Revoke one session or all sessions owned by the account."""
+
+    @abstractmethod
+    def change_password(
+        self, user: User, new_hash: str, session: AuthenticationSession
+    ) -> bool:
+        """Replace the expected password and all sessions atomically."""
 
 
 class AuthenticationSecurity(ABC):

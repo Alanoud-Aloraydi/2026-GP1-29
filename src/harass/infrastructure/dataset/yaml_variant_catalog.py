@@ -1,4 +1,4 @@
-"""File-extensible authored templates and deterministic, bounded variant composition."""
+"""Compose bounded prompt variants from authored YAML recipes."""
 
 import hashlib
 from itertools import permutations
@@ -37,16 +37,22 @@ class VariantCatalogError(ApplicationError):
 
 
 class YamlVariantCatalog(VariantCatalog):
-    """Load templates and compose deduplicated variants with at most two transforms."""
+    """Compose deduplicated variants with at most two transforms."""
 
     def __init__(self, directory: Path) -> None:
-        """Read every YAML template file, validating its declared applicability."""
-        self._templates = tuple(_load_template(path) for path in sorted(directory.glob("*.yaml")))
+        """Load YAML templates and validate their applicability."""
+        self._templates = tuple(
+            _load_template(path) for path in sorted(directory.glob("*.yaml"))
+        )
         if not self._templates:
-            raise VariantCatalogError(f"No template files found in {directory}.")
+            raise VariantCatalogError(
+                f"No template files found in {directory}."
+            )
         names = [template.name for template in self._templates]
         if len(names) != len(set(names)):
-            raise VariantCatalogError("Template names must be unique across files.")
+            raise VariantCatalogError(
+                "Template names must be unique across files."
+            )
 
     def templates(self) -> tuple[PromptTemplate, ...]:
         """Return all templates in stable filename order."""
@@ -56,8 +62,10 @@ class YamlVariantCatalog(VariantCatalog):
         """Return the local, rule-based transform definitions."""
         return TRANSFORMS
 
-    def variants(self, case: EvaluationCase, selection: VariantSelection) -> list[PromptVariant]:
-        """Build eligible variants, retaining recipes and deduplicating actual request text."""
+    def variants(
+        self, case: EvaluationCase, selection: VariantSelection
+    ) -> list[PromptVariant]:
+        """Build eligible recipes and deduplicate submitted request text."""
         template_names = _resolve_names(
             selection.template_names, tuple(t.name for t in self._templates)
         )
@@ -66,12 +74,20 @@ class YamlVariantCatalog(VariantCatalog):
         )
         templates: list[PromptTemplate | None] = [None]
         templates.extend(
-            t for t in self._templates if t.name in template_names and t.applies_to(case)
+            t
+            for t in self._templates
+            if t.name in template_names and t.applies_to(case)
         )
         transforms = tuple(
-            t for t in TRANSFORMS if t.name in transform_names and t.applies_to(case)
+            t
+            for t in TRANSFORMS
+            if t.name in transform_names and t.applies_to(case)
         )
-        sequences = [()] + [(t,) for t in transforms] + list(permutations(transforms, 2))
+        sequences = (
+            [()]
+            + [(t,) for t in transforms]
+            + list(permutations(transforms, 2))
+        )
         variants: dict[str, PromptVariant] = {}
         for template in templates:
             for sequence in sequences:
@@ -84,7 +100,11 @@ class YamlVariantCatalog(VariantCatalog):
                         applicable = False
                         break
                     text = apply_transform(transform.name, text)
-                    if transform.removes_arabic and not transform.is_template and has_arabic(text):
+                    if (
+                        transform.removes_arabic
+                        and not transform.is_template
+                        and has_arabic(text)
+                    ):
                         applicable = False
                         break
                 if not applicable:
@@ -94,20 +114,30 @@ class YamlVariantCatalog(VariantCatalog):
                 if text == case.prompt_text:
                     continue
                 names = tuple(t.name for t in sequence)
-                recipe = "+".join((template.name if template else "seed", *names))
+                recipe = "+".join(
+                    (template.name if template else "seed", *names)
+                )
                 digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 variants.setdefault(
                     digest,
                     PromptVariant(
                         variant_id=recipe,
-                        arm_id=template.name if template else f"transform:{names[0]}",
+                        arm_id=template.name
+                        if template
+                        else f"transform:{names[0]}",
                         sent_prompt=text,
                         template_name=template.name if template else None,
-                        template_revision=template.revision if template else None,
+                        template_revision=template.revision
+                        if template
+                        else None,
                         transform_names=names,
                         effective_strategies=tuple(
                             dict.fromkeys(
-                                ([case.identifier.strategy] if case.identifier.strategy else [])
+                                (
+                                    [case.identifier.strategy]
+                                    if case.identifier.strategy
+                                    else []
+                                )
                                 + (
                                     [BypassStrategy.OBFUSCATION]
                                     if names and case.axis is Axis.ADVERSARIAL
@@ -135,14 +165,18 @@ class YamlVariantCatalog(VariantCatalog):
 def _resolve_names(
     requested: tuple[str, ...] | None, available: tuple[str, ...]
 ) -> tuple[str, ...]:
+    """Resolve optional catalogue filters and reject unknown entries."""
     names = available if requested is None else requested
     unknown = set(names) - set(available)
     if unknown:
-        raise VariantCatalogError(f"Unknown library names: {', '.join(sorted(unknown))}.")
+        raise VariantCatalogError(
+            f"Unknown library names: {', '.join(sorted(unknown))}."
+        )
     return names
 
 
 def _load_template(path: Path) -> PromptTemplate:
+    """Parse one authored template and validate its declared applicability."""
     try:
         entry = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(entry, dict):
@@ -152,16 +186,31 @@ def _load_template(path: Path) -> PromptTemplate:
             label=str(entry["label"]),
             text=str(entry["text"]),
             axis=Axis(entry["axis"]),
-            strategy=BypassStrategy(entry["strategy"]) if entry.get("strategy") else None,
+            strategy=BypassStrategy(entry["strategy"])
+            if entry.get("strategy")
+            else None,
             varieties=frozenset(ArabicVariety(v) for v in entry["varieties"]),
             revision=str(entry["revision"]),
             source=str(entry["source"]),
             review_status=str(entry.get("review_status", "draft")),
-            subject_domains=frozenset(SubjectDomain(v) for v in entry.get("subject_domains", [])),
-            risk_categories=frozenset(RiskCategory(v) for v in entry.get("risk_categories", [])),
+            subject_domains=frozenset(
+                SubjectDomain(v) for v in entry.get("subject_domains", [])
+            ),
+            risk_categories=frozenset(
+                RiskCategory(v) for v in entry.get("risk_categories", [])
+            ),
             owasp_categories=frozenset(
                 OwaspCategory(v) for v in entry.get("owasp_categories", [])
             ),
         )
-    except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, DomainError) as error:
-        raise VariantCatalogError(f"Invalid template file {path}: {error}") from error
+    except (
+        OSError,
+        yaml.YAMLError,
+        ValueError,
+        KeyError,
+        TypeError,
+        DomainError,
+    ) as error:
+        raise VariantCatalogError(
+            f"Invalid template file {path}: {error}"
+        ) from error

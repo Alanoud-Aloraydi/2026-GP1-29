@@ -1,4 +1,4 @@
-"""Human-label coverage and calibration checks without fabricated human judgments."""
+"""Tests for review."""
 
 from dataclasses import replace
 
@@ -16,10 +16,14 @@ from harass.domain.taxonomy import ResponseCategory
 
 
 def test_agreement_exposes_missing_labels_and_known_confusion() -> None:
-    """Only paired categories contribute, while unfinished review remains visible."""
+    """Verify agreement exposes missing labels and known confusion."""
     cases = [
-        ReviewCase("one", "baseline", ResponseCategory.FULL_COMPLIANCE, "", "", ""),
-        ReviewCase("two", "baseline", ResponseCategory.FULL_REFUSAL, "", "", ""),
+        ReviewCase(
+            "one", "baseline", ResponseCategory.FULL_COMPLIANCE, "", "", ""
+        ),
+        ReviewCase(
+            "two", "baseline", ResponseCategory.FULL_REFUSAL, "", "", ""
+        ),
         ReviewCase("three", "baseline", None, "", "", ""),
     ]
     labels = [
@@ -31,25 +35,38 @@ def test_agreement_exposes_missing_labels_and_known_confusion() -> None:
     assert result["paired_labels"] == 2
     assert result["missing_human_labels"] == 1
     assert result["agreement_rate"] == 0.5
-    assert result["confusion_matrix_human_rows_judge_columns"]["FUL"]["REF"] == 1
+    assert (
+        result["confusion_matrix_human_rows_judge_columns"]["FUL"]["REF"] == 1
+    )
 
 
 def test_empty_human_review_has_no_reliability_estimate() -> None:
     """An empty human annotation set cannot establish judge reliability."""
     result = review_agreement(
-        [ReviewCase("one", "baseline", ResponseCategory.UNCLEAR, "", "", "")], []
+        [ReviewCase("one", "baseline", ResponseCategory.UNCLEAR, "", "", "")],
+        [],
     )
     assert result["cohen_kappa"] is None
     assert result["missing_human_labels"] == 1
 
 
-def test_calibration_uses_held_out_references_and_declares_synthetic_scope() -> None:
-    """Synthetic fixtures exercise tooling but do not establish human validation."""
+def test_calibration_is_held_out_and_declares_scope() -> None:
+    """Verify calibration is held out and declares scope."""
     calibration = LeakObservation(
-        "سجل خاص alpha داخلي", "alpha", "alpha", True, "calibration", "synthetic_oracle"
+        "سجل خاص alpha داخلي",
+        "alpha",
+        "alpha",
+        True,
+        "calibration",
+        "synthetic_oracle",
     )
     evaluation = LeakObservation(
-        "سياق محمي beta مستقل", "beta", "beta", True, "evaluation", "synthetic_oracle"
+        "سياق محمي beta مستقل",
+        "beta",
+        "beta",
+        True,
+        "evaluation",
+        "synthetic_oracle",
     )
     result = calibrate_leak(
         [
@@ -67,8 +84,10 @@ def test_calibration_uses_held_out_references_and_declares_synthetic_scope() -> 
 
 
 def test_calibration_rejects_reference_leakage_between_splits() -> None:
-    """Duplicating a protected reference across train/test invalidates held-out evidence."""
-    row = LeakObservation("نص محمي alpha", "alpha", "alpha", True, "calibration", "human")
+    """Verify calibration rejects reference leakage between splits."""
+    row = LeakObservation(
+        "نص محمي alpha", "alpha", "alpha", True, "calibration", "human"
+    )
     with pytest.raises(InvalidReviewDataError, match="both splits"):
         calibrate_leak([row, replace(row, split="evaluation")])
 
@@ -76,4 +95,11 @@ def test_calibration_rejects_reference_leakage_between_splits() -> None:
 def test_unknown_annotation_identity_is_rejected() -> None:
     """A mismatched CSV cannot silently label a different source outcome."""
     with pytest.raises(InvalidReviewDataError):
-        review_agreement([], [HumanCategory("absent", "baseline", ResponseCategory.FULL_REFUSAL)])
+        review_agreement(
+            [],
+            [
+                HumanCategory(
+                    "absent", "baseline", ResponseCategory.FULL_REFUSAL
+                )
+            ],
+        )

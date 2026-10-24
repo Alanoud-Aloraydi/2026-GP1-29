@@ -6,11 +6,17 @@ from pathlib import Path
 import pytest
 
 from harass.application.errors import NoMatchingCasesError
-from harass.application.evaluation_report import EvaluationReport, EvaluationRequest
+from harass.application.evaluation.contracts import (
+    EvaluationReport,
+    EvaluationRequest,
+)
+from harass.application.evaluation.runner import RunEvaluation
 from harass.application.ports.evaluation_journal import EvaluationJournal
 from harass.application.ports.report_exporter import ReportExporter
-from harass.application.use_cases.run_evaluation import RunEvaluation
-from harass.domain.errors import InvalidCaseSelectionError, InvalidTargetConnectionError
+from harass.domain.errors import (
+    InvalidCaseSelectionError,
+    InvalidTargetConnectionError,
+)
 from harass.domain.metrics import compute_metrics
 from harass.domain.taxonomy import ArabicVariety, Axis, BypassStrategy
 from harass.interfaces.cli.evaluate_command import (
@@ -44,7 +50,10 @@ class StubUseCase(RunEvaluation):
         self._error = error
 
     async def execute(
-        self, request: EvaluationRequest, *, journal: EvaluationJournal | None = None
+        self,
+        request: EvaluationRequest,
+        *,
+        journal: EvaluationJournal | None = None,
     ) -> EvaluationReport:
         """Record the request, then fail or return the fixed report."""
         self.requests.append(request)
@@ -113,9 +122,14 @@ def test_options_override_the_environment_and_restrict_the_run() -> None:
     assert request.target.model_name == "other-model"
     assert request.target.max_requests_per_minute == 28
     assert request.selection.axis is Axis.ADVERSARIAL
-    assert request.selection.varieties == {ArabicVariety("NAJ"), ArabicVariety("EGY")}
+    assert request.selection.varieties == {
+        ArabicVariety("NAJ"),
+        ArabicVariety("EGY"),
+    }
     assert request.selection.strategies == {BypassStrategy("OBF")}
-    assert request.variant_selection.template_names == ("at_obfuscation_quoted",)
+    assert request.variant_selection.template_names == (
+        "at_obfuscation_quoted",
+    )
     assert request.variant_selection.transform_names == ("base64",)
     assert not request.include_baseline
     assert (request.max_base_cases_per_axis, request.sampling_seed) == (3, 9)
@@ -124,11 +138,15 @@ def test_options_override_the_environment_and_restrict_the_run() -> None:
 def test_baseline_only_selects_no_chain() -> None:
     """The baseline-only switch is an explicit empty chain selection."""
     assert (
-        build_request(command("--baseline-only"), ENVIRONMENT).variant_selection.template_names
+        build_request(
+            command("--baseline-only"), ENVIRONMENT
+        ).variant_selection.template_names
         == ()
     )
     assert (
-        build_request(command("--baseline-only"), ENVIRONMENT).variant_selection.transform_names
+        build_request(
+            command("--baseline-only"), ENVIRONMENT
+        ).variant_selection.transform_names
         == ()
     )
 
@@ -148,11 +166,13 @@ def test_missing_api_key_is_a_domain_error() -> None:
 def test_strategies_cannot_restrict_over_refusal_cases() -> None:
     """Over-refusal cases carry no strategy."""
     with pytest.raises(InvalidCaseSelectionError):
-        build_request(command("--axis", "OR", "--strategy", "DIR"), ENVIRONMENT)
+        build_request(
+            command("--axis", "OR", "--strategy", "DIR"), ENVIRONMENT
+        )
 
 
 async def test_successful_run_exports_and_presents_the_report() -> None:
-    """The report is written to the requested path and summarized on the console."""
+    """Verify successful run exports and presents report."""
     exporter = RecordingExporter()
     output = io.StringIO()
 
@@ -173,7 +193,9 @@ async def test_failed_run_reports_the_error_without_exporting() -> None:
     status = await run_evaluate_command(
         command(),
         ENVIRONMENT,
-        lambda _: StubUseCase(NoMatchingCasesError("No evaluation case matches.")),
+        lambda _: StubUseCase(
+            NoMatchingCasesError("No evaluation case matches.")
+        ),
         exporter,
         output,
     )

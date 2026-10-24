@@ -19,8 +19,9 @@ class RunStatus(StrEnum):
 class EvaluationRun:
     """What a client asked to evaluate and how far it has got.
 
-    The run holds only identifiers and status; the outcomes and metrics are stored with the
-    report once the run completes. ``error`` is set only for a failed run.
+    The run holds only identifiers and status; the outcomes and metrics are
+    stored with the report once the run completes. ``error`` is set only for a
+    failed run.
     """
 
     run_id: str

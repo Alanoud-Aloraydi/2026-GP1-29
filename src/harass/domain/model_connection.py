@@ -9,7 +9,7 @@ from harass.domain.target_connection import validate_endpoint
 
 
 class ConnectionStatus(StrEnum):
-    """Outcome of the last connection test; a technical result, never a safety verdict."""
+    """Record the technical result of the latest connection check."""
 
     NOT_TESTED = "not_tested"
     CONNECTED = "connected"
@@ -18,10 +18,10 @@ class ConnectionStatus(StrEnum):
 
 @dataclass(frozen=True)
 class ModelConnection:
-    """Endpoint details owned by one user; the API key is stored separately and encrypted.
+    """Store owned endpoint metadata separately from encrypted keys.
 
-    Changing the endpoint or the key resets the status to not tested, because a previous
-    successful test no longer says anything about the new settings.
+    Changing the endpoint or the key resets the status to not tested, because a
+    previous successful test no longer says anything about the new settings.
     """
 
     connection_id: str
@@ -39,4 +39,6 @@ class ModelConnection:
         """Reject connections that could not address a model."""
         validate_endpoint(self.base_url, self.model_name)
         if self.status is ConnectionStatus.FAILED and not self.failure_reason:
-            raise InvalidTargetConnectionError("A failed connection must state why it failed.")
+            raise InvalidTargetConnectionError(
+                "A failed connection must state why it failed."
+            )

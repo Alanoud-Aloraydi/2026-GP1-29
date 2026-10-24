@@ -1,4 +1,4 @@
-"""Port for an extensible authored template and rule-based transform library."""
+"""Define authored templates and deterministic transformations."""
 
 from abc import ABC, abstractmethod
 
@@ -23,5 +23,7 @@ class VariantCatalog(ABC):
         """Return all available transform definitions."""
 
     @abstractmethod
-    def variants(self, case: EvaluationCase, selection: VariantSelection) -> list[PromptVariant]:
+    def variants(
+        self, case: EvaluationCase, selection: VariantSelection
+    ) -> list[PromptVariant]:
         """Return compatible variants, excluding the unchanged baseline."""

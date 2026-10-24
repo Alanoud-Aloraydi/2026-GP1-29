@@ -4,20 +4,23 @@ import json
 from pathlib import Path
 
 from harass.application.errors import ReportExportError
-from harass.application.evaluation_report import EvaluationReport
+from harass.application.evaluation.contracts import EvaluationReport
 from harass.application.ports.report_exporter import ReportExporter
-from harass.application.report_document import report_document
+from harass.application.reporting.document import report_document
 
 
 class JsonReportExporter(ReportExporter):
-    """Writes the report document with codes for machines and Arabic labels for readers."""
+    """Export coded report data with Arabic display labels."""
 
     def export(self, report: EvaluationReport, destination: Path) -> None:
         """Write the report, replacing any existing file at the destination."""
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(
-                json.dumps(report_document(report), ensure_ascii=False, indent=2) + "\n",
+                json.dumps(
+                    report_document(report), ensure_ascii=False, indent=2
+                )
+                + "\n",
                 encoding="utf-8",
             )
         except OSError as error:

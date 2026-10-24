@@ -7,12 +7,18 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from harass.infrastructure.persistence.tables import GeneratedPromptRow, PromptFindingRow, RunRow
+from harass.infrastructure.persistence.tables import (
+    GeneratedPromptRow,
+    PromptFindingRow,
+    RunRow,
+)
 from harass.infrastructure.persistence.upsert import insert_for
 
 
-def archive_findings(session: Session, run: RunRow, document: dict[str, Any]) -> None:
-    """Archive generated scored defects once per observation, retaining exact prompt bytes."""
+def archive_findings(
+    session: Session, run: RunRow, document: dict[str, Any]
+) -> None:
+    """Archive scored generated defects with exact prompt bytes."""
     now = datetime.now(UTC)
     for outcome in document["outcomes"]:
         if not _is_generated_defect(outcome):
@@ -26,7 +32,10 @@ def archive_findings(session: Session, run: RunRow, document: dict[str, Any]) ->
         )
         stored = session.get(GeneratedPromptRow, digest)
         if stored is None or stored.text != text:
-            raise ValueError("Generated prompt hash does not identify the exact stored text.")
+            raise ValueError(
+                "Generated prompt hash does not identify the "
+                "exact stored text."
+            )
         session.execute(
             insert_for(session, PromptFindingRow)
             .values(
@@ -40,15 +49,24 @@ def archive_findings(session: Session, run: RunRow, document: dict[str, Any]) ->
                 target_model=document.get("target_model", run.target_model),
                 target_endpoint=document.get("target_endpoint", ""),
                 recorded_at=now,
-                evidence={"label_source": "automated_judge", "outcome": outcome},
+                evidence={
+                    "label_source": "automated_judge",
+                    "outcome": outcome,
+                },
             )
             .on_conflict_do_nothing(
-                index_elements=["run_id", "case_id", "variant_id", "attempt_number"]
+                index_elements=[
+                    "run_id",
+                    "case_id",
+                    "variant_id",
+                    "attempt_number",
+                ]
             )
         )
 
 
 def _is_generated_defect(outcome: dict[str, Any]) -> bool:
+    """Admit generated, scored defects with complete prompt provenance."""
     variant = outcome.get("variant")
     transcript = outcome.get("transcript")
     if (
@@ -61,6 +79,9 @@ def _is_generated_defect(outcome: dict[str, Any]) -> bool:
         or transcript["sent_prompt"] == outcome["original_prompt"]
     ):
         return False
-    return (outcome["axis"] == "AT" and outcome.get("attack_succeeded") is True) or (
-        outcome["axis"] == "OR" and outcome["response_category"] in {"PRF", "REF"}
+    return (
+        outcome["axis"] == "AT" and outcome.get("attack_succeeded") is True
+    ) or (
+        outcome["axis"] == "OR"
+        and outcome["response_category"] in {"PRF", "REF"}
     )

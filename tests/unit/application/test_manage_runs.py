@@ -1,133 +1,77 @@
-"""Tests for the run-management use case with in-memory fakes."""
+"""Run admission coordinates ownership and durable ports without execution."""
 
+import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import cast
+from unittest.mock import Mock
 
 import pytest
 
-from harass.application.errors import ConnectionNotReadyError
-from harass.application.evaluation_report import EvaluationReport, EvaluationRequest
+from harass.application.connections import ManageConnections
+from harass.application.errors import ApplicationError, ConnectionNotReadyError
+from harass.application.evaluation.parameters import RunParameters
+from harass.application.evaluation.run_service import ManageRuns
+from harass.application.ports.run_admission import RunAdmission
 from harass.application.ports.run_store import RunStore
-from harass.application.use_cases.manage_runs import ManageRuns, RunParameters
-from harass.domain.evaluation_run import EvaluationRun, RunStatus
-from harass.domain.metrics import compute_metrics
+from harass.domain.evaluation_run import RunStatus
 from harass.domain.target_connection import TargetConnection
 
 OWNER = "user-1"
-TARGET = TargetConnection(base_url="https://api.invalid/v1", model_name="model", api_key="k")
+TARGET = TargetConnection("https://api.invalid/v1", "model", "private-key")
 
 
-class InMemoryRunStore(RunStore):
-    """Keeps runs and report documents in dictionaries."""
-
-    def __init__(self) -> None:
-        """Start empty."""
-        self.runs: dict[str, EvaluationRun] = {}
-        self.reports: dict[str, dict[str, Any]] = {}
-
-    def create(self, run: EvaluationRun) -> None:
-        """Insert a run."""
-        self.runs[run.run_id] = run
-
-    def update(self, run: EvaluationRun) -> None:
-        """Replace a run."""
-        self.runs[run.run_id] = run
-
-    def save_report(self, run_id: str, document: dict[str, Any]) -> None:
-        """Store a report document."""
-        self.reports[run_id] = document
-
-    def get(self, run_id: str, owner_id: str) -> EvaluationRun:
-        """Return a run."""
-        return self.runs[run_id]
-
-    def get_report(self, run_id: str, owner_id: str) -> dict[str, Any]:
-        """Return a report document."""
-        return self.reports[run_id]
-
-    def list_for_owner(self, owner_id: str) -> list[EvaluationRun]:
-        """Return all runs."""
-        return list(self.runs.values())
-
-
-class StubConnections:
-    """Yields a fixed target, or refuses when the connection is not ready."""
-
-    def __init__(self, ready: bool = True) -> None:
-        """Remember whether the connection is ready."""
-        self._ready = ready
-
-    def target_for_evaluation(
-        self, owner_id: str, connection_id: str, max_requests_per_minute: int | None = None
-    ) -> TargetConnection:
-        """Return the target or raise when not ready."""
-        if not self._ready:
-            raise ConnectionNotReadyError(connection_id)
-        return TARGET
-
-
-class StubEvaluation:
-    """Returns a fixed empty report, or raises a scripted error."""
-
-    def __init__(self, error: Exception | None = None) -> None:
-        """Remember the error to raise, if any."""
-        self._error = error
-
-    async def execute(self, request: EvaluationRequest) -> EvaluationReport:
-        """Return a report or fail."""
-        if self._error:
-            raise self._error
-        return EvaluationReport(
-            run_identifier="ignored",
-            target_model=request.target.model_name,
-            variant_names=(),
-            include_baseline=True,
-            outcomes=(),
-            metrics=compute_metrics([]),
-        )
-
-
-def make(
-    ready: bool = True, error: Exception | None = None
-) -> tuple[ManageRuns, InMemoryRunStore]:
-    """Return a run use case and its store, with the clock fixed."""
-    store = InMemoryRunStore()
+def services() -> tuple[ManageRuns, Mock, Mock, Mock]:
+    """Compose admission with recording ports and a fixed clock."""
+    connections = Mock(spec=ManageConnections)
+    connections.target_for_evaluation.return_value = TARGET
+    queue = Mock(spec=RunAdmission)
+    store = Mock(spec=RunStore)
     use_case = ManageRuns(
         store,
-        StubConnections(ready),  # type: ignore[arg-type]
-        StubEvaluation(error),  # type: ignore[arg-type]
+        connections,
+        queue=queue,
         clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
     )
-    return use_case, store
+    return use_case, store, connections, queue
 
 
 def test_start_requires_a_ready_connection() -> None:
-    """A run cannot start on a connection that has not passed its test."""
-    use_case, _ = make(ready=False)
-
+    """Unverified connections cannot create queued work."""
+    use_case, _, connections, queue = services()
+    connections.target_for_evaluation.side_effect = ConnectionNotReadyError()
     with pytest.raises(ConnectionNotReadyError):
         use_case.start(OWNER, "conn-1", RunParameters())
+    queue.enqueue.assert_not_called()
 
 
-async def test_successful_run_is_completed_with_a_report() -> None:
-    """A finished run is marked completed and its report document is stored."""
-    use_case, store = make()
+def test_start_persists_job_inputs_without_credentials() -> None:
+    """Starting a run queues immutable inputs without executing a model."""
+    use_case, store, connections, queue = services()
     run = use_case.start(OWNER, "conn-1", RunParameters())
+    assert run.status is RunStatus.PENDING
+    connections.target_for_evaluation.assert_called_once_with(OWNER, "conn-1")
+    queued_run, parameters, endpoint = queue.enqueue.call_args.args
+    assert queued_run == run
+    assert endpoint == TARGET.base_url
+    assert "private-key" not in json.dumps(parameters)
+    assert parameters["connection_revision"] == TARGET.connection_revision
+    store.create.assert_not_called()
 
-    finished = await use_case.execute(run, RunParameters())
 
-    assert finished.status is RunStatus.COMPLETED
-    assert store.runs[run.run_id].status is RunStatus.COMPLETED
-    assert run.run_id in store.reports
+def test_lifecycle_and_evidence_preserve_owner_scope() -> None:
+    """Resume, cancellation and evidence use the authenticated owner."""
+    use_case, _, _, queue = services()
+    use_case.resume(OWNER, "run-1")
+    use_case.cancel(OWNER, "run-1")
+    use_case.outcome_page(OWNER, "run-1", 100, 50)
+    queue.resume.assert_called_once_with("run-1", OWNER)
+    queue.cancel.assert_called_once_with("run-1", OWNER)
+    queue.outcome_page.assert_called_once_with("run-1", OWNER, 100, 50)
 
 
-async def test_failed_run_records_the_error() -> None:
-    """An error marks the run failed without exposing provider exception content."""
-    use_case, store = make(error=RuntimeError("engine down"))
-    run = use_case.start(OWNER, "conn-1", RunParameters())
-
-    finished = await use_case.execute(run, RunParameters())
-
-    assert finished.status is RunStatus.FAILED
-    assert finished.error == "Evaluation failed: RuntimeError."
-    assert run.run_id not in store.reports
+def test_inconsistent_evidence_page_cannot_loop_forever() -> None:
+    """A stalled evidence source fails instead of yielding a partial export."""
+    admission = cast(RunAdmission, Mock(spec=RunAdmission))
+    cast(Mock, admission).outcome_page.return_value = {"items": [], "total": 1}
+    with pytest.raises(ApplicationError, match="incomplete"):
+        list(RunAdmission.outcome_documents(admission, "run-1", OWNER))

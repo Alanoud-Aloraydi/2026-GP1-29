@@ -14,7 +14,9 @@ class ActiveRunError(ConflictError):
 
     def __init__(self, run_id: str) -> None:
         """Retain only the current owner's run identifier."""
-        super().__init__("Finish or cancel the current evaluation before starting another.")
+        super().__init__(
+            "Finish or cancel the current evaluation before starting another."
+        )
         self.run_id = run_id
 
 
@@ -43,8 +45,8 @@ class UnknownConnectionError(ApplicationError):
 
 
 class ConnectionNotReadyError(ApplicationError):
-    """Raised when an evaluation is requested on a connection that has not passed its test."""
+    """The selected connection has not passed verification."""
 
 
 class UnknownRunError(ApplicationError):
-    """Raised when an evaluation run does not exist for the requesting owner."""
+    """The requested run does not belong to the owner."""

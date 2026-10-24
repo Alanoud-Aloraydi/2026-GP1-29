@@ -1,4 +1,4 @@
-"""The review CLI routes commands through injected operations and exposes missing-data errors."""
+"""Tests for review command."""
 
 import io
 from pathlib import Path
@@ -7,8 +7,8 @@ from harass.domain.review import InvalidReviewDataError
 from harass.interfaces.cli.review_command import run_review_command
 
 
-def test_review_cli_preserves_blind_preparation_and_reports_unfinished_labels() -> None:
-    """Preparing a review uses the requested paths and agreement reports no invented pairs."""
+def test_review_cli_preserves_blind_and_unfinished_labels() -> None:
+    """Verify review cli preserves blind and unfinished labels."""
     prepared = []
 
     def prepare(source: Path, destination: Path) -> None:
@@ -31,7 +31,7 @@ def test_review_cli_preserves_blind_preparation_and_reports_unfinished_labels() 
 
 
 def test_review_cli_rejects_missing_calibration_ground_truth() -> None:
-    """Missing review data return a failure status rather than a fabricated threshold."""
+    """Verify review cli rejects missing calibration ground truth."""
 
     def calibrate(source: Path) -> dict[str, object]:
         raise InvalidReviewDataError("Both label classes are required.")

@@ -1,45 +1,94 @@
 # HARASS
 
-**Hardened Arabic Red-Teaming And Safety Shield**
+**Hardened Arabic Red-Teaming and Safety Shield**
 
-**IT 496: Graduation Project-1**  
-Department of Information Technology  
-College of Computer and Information Sciences  
-King Saud University  
-First Semester 1448H — Fall 2026
+HARASS evaluates the safety of Arabic-supporting large language models through baseline and adaptive single-turn testing. It measures adversarial compliance and over-refusal across Modern Standard Arabic, Najdi, Hijazi, Egyptian, and Levantine Arabic.
 
----
+## Current capabilities
 
-## Overview
+- Baseline evaluation using human-authored cases.
+- Adaptive single-turn evaluation using authored prompt variants.
+- Independent target and judge endpoints with OpenAI-compatible APIs.
+- Repeated judge verdicts combined through majority voting.
+- Durable evaluation jobs with checkpoints and recovery.
+- Arabic safety reports with coverage, metrics, and judge evidence.
+- Encrypted target credentials and revocable user sessions.
 
-HARASS is a web-based project for evaluating the safety of Arabic-supporting large language models (LLMs) through safety evaluation and red teaming. It addresses two safety concerns: **Adversarial Attacks** and **Over-refusal**, across five Arabic varieties: Modern Standard Arabic (MSA), Najdi, Hijazi, Egyptian, and Levantine Arabic.
+Adaptive multi-turn evaluation and generated prompt discovery are planned extensions.
 
-HARASS combines fixed dataset-based single-turn evaluation with **HARASS Agent**, which supports adaptive single-turn and adaptive multi-turn evaluation for both safety concerns. Model responses are assessed through automated evaluation with human-assisted validation. The project also includes **HARASS Shield**, a defensive component for evaluating model safety before and after fine-tuning under matched conditions.
+## Architecture
 
-## Project Goal
+HARASS follows a layered architecture:
 
-HARASS provides a structured framework for evaluating and comparing safety behavior in Arabic-supporting LLMs across Arabic varieties, safety concerns, and interaction settings. The evaluation considers both harmful compliance and unnecessary refusal of legitimate requests.
+```text
+Bootstrap
+    ↓
+Interfaces and Infrastructure
+    ↓
+Application
+    ↓
+Domain
+```
 
-## Technology Stack
+The API validates and queues evaluations in PostgreSQL. An independent worker processes queued runs through PyRIT and stores their results. PostgreSQL holds application records, while a dedicated Docker volume preserves PyRIT memory.
 
-- **Frontend:** React, TypeScript, Node.js
-- **Backend:** Python, FastAPI
-- **Database:** PostgreSQL
-- **LLM and Data:** PyTorch, Hugging Face Transformers, Datasets, and Hub
-- **Model Serving:** vLLM
-- **Agent Orchestration:** LangGraph
-- **Containerization:** Docker
-- **Cloud and Compute:** Render, Render Workflows, RunPod
-- **External Model APIs:** OpenAI API, Anthropic API
+## Technology
 
-## Running the Project
+- Python, FastAPI, PyRIT
+- PostgreSQL, SQLAlchemy, Alembic
+- HTML, CSS, JavaScript
+- Docker Compose
+- pytest, Ruff, mypy, Import Linter
+- GitHub Actions
 
-No executable software increment is available during Sprint 0.
+## Run
 
-## Supervisor
+Copy the environment template and add the required credentials:
 
-**Prof. Hend Al-Khalifa**
+```powershell
+Copy-Item .env.example .env
+```
 
-## Authors
+Start the application:
 
-Project authors are listed in the [AUTHORS](AUTHORS) file.
+```powershell
+docker compose up --build -d
+```
+
+Open `http://127.0.0.1:8000`, then check the services:
+
+```powershell
+docker compose ps
+```
+
+Stop the application without deleting stored data:
+
+```powershell
+docker compose down
+```
+
+Do not use `docker compose down -v` unless the PostgreSQL and PyRIT volumes should be deleted.
+
+## Quality checks
+
+```powershell
+python -m pytest -q
+ruff format --check src tests
+ruff check src tests
+mypy --no-incremental src
+lint-imports
+```
+
+## Repository structure
+
+See [`doc/file-structure.md`](doc/file-structure.md).
+
+## Academic context
+
+IT 496: Graduation Project-1<br>
+Department of Information Technology<br>
+College of Computer and Information Sciences<br>
+King Saud University
+
+**Supervisor:** Prof. Hend Al-Khalifa<br>
+**Authors:** See [`AUTHORS`](AUTHORS).

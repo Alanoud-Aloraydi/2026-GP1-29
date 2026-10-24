@@ -11,18 +11,12 @@ from dotenv import load_dotenv
 from pyrit.prompt_target import PromptTarget
 from pyrit.setup import SQLITE, initialize_pyrit_async
 
-from harass.application.use_cases.run_evaluation import RunEvaluation
-from harass.application.variant_evaluation_engine import VariantEvaluationEngine
-from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
-from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
-from harass.infrastructure.http.endpoint_policy import EndpointPolicy
-from harass.infrastructure.pyrit.scoring.scorer_builder import (
-    build_attack_success_scorer,
-    build_response_category_scorer,
+from harass.application.evaluation.runner import RunEvaluation
+from harass.bootstrap.evaluation import build_evaluation
+from harass.infrastructure.pyrit.target_builder import close_target
+from harass.infrastructure.reporting.json_report_exporter import (
+    JsonReportExporter,
 )
-from harass.infrastructure.pyrit.target_builder import build_judge, build_target, close_target
-from harass.infrastructure.pyrit.variant_attempt_executor import PyritAttemptExecutor
-from harass.infrastructure.reporting.json_report_exporter import JsonReportExporter
 from harass.infrastructure.settings import Settings, SettingsError
 from harass.interfaces.cli.evaluate_command import (
     EvaluateCommand,
@@ -36,41 +30,18 @@ ENVIRONMENT_FILE = Path(".env")
 def _use_case_factory(
     settings: Settings, resources: list[PromptTarget], command: EvaluateCommand
 ) -> RunEvaluation:
-    """Wire the use case to the PyRIT adapters for the files named on the command line."""
-    catalog = YamlVariantCatalog(Path(command.arguments.templates_directory))
-    judge = build_judge(settings.judge)
+    """Build CLI evaluation dependencies from the selected input files."""
+    evaluation, judge = build_evaluation(
+        settings,
+        command.dataset_file,
+        Path(command.arguments.templates_directory),
+    )
     resources.append(judge)
-    engine = VariantEvaluationEngine(
-        catalog,
-        PyritAttemptExecutor(
-            partial(
-                build_target,
-                generation=settings.target_generation,
-                endpoint_policy=EndpointPolicy(
-                    settings.target_private_hosts, settings.target_allow_http
-                ),
-            ),
-            build_response_category_scorer(
-                judge,
-                votes=settings.judge.votes,
-                structured_output=settings.judge.supports_json_output,
-            ),
-            build_attack_success_scorer(
-                judge,
-                votes=settings.judge.votes,
-                structured_output=settings.judge.supports_json_output,
-            ),
-            attempt_timeout_seconds=settings.attempt_timeout_seconds,
-        ),
-    )
-    return RunEvaluation(
-        seed_source=SpreadsheetSeedSource(command.dataset_file),
-        engine=engine,
-    )
+    return evaluation
 
 
 async def _main_async(argv: list[str]) -> int:
-    """Parse the command, load settings, initialize persistent PyRIT memory and run."""
+    """Load CLI settings and execute the configured evaluation."""
     command = parse_command(argv)
     load_dotenv(ENVIRONMENT_FILE)
     try:
@@ -78,9 +49,7 @@ async def _main_async(argv: list[str]) -> int:
     except SettingsError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    # PyRIT stores every prompt, response and score in its SQLite database, so a run can be
-    # inspected after the fact; its default techniques and targets are not needed here.
-    # The run seed also seeds PyRIT's random streams, so any stochastic transform is reproducible.
+    # Retain PyRIT evidence in SQLite and seed its random transformations.
     await initialize_pyrit_async(
         memory_db_type=SQLITE,
         load_defaults=False,
@@ -104,7 +73,8 @@ async def _main_async(argv: list[str]) -> int:
 def main() -> None:
     """Entry point of the ``harass`` command."""
     logging.basicConfig(
-        level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logging.getLogger("harass").setLevel(logging.INFO)
     sys.exit(asyncio.run(_main_async(sys.argv[1:])))

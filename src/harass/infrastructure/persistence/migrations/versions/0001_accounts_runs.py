@@ -23,7 +23,12 @@ def upgrade() -> None:
         sa.Column("encrypted_api_key", sa.Text(), nullable=False),
         sa.PrimaryKeyConstraint("connection_id"),
     )
-    op.create_index(op.f("ix_connections_owner_id"), "connections", ["owner_id"], unique=False)
+    op.create_index(
+        op.f("ix_connections_owner_id"),
+        "connections",
+        ["owner_id"],
+        unique=False,
+    )
     op.create_table(
         "runs",
         sa.Column("run_id", sa.String(length=64), nullable=False),
@@ -36,7 +41,9 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("run_id"),
     )
-    op.create_index(op.f("ix_runs_owner_id"), "runs", ["owner_id"], unique=False)
+    op.create_index(
+        op.f("ix_runs_owner_id"), "runs", ["owner_id"], unique=False
+    )
     op.create_table(
         "users",
         sa.Column("user_id", sa.String(length=64), nullable=False),
@@ -73,7 +80,9 @@ def upgrade() -> None:
         "reports",
         sa.Column("run_id", sa.String(length=64), nullable=False),
         sa.Column("document", sa.JSON(), nullable=False),
-        sa.ForeignKeyConstraint(["run_id"], ["runs.run_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["run_id"], ["runs.run_id"], ondelete="CASCADE"
+        ),
         sa.PrimaryKeyConstraint("run_id"),
     )
 
@@ -81,9 +90,13 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Reverse this schema revision."""
     op.drop_table("reports")
-    op.drop_index(op.f("ix_authentication_sessions_user_id"), table_name="authentication_sessions")
     op.drop_index(
-        op.f("ix_authentication_sessions_expires_at"), table_name="authentication_sessions"
+        op.f("ix_authentication_sessions_user_id"),
+        table_name="authentication_sessions",
+    )
+    op.drop_index(
+        op.f("ix_authentication_sessions_expires_at"),
+        table_name="authentication_sessions",
     )
     op.drop_table("authentication_sessions")
     op.drop_index(op.f("ix_users_email"), table_name="users")

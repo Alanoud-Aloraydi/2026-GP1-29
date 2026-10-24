@@ -1,3 +1,4 @@
+/* Shared layout, form controls and responsive evaluation presentation. */
 :root {
   --primary: #07526c;
   --tint: #e3eef1;
@@ -155,12 +156,6 @@ dd { margin: 0 0 16px; }
 .landing-section.alt { background: var(--surface); border-block: 1px solid var(--border); }
 .section-head { max-width: 620px; margin: 0 auto 32px; }
 .concern-grid { display: grid; gap: 24px; grid-template-columns: repeat(2, 1fr); }
-.concern-icon, .feature-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; margin-block-end: 12px;
-  border-radius: 4px; background: var(--tint); color: var(--primary);
-}
-.variety-tags span, .badge-soon { padding: 2px 8px; background: var(--tint); font-size: .75rem; }
 .flow-steps {
   margin: 0; padding: 0; list-style: none; display: flex; justify-content: center;
   align-items: center; gap: 8px;
@@ -175,7 +170,7 @@ dd { margin: 0 0 16px; }
   .app-header .container { flex-wrap: wrap; gap: 8px; }
   .main-nav { order: 3; flex-basis: 100%; margin: 0; overflow-x: auto; white-space: nowrap; }
   .main-nav a { flex-shrink: 0; }
-.concern-grid { grid-template-columns: 1fr; }
+  .concern-grid { grid-template-columns: 1fr; }
   .flow-steps { flex-direction: column; }
 }
 @media (max-width: 520px) {

@@ -1,1 +1,1 @@
-"""Enterprise rules of Arabic LLM safety evaluation, independent of any framework."""
+"""Define framework-independent Arabic safety evaluation rules."""

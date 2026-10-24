@@ -1,0 +1,119 @@
+# Durable application services; isolated integration tests use compose.test.yml.
+name: harass
+x-app: &app
+  image: harass-app:local
+  build: .
+  init: true
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+x-settings: &settings
+  HARASS_DATABASE_URL: postgresql+psycopg://${HARASS_POSTGRES_USER:-harass}:${HARASS_POSTGRES_PASSWORD:?Set database credentials in .env}@db:5432/${HARASS_POSTGRES_DB:-harass}
+  HARASS_ENCRYPTION_KEY: ${HARASS_ENCRYPTION_KEY:?Set the encryption key in .env}
+  HARASS_JWT_SECRET: ${HARASS_JWT_SECRET:?Set the JWT secret in .env}
+  HARASS_JWT_PREVIOUS_SECRETS: ${HARASS_JWT_PREVIOUS_SECRETS:-}
+  HARASS_SESSION_SECONDS: ${HARASS_SESSION_SECONDS:-900}
+  HARASS_REFRESH_SECONDS: ${HARASS_REFRESH_SECONDS:-28800}
+  HARASS_COOKIE_SECURE: ${HARASS_COOKIE_SECURE:-false}
+  HARASS_ALLOWED_HOSTS: ${HARASS_ALLOWED_HOSTS:-localhost,127.0.0.1}
+  HARASS_JUDGE_BASE_URL: ${HARASS_JUDGE_BASE_URL:?Set the judge URL in .env}
+  HARASS_JUDGE_MODEL: ${HARASS_JUDGE_MODEL:?Set the judge model in .env}
+  HARASS_JUDGE_TEMPERATURE: ${HARASS_JUDGE_TEMPERATURE:-0.6}
+  HARASS_JUDGE_MAX_COMPLETION_TOKENS: ${HARASS_JUDGE_MAX_COMPLETION_TOKENS:-4096}
+  HARASS_JUDGE_VOTES: ${HARASS_JUDGE_VOTES:-3}
+  HARASS_JUDGE_TOKEN_LIMIT_PARAMETER: ${HARASS_JUDGE_TOKEN_LIMIT_PARAMETER:-max_completion_tokens}
+  HARASS_JUDGE_KEEP_ALIVE: ${HARASS_JUDGE_KEEP_ALIVE:-30m}
+  HARASS_JUDGE_SUPPORTS_SYSTEM_PROMPT: ${HARASS_JUDGE_SUPPORTS_SYSTEM_PROMPT:-true}
+  HARASS_JUDGE_JSON_OUTPUT: ${HARASS_JUDGE_JSON_OUTPUT:-false}
+  HARASS_ATTEMPT_TIMEOUT_SECONDS: ${HARASS_ATTEMPT_TIMEOUT_SECONDS:-300}
+  HARASS_TARGET_TEMPERATURE: ${HARASS_TARGET_TEMPERATURE:-0}
+  HARASS_TARGET_MAX_COMPLETION_TOKENS: ${HARASS_TARGET_MAX_COMPLETION_TOKENS:-900}
+  HARASS_PRIVATE_TARGET_HOSTS: ${HARASS_PRIVATE_TARGET_HOSTS:-}
+  HARASS_ALLOW_TARGET_HTTP: ${HARASS_ALLOW_TARGET_HTTP:-false}
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${HARASS_POSTGRES_DB:-harass}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${HARASS_POSTGRES_ADMIN_PASSWORD:?Set database admin credentials in .env}
+      HARASS_POSTGRES_USER: ${HARASS_POSTGRES_USER:-harass}
+      HARASS_POSTGRES_PASSWORD: ${HARASS_POSTGRES_PASSWORD:?Set database credentials in .env}
+    ports:
+      - "127.0.0.1:${HARASS_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./config/docker/init-database.sh:/docker-entrypoint-initdb.d/10-harass.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$HARASS_POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    <<: *app
+    command: ["python", "-m", "harass.bootstrap.migrate"]
+    environment:
+      HARASS_DATABASE_URL: postgresql+psycopg://${HARASS_POSTGRES_USER:-harass}:${HARASS_POSTGRES_PASSWORD:?Set database credentials in .env}@db:5432/${HARASS_POSTGRES_DB:-harass}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    restart: unless-stopped
+    command: ["python", "-m", "harass.bootstrap.api"]
+    environment:
+      <<: *settings
+      HARASS_API_HOST: 0.0.0.0
+      HARASS_API_PORT: 8000
+      HARASS_ACCOUNT_EMAIL_ENABLED: ${HARASS_ACCOUNT_EMAIL_ENABLED:-false}
+      HARASS_PUBLIC_URL: ${HARASS_PUBLIC_URL:-}
+      HARASS_SMTP_HOST: ${HARASS_SMTP_HOST:-}
+      HARASS_SMTP_PORT: ${HARASS_SMTP_PORT:-587}
+      HARASS_SMTP_TLS: ${HARASS_SMTP_TLS:-starttls}
+      HARASS_SMTP_FROM: ${HARASS_SMTP_FROM:-}
+      HARASS_SMTP_USERNAME: ${HARASS_SMTP_USERNAME:-}
+      HARASS_SMTP_PASSWORD: ${HARASS_SMTP_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${HARASS_WEB_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "harass.bootstrap.health", "api"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  worker:
+    <<: *app
+    restart: unless-stopped
+    command: ["python", "-m", "harass.bootstrap.worker"]
+    environment:
+      <<: *settings
+      HARASS_JUDGE_API_KEY: ${HARASS_JUDGE_API_KEY:?Set the judge key in .env}
+    volumes:
+      - pyrit-data:/var/lib/harass
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "harass.bootstrap.health", "worker"]
+      interval: 20s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+volumes:
+  postgres-data:
+  pyrit-data:

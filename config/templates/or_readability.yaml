@@ -1,3 +1,4 @@
+# Authored or readability evaluation prompt template.
 name: "or_readability"
 label: "عرض الطلب على سطر مستقل"
 axis: "OR"

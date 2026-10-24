@@ -21,7 +21,7 @@ def run_review_command(
     calibrate: CalibrateLeak,
     output: TextIO,
 ) -> int:
-    """Prepare blind human labels or analyze explicitly labelled review files."""
+    """Prepare blind labels or analyze completed review files."""
     parser = argparse.ArgumentParser(prog="harass-review")
     commands = parser.add_subparsers(dest="action", required=True)
     prepare_parser = commands.add_parser("prepare")
@@ -39,17 +39,28 @@ def run_review_command(
     try:
         if arguments.action == "prepare":
             prepare(arguments.report, arguments.output)
-            print("Blind review CSV created; human categories are blank.", file=output)
+            print(
+                "Blind review CSV created; human categories are blank.",
+                file=output,
+            )
         elif arguments.action == "prepare-leak":
             prepare_leak(arguments.report, arguments.output)
-            print("Leak review CSV created; labels and split assignments are blank.", file=output)
+            print(
+                (
+                    "Leak review CSV created; labels and split "
+                    "assignments are blank."
+                ),
+                file=output,
+            )
         else:
             result = (
                 score(arguments.report, arguments.labels)
                 if arguments.action == "agreement"
                 else calibrate(arguments.labels)
             )
-            print(json.dumps(result, ensure_ascii=False, indent=2), file=output)
+            print(
+                json.dumps(result, ensure_ascii=False, indent=2), file=output
+            )
     except (OSError, DomainError, json.JSONDecodeError) as error:
         print(f"Review error: {error}", file=output)
         return 1

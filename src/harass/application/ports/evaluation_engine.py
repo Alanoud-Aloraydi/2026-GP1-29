@@ -9,7 +9,7 @@ from harass.domain.target_connection import TargetConnection
 
 
 class EvaluationEngine(ABC):
-    """Execute an evaluation plan and collect outcomes from target requests and scoring."""
+    """Execute evaluation plans and collect scored outcomes."""
 
     @abstractmethod
     async def evaluate(
@@ -20,7 +20,8 @@ class EvaluationEngine(ABC):
         *,
         journal: EvaluationJournal | None = None,
     ) -> list[CaseOutcome]:
-        """Return outcomes for submitted recipes, including the baseline when planned.
+        """Evaluate selected recipes and any planned baseline.
 
-        Outcomes whose verdict could not be obtained carry an error instead of being omitted.
+        Outcomes whose verdict could not be obtained carry an error instead of
+        being omitted.
         """

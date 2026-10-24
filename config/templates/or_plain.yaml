@@ -1,3 +1,4 @@
+# Authored or plain evaluation prompt template.
 name: "or_plain"
 label: "عرض الطلب الآمن"
 axis: "OR"

@@ -9,7 +9,9 @@ from harass.domain.target_connection import TargetConnection
 def test_representation_never_contains_the_api_key() -> None:
     """Logging a connection cannot leak the client's secret."""
     connection = TargetConnection(
-        base_url="https://api.example.com/v1", model_name="model", api_key="secret-value"
+        base_url="https://api.example.com/v1",
+        model_name="model",
+        api_key="secret-value",
     )
 
     assert "secret-value" not in repr(connection)
@@ -25,7 +27,10 @@ def test_representation_never_contains_the_api_key() -> None:
     ],
 )
 def test_rejects_incomplete_or_malformed_connections(
-    base_url: str, model_name: str, api_key: str, max_requests_per_minute: int | None
+    base_url: str,
+    model_name: str,
+    api_key: str,
+    max_requests_per_minute: int | None,
 ) -> None:
     """A connection must be able to address a model."""
     with pytest.raises(InvalidTargetConnectionError):

@@ -1,7 +1,8 @@
-"""Local browser fixture using the real API, stores, catalogue and PyRIT, without external models.
+"""Run local browser QA against real application adapters.
 
-Run this file directly for browser QA. The synthetic verifier and model/judge are deliberately
-test-only; no .env credentials or production database are loaded.
+Run this file directly for browser QA. The synthetic verifier and model/judge
+are deliberately test-only; no .env credentials or production database are
+loaded.
 """
 
 import asyncio
@@ -24,25 +25,37 @@ from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from harass.application.accounts.authentication import (
+    ManageAuthentication,
+)
+from harass.application.connections import ManageConnections
+from harass.application.evaluation.run_service import ManageRuns
+from harass.application.evaluation.runner import RunEvaluation
+from harass.application.evaluation.variant_engine import (
+    VariantEvaluationEngine,
+)
+from harass.application.evaluation.worker import ProcessRuns
 from harass.application.ports.connection_verifier import ConnectionVerifier
 from harass.application.ports.seed_source import SeedSource
-from harass.application.use_cases.manage_authentication import ManageAuthentication
-from harass.application.use_cases.manage_connections import ManageConnections
-from harass.application.use_cases.manage_runs import ManageRuns
-from harass.application.use_cases.process_runs import ProcessRuns
-from harass.application.use_cases.run_evaluation import RunEvaluation
-from harass.application.variant_evaluation_engine import VariantEvaluationEngine
 from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
-from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
+from harass.infrastructure.dataset.spreadsheet_seed_source import (
+    SpreadsheetSeedSource,
+)
+from harass.infrastructure.dataset.yaml_variant_catalog import (
+    YamlVariantCatalog,
+)
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
-from harass.infrastructure.persistence.sqlalchemy_stores import (
+from harass.infrastructure.persistence.sqlalchemy_connections import (
     SqlAlchemyConnectionStore,
+)
+from harass.infrastructure.persistence.sqlalchemy_jobs import (
+    SqlAlchemyRunQueue,
+)
+from harass.infrastructure.persistence.sqlalchemy_runs import (
     SqlAlchemyRunStore,
 )
 from harass.infrastructure.persistence.tables import Base
@@ -50,9 +63,15 @@ from harass.infrastructure.pyrit.scoring.scorer_builder import (
     build_attack_success_scorer,
     build_response_category_scorer,
 )
-from harass.infrastructure.pyrit.variant_attempt_executor import PyritAttemptExecutor
-from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
-from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
+from harass.infrastructure.pyrit.variant_attempt_executor import (
+    PyritAttemptExecutor,
+)
+from harass.infrastructure.security.fernet_secret_cipher import (
+    FernetSecretCipher,
+)
+from harass.infrastructure.security.jwt_authentication import (
+    JwtAuthenticationSecurity,
+)
 from harass.interfaces.api.app import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,7 +79,7 @@ REFUSAL = "رفض اصطناعي لاختبار الواجهة."
 
 
 class BrowserTarget(PromptTarget):
-    """Synthetic model that refuses a wrapped request to exercise early-stop reporting."""
+    """Test double for browser target."""
 
     def __init__(self) -> None:
         """Declare the capabilities needed by the real executor."""
@@ -83,18 +102,28 @@ class BrowserTarget(PromptTarget):
             if "أجب عن الطلب التالي" in request.converted_value
             else "إجابة اصطناعية محايدة."
         )
-        return [construct_response_from_request(request=request, response_text_pieces=[response])]
+        return [
+            construct_response_from_request(
+                request=request, response_text_pieces=[response]
+            )
+        ]
 
 
 class BrowserJudge(BrowserTarget):
-    """Synthetic rubric-compatible judge; never interpreted as human ground truth."""
+    """Test double for browser judge."""
 
     async def _send_prompt_to_target_async(
         self, *, normalized_conversation: list[Message]
     ) -> list[Message]:
-        pieces = [piece for message in normalized_conversation for piece in message.message_pieces]
+        pieces = [
+            piece
+            for message in normalized_conversation
+            for piece in message.message_pieces
+        ]
         request = pieces[-1]
-        category_rubric = any("PRF" in piece.converted_value for piece in pieces[:-1])
+        category_rubric = any(
+            "PRF" in piece.converted_value for piece in pieces[:-1]
+        )
         refused = REFUSAL in request.converted_value
         verdict = (
             {"category": "REF" if refused else "FUL", "score_value": refused}
@@ -123,15 +152,17 @@ class BrowserVerifier(ConnectionVerifier):
 
 
 class BrowserSeeds(SeedSource):
-    """Expand neutral fixture seeds to exercise paginated reports without model traffic."""
+    """Test double for browser seeds."""
 
     def __init__(self, count: int | None) -> None:
         """Retain an optional synthetic fixture size."""
         self._count = count
 
     def load_cases(self, selection: CaseSelection) -> list[EvaluationCase]:
-        """Return the original fixtures or distinct copies under the same selected codes."""
-        original = SpreadsheetSeedSource(ROOT / "data/test_dataset.xlsx").load_cases(selection)
+        """Load original or expanded neutral fixture cases."""
+        original = SpreadsheetSeedSource(
+            ROOT / "data/test_dataset.xlsx"
+        ).load_cases(selection)
         if self._count is None or not original:
             return original
         return [
@@ -150,10 +181,16 @@ class BrowserSeeds(SeedSource):
 
 
 def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
-    """Wire the full local flow to an isolated SQLite database and scripted models."""
-    asyncio.run(initialize_pyrit_async(memory_db_type=IN_MEMORY, load_defaults=False, silent=True))
+    """Compose the isolated browser smoke application."""
+    asyncio.run(
+        initialize_pyrit_async(
+            memory_db_type=IN_MEMORY, load_defaults=False, silent=True
+        )
+    )
     temporary = TemporaryDirectory(prefix="harass-browser-")
-    engine = create_engine(f"sqlite:///{Path(temporary.name) / 'browser.sqlite'}")
+    engine = create_engine(
+        f"sqlite:///{Path(temporary.name) / 'browser.sqlite'}"
+    )
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
     connections = ManageConnections(
@@ -178,11 +215,13 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
     worker = ProcessRuns(queue, connections, evaluation, poll_seconds=0.1)
     app = create_app(
         connections,
-        ManageRuns(SqlAlchemyRunStore(factory), connections, None, queue=queue),
+        ManageRuns(SqlAlchemyRunStore(factory), connections, queue=queue),
         catalogue,
         authentication=ManageAuthentication(
             SqlAlchemyAuthenticationStore(factory),
-            JwtAuthenticationSecurity("browser-fixture-only-signing-key-" + "x" * 32),
+            JwtAuthenticationSecurity(
+                "browser-fixture-only-signing-key-" + "x" * 32
+            ),
         ),
     )
 
@@ -198,7 +237,11 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
             temporary.cleanup()
 
     app.router.lifespan_context = lifespan
-    app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
+    app.mount(
+        "/",
+        StaticFiles(directory=ROOT / "frontend", html=True),
+        name="frontend",
+    )
     return app
 
 

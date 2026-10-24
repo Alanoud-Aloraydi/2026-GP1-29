@@ -1,4 +1,4 @@
-"""Tests for judge-model scorers, run against recorded judge outputs without network access."""
+"""Tests for scoring."""
 
 import json
 import uuid
@@ -29,7 +29,9 @@ from harass.infrastructure.pyrit.scoring.scorer_builder import (
 from harass.infrastructure.pyrit.target_builder import build_judge
 from harass.infrastructure.settings import JudgeSettings
 
-JUDGE_SETTINGS = JudgeSettings(base_url="http://localhost:11434/v1", model_name="j", api_key="k")
+JUDGE_SETTINGS = JudgeSettings(
+    base_url="http://localhost:11434/v1", model_name="j", api_key="k"
+)
 
 
 def category_verdict(category: str, score_value: bool) -> str:
@@ -56,8 +58,10 @@ def attack_success_scorer(pyrit_memory: None) -> SelfAskTrueFalseScorer:
     return build_attack_success_scorer(build_judge(JUDGE_SETTINGS), votes=1)
 
 
-def parse_category(scorer: RequestAwareCategoryScorer, judge_output: str) -> UnvalidatedScore:
-    """Parse judge output through the scorer's complete response-handling chain."""
+def parse_category(
+    scorer: RequestAwareCategoryScorer, judge_output: str
+) -> UnvalidatedScore:
+    """Parse a recorded response through the category scorer."""
     return scorer._response_handler.parse(
         response_text=judge_output,
         scorer_identifier=scorer.get_identifier(),
@@ -81,11 +85,11 @@ def test_reasoning_trace_is_removed(judge_output: str, expected: str) -> None:
 def test_verdict_after_reasoning_with_braces_is_read_correctly(
     category_scorer: RequestAwareCategoryScorer,
 ) -> None:
-    """A JSON-like fragment inside the reasoning trace is not mistaken for the verdict."""
+    """Verify verdict after reasoning with braces is read correctly."""
     judge_output = (
-        '<think>Could it be {"category": "FUL"}? No, the model declines.</think>\n'
-        + category_verdict("REF", True)
-    )
+        '<think>Could it be {"category": "FUL"}? No, '
+        "the model declines.</think>\n"
+    ) + category_verdict("REF", True)
 
     score = parse_category(category_scorer, judge_output)
 
@@ -96,7 +100,7 @@ def test_verdict_after_reasoning_with_braces_is_read_correctly(
 def test_full_compliance_is_the_only_non_refusal_category(
     category_scorer: RequestAwareCategoryScorer,
 ) -> None:
-    """Full compliance is scored false, so a true score always denotes a refusal."""
+    """Verify full compliance is only non refusal category."""
     score = parse_category(category_scorer, category_verdict("FUL", False))
 
     assert score.score_category == ["FUL"]
@@ -105,12 +109,16 @@ def test_full_compliance_is_the_only_non_refusal_category(
 
 @pytest.mark.parametrize(
     "judge_output",
-    [category_verdict("UNSAFE", True), category_verdict("PRF", False), "no verdict"],
+    [
+        category_verdict("UNSAFE", True),
+        category_verdict("PRF", False),
+        "no verdict",
+    ],
 )
 def test_invalid_verdicts_are_rejected_for_retry(
     category_scorer: RequestAwareCategoryScorer, judge_output: str
 ) -> None:
-    """Unknown categories, inconsistent values and missing JSON never become silent defaults."""
+    """Verify invalid verdicts are rejected for retry."""
     with pytest.raises(InvalidJsonException):
         parse_category(category_scorer, judge_output)
 
@@ -118,9 +126,14 @@ def test_invalid_verdicts_are_rejected_for_retry(
 def test_attack_success_verdict_is_read_after_reasoning(
     attack_success_scorer: SelfAskTrueFalseScorer,
 ) -> None:
-    """The true/false scorer also tolerates a reasoning trace before the verdict."""
+    """Verify attack success verdict is read after reasoning."""
     judge_output = "<think>The response refuses.</think>" + json.dumps(
-        {"score_value": False, "description": "d", "rationale": "r", "metadata": ""}
+        {
+            "score_value": False,
+            "description": "d",
+            "rationale": "r",
+            "metadata": "",
+        }
     )
 
     score = attack_success_scorer._response_handler.parse(
@@ -133,7 +146,8 @@ def test_attack_success_verdict_is_read_after_reasoning(
 
 
 async def test_category_scorer_shows_the_request_to_the_judge(
-    category_scorer: RequestAwareCategoryScorer, monkeypatch: pytest.MonkeyPatch
+    category_scorer: RequestAwareCategoryScorer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The judge sees both the request and the response it classifies."""
     sent_values: list[str] = []
@@ -143,28 +157,37 @@ async def test_category_scorer_shows_the_request_to_the_judge(
         raise RuntimeError("scoring stopped after capturing the request")
 
     monkeypatch.setattr(
-        request_aware_category_scorer, "_run_llm_scoring_async", capture_scoring_call
+        request_aware_category_scorer,
+        "_run_llm_scoring_async",
+        capture_scoring_call,
     )
     response = MessagePiece(role="assistant", original_value="نص الرد")
 
     with pytest.raises(RuntimeError):
-        await category_scorer._score_piece_async(response, objective="نص الطلب")
+        await category_scorer._score_piece_async(
+            response, objective="نص الطلب"
+        )
 
     assert sent_values == ["request: نص الطلب\nresponse: نص الرد"]
 
 
 def test_rubric_categories_match_the_domain_taxonomy() -> None:
     """The judge rubric and the domain agree on the response categories."""
-    classifier = ContentClassifier.from_yaml(RUBRIC_DIRECTORY / "response_categories.yaml")
+    classifier = ContentClassifier.from_yaml(
+        RUBRIC_DIRECTORY / "response_categories.yaml"
+    )
 
     assert {category.name for category in classifier.categories} == {
         category.value for category in ResponseCategory
     }
-    assert classifier.no_category_found == ResponseCategory.FULL_COMPLIANCE.value
+    assert (
+        classifier.no_category_found == ResponseCategory.FULL_COMPLIANCE.value
+    )
 
 
 @pytest.mark.parametrize(
-    ("category", "is_refusal"), [("FUL", False), ("PRF", True), ("REF", True), ("UNC", False)]
+    ("category", "is_refusal"),
+    [("FUL", False), ("PRF", True), ("REF", True), ("UNC", False)],
 )
 async def test_stored_category_score_is_true_only_for_refusals(
     category_scorer: RequestAwareCategoryScorer,
@@ -172,25 +195,34 @@ async def test_stored_category_score_is_true_only_for_refusals(
     category: str,
     is_refusal: bool,
 ) -> None:
-    """An unclear response passes PyRIT's consistency check yet is not stored as a refusal."""
+    """Verify stored category score is true only for refusals."""
     judge_output = category_verdict(category, category != "FUL")
 
     async def judge_verdict(**arguments: object) -> UnvalidatedScore:
         return parse_category(category_scorer, judge_output)
 
-    monkeypatch.setattr(request_aware_category_scorer, "_run_llm_scoring_async", judge_verdict)
+    monkeypatch.setattr(
+        request_aware_category_scorer, "_run_llm_scoring_async", judge_verdict
+    )
     response = MessagePiece(role="assistant", original_value="نص الرد")
 
-    [score] = await category_scorer._score_piece_async(response, objective="نص الطلب")
+    [score] = await category_scorer._score_piece_async(
+        response, objective="نص الطلب"
+    )
 
     assert score.score_category == [category]
     assert score.get_value() is is_refusal
 
 
 def test_rubric_separates_not_understanding_from_refusal() -> None:
-    """Following Wei et al., saying the request cannot be understood is unclear, not refusal."""
-    classifier = ContentClassifier.from_yaml(RUBRIC_DIRECTORY / "response_categories.yaml")
-    descriptions = {category.name: category.description for category in classifier.categories}
+    """Verify rubric separates not understanding from refusal."""
+    classifier = ContentClassifier.from_yaml(
+        RUBRIC_DIRECTORY / "response_categories.yaml"
+    )
+    descriptions = {
+        category.name: category.description
+        for category in classifier.categories
+    }
 
     assert "not a refusal" in descriptions["REF"]
     assert "cannot be read or" in descriptions["UNC"]
@@ -199,14 +231,18 @@ def test_rubric_separates_not_understanding_from_refusal() -> None:
 async def test_category_verdict_is_the_strict_majority(
     pyrit_memory: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two of three verdicts decide the category; the votes are kept in the metadata."""
-    scorer = build_response_category_scorer(build_judge(JUDGE_SETTINGS), votes=3)
+    """Verify category verdict is strict majority."""
+    scorer = build_response_category_scorer(
+        build_judge(JUDGE_SETTINGS), votes=3
+    )
     verdicts = iter([("REF", True), ("FUL", False), ("REF", True)])
 
     async def judge_verdict(**arguments: object) -> UnvalidatedScore:
         return parse_category(scorer, category_verdict(*next(verdicts)))
 
-    monkeypatch.setattr(request_aware_category_scorer, "_run_llm_scoring_async", judge_verdict)
+    monkeypatch.setattr(
+        request_aware_category_scorer, "_run_llm_scoring_async", judge_verdict
+    )
 
     [score] = await scorer._score_piece_async(
         MessagePiece(role="assistant", original_value="رد"), objective="طلب"
@@ -221,13 +257,17 @@ async def test_category_without_majority_is_marked_unscored(
     pyrit_memory: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Three different verdicts produce no category the engine accepts."""
-    scorer = build_response_category_scorer(build_judge(JUDGE_SETTINGS), votes=3)
+    scorer = build_response_category_scorer(
+        build_judge(JUDGE_SETTINGS), votes=3
+    )
     verdicts = iter([("REF", True), ("FUL", False), ("UNC", True)])
 
     async def judge_verdict(**arguments: object) -> UnvalidatedScore:
         return parse_category(scorer, category_verdict(*next(verdicts)))
 
-    monkeypatch.setattr(request_aware_category_scorer, "_run_llm_scoring_async", judge_verdict)
+    monkeypatch.setattr(
+        request_aware_category_scorer, "_run_llm_scoring_async", judge_verdict
+    )
 
     [score] = await scorer._score_piece_async(
         MessagePiece(role="assistant", original_value="رد"), objective="طلب"
@@ -253,18 +293,25 @@ async def test_judge_stops_only_after_the_budget_majority_is_irreversible(
     expected: str,
     calls: int,
 ) -> None:
-    """Stopping cannot turn an unresolved budget into a majority of observed votes."""
-    scorer = build_response_category_scorer(build_judge(JUDGE_SETTINGS), votes=len(categories))
+    """Verify judge stops only after budget majority is irreversible."""
+    scorer = build_response_category_scorer(
+        build_judge(JUDGE_SETTINGS), votes=len(categories)
+    )
     seen: list[str] = []
 
     async def verdict(**arguments: object) -> UnvalidatedScore:
         category = categories[len(seen)]
         seen.append(category)
-        return parse_category(scorer, category_verdict(category, category != "FUL"))
+        return parse_category(
+            scorer, category_verdict(category, category != "FUL")
+        )
 
-    monkeypatch.setattr(request_aware_category_scorer, "_run_llm_scoring_async", verdict)
+    monkeypatch.setattr(
+        request_aware_category_scorer, "_run_llm_scoring_async", verdict
+    )
     [score] = await scorer._score_piece_async(
-        MessagePiece(role="assistant", original_value="response"), objective="request"
+        MessagePiece(role="assistant", original_value="response"),
+        objective="request",
     )
     assert score.score_category == [expected]
     assert len(seen) == calls

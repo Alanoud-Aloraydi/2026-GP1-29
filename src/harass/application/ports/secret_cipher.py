@@ -1,10 +1,10 @@
-"""Port for protecting secrets, such as client API keys, while they are stored."""
+"""Define encryption and decryption of stored secrets."""
 
 from abc import ABC, abstractmethod
 
 
 class SecretCipher(ABC):
-    """Encrypts secrets before storage and decrypts them only when they are needed."""
+    """Protect stored secrets and decrypt them for authorized use."""
 
     @abstractmethod
     def encrypt(self, secret: str) -> str:
@@ -14,6 +14,6 @@ class SecretCipher(ABC):
     def decrypt(self, token: str) -> str:
         """Return the secret behind a token produced by ``encrypt``.
 
-        Raises:
-            SecretCipherError: If the token was altered or encrypted with another key.
+        Raises: SecretCipherError: If the token was altered or encrypted with
+        another key.
         """

@@ -1,4 +1,4 @@
-"""CSV review preparation and strict review-file parsing; no labels are manufactured."""
+"""Prepare review CSV files and validate supplied labels."""
 
 import csv
 import json
@@ -48,34 +48,46 @@ def prepare_review(report_path: Path, destination: Path) -> None:
 
 
 def score_review(report_path: Path, label_path: Path) -> dict[str, Any]:
-    """Match explicit human labels to report outcomes and compute coverage and agreement."""
+    """Match labels to evidence and measure coverage and agreement."""
     labels = []
     for number, row in enumerate(
-        _read_csv(label_path, {"case_id", "variant_name", "human_category"}), start=2
+        _read_csv(label_path, {"case_id", "variant_name", "human_category"}),
+        start=2,
     ):
         raw = row["human_category"].strip()
         try:
             category = ResponseCategory(raw) if raw else None
         except ValueError as error:
             raise InvalidReviewDataError(
-                f"CSV row {number}: human_category must be FUL, PRF, REF or UNC."
+                f"CSV row {number}: human_category must be "
+                "FUL, PRF, REF or UNC."
             ) from error
-        labels.append(HumanCategory(row["case_id"].strip(), row["variant_name"].strip(), category))
+        labels.append(
+            HumanCategory(
+                row["case_id"].strip(), row["variant_name"].strip(), category
+            )
+        )
     return review_agreement(_read_report(report_path), labels)
 
 
 def prepare_leak_review(report_path: Path, destination: Path) -> None:
-    """Export synthetic references and responses with blank leak labels and split assignments."""
+    """Export synthetic disclosure evidence for blind annotation."""
     document = json.loads(report_path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict) or not isinstance(document.get("run_identifier"), str):
-        raise InvalidReviewDataError("Leak review requires the report run identifier.")
+    if not isinstance(document, dict) or not isinstance(
+        document.get("run_identifier"), str
+    ):
+        raise InvalidReviewDataError(
+            "Leak review requires the report run identifier."
+        )
     cases = _read_report(report_path)
     rows = []
     for row in cases:
         if not row.original_prompt.strip() or not row.response.strip():
             continue
         case = EvaluationCase(
-            CaseIdentifier.parse(row.case_id), row.original_prompt, row.original_prompt
+            CaseIdentifier.parse(row.case_id),
+            row.original_prompt,
+            row.original_prompt,
         )
         scenario = scenario_for(case, document["run_identifier"])
         if scenario.protected_content and scenario.protected_marker:
@@ -113,7 +125,7 @@ def prepare_leak_review(report_path: Path, destination: Path) -> None:
 
 
 def score_leak_calibration(label_path: Path) -> dict[str, Any]:
-    """Evaluate labelled CSV evidence using separate calibration and evaluation sets."""
+    """Evaluate labelled evidence on calibration and held-out splits."""
     required = {
         "protected_content",
         "protected_marker",
@@ -127,7 +139,8 @@ def score_leak_calibration(label_path: Path) -> dict[str, Any]:
         label = row["leak_label"].strip().lower()
         if label not in {"yes", "no"}:
             raise InvalidReviewDataError(
-                f"CSV row {number}: leak_label must be yes or no; blanks are not labels."
+                f"CSV row {number}: leak_label must be yes or no; "
+                "blanks are not labels."
             )
         observations.append(
             LeakObservation(
@@ -143,31 +156,42 @@ def score_leak_calibration(label_path: Path) -> dict[str, Any]:
 
 
 def _read_csv(path: Path, required: set[str]) -> list[dict[str, str]]:
+    """Read explicit review fields and reject incomplete annotation rows."""
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         if not required.issubset(set(reader.fieldnames or [])):
             raise InvalidReviewDataError(
-                f"CSV {path} lacks required columns: {', '.join(sorted(required))}."
+                f"CSV {path} lacks required columns: "
+                f"{', '.join(sorted(required))}."
             )
         rows = []
         for row in reader:
             if any(row.get(column) is None for column in required):
-                raise InvalidReviewDataError(f"CSV {path} contains an incomplete row.")
+                raise InvalidReviewDataError(
+                    f"CSV {path} contains an incomplete row."
+                )
             rows.append({column: row[column] for column in required})
         return rows
 
 
 def _read_report(path: Path) -> list[ReviewCase]:
+    """Reconstruct review cases from exported attempt evidence."""
     document = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict) or not isinstance(document.get("outcomes"), list):
-        raise InvalidReviewDataError(f"Report {path} must contain an outcomes list.")
+    if not isinstance(document, dict) or not isinstance(
+        document.get("outcomes"), list
+    ):
+        raise InvalidReviewDataError(
+            f"Report {path} must contain an outcomes list."
+        )
     cases = []
     try:
         for outcome in document["outcomes"]:
             category = outcome.get("response_category")
             transcript = outcome.get("transcript") or {}
             variant_name = outcome.get("variant_name", outcome.get("chain"))
-            if not isinstance(outcome["case_id"], str) or not isinstance(variant_name, str):
+            if not isinstance(outcome["case_id"], str) or not isinstance(
+                variant_name, str
+            ):
                 raise ValueError("Outcome identity is missing.")
             cases.append(
                 ReviewCase(

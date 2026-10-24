@@ -1,4 +1,4 @@
-"""Contract tests for the PyRIT public API that the infrastructure adapters rely on."""
+"""Tests for pyrit dependency."""
 
 import importlib
 
@@ -13,7 +13,11 @@ REQUIRED_PYRIT_EXPORTS: dict[str, tuple[str, ...]] = {
         "AttackScoringConfig",
     ),
     "pyrit.prompt_target": ("OpenAIChatTarget",),
-    "pyrit.score": ("SelfAskTrueFalseScorer", "SelfAskCategoryScorer", "TrueFalseQuestion"),
+    "pyrit.score": (
+        "SelfAskTrueFalseScorer",
+        "SelfAskCategoryScorer",
+        "TrueFalseQuestion",
+    ),
     "pyrit.memory": ("CentralMemory",),
     "pyrit.setup": ("initialize_pyrit_async", "IN_MEMORY", "SQLITE"),
 }
@@ -32,7 +36,9 @@ def test_required_pyrit_exports_are_available(module_name: str) -> None:
     module = importlib.import_module(module_name)
 
     missing_names = [
-        name for name in REQUIRED_PYRIT_EXPORTS[module_name] if not hasattr(module, name)
+        name
+        for name in REQUIRED_PYRIT_EXPORTS[module_name]
+        if not hasattr(module, name)
     ]
 
     assert missing_names == []
@@ -43,6 +49,8 @@ async def test_pyrit_memory_initializes_without_network() -> None:
     setup = importlib.import_module("pyrit.setup")
     memory_module = importlib.import_module("pyrit.memory")
 
-    await setup.initialize_pyrit_async(memory_db_type=setup.IN_MEMORY, silent=True)
+    await setup.initialize_pyrit_async(
+        memory_db_type=setup.IN_MEMORY, silent=True
+    )
 
     assert memory_module.CentralMemory.get_memory_instance() is not None

@@ -11,7 +11,7 @@ BASELINE_VARIANT_NAME = "baseline"
 
 @dataclass(frozen=True)
 class JudgeTrace:
-    """Actual verdict calls within a fixed vote budget, with measured elapsed time."""
+    """Record judge calls, vote budgets and measured elapsed time."""
 
     vote_budget: int
     votes: tuple[str, ...]
@@ -34,8 +34,8 @@ class AttemptTranscript:
 class CaseOutcome:
     """Verdicts for one case and recipe; ``error`` marks a missing verdict.
 
-    ``variant_name`` is ``BASELINE_VARIANT_NAME`` when the prompt was sent without conversion.
-    ``attack_succeeded`` applies to adversarial cases only.
+    ``variant_name`` is ``BASELINE_VARIANT_NAME`` when the prompt was sent
+    without conversion. ``attack_succeeded`` applies to adversarial cases only.
     """
 
     case: EvaluationCase
@@ -58,10 +58,13 @@ class CaseOutcome:
 
     @property
     def is_scored(self) -> bool:
-        """Return whether every verdict required by the case's axis is present."""
+        """Check that all verdicts required by the case axis are present."""
         if self.error is not None or self.response_category is None:
             return False
-        return self.case.axis is Axis.OVER_REFUSAL or self.attack_succeeded is not None
+        return (
+            self.case.axis is Axis.OVER_REFUSAL
+            or self.attack_succeeded is not None
+        )
 
     @property
     def is_refusal(self) -> bool:

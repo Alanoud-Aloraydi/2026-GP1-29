@@ -8,7 +8,7 @@ from harass.domain.case_outcome import CaseOutcome
 
 
 class EvaluationJournal(ABC):
-    """Commit feedback and progress together before another request can be submitted."""
+    """Commit feedback and progress before the next submission."""
 
     @abstractmethod
     def initialize(self, fingerprint: str, total_cases: int) -> dict[str, Any]:
@@ -24,4 +24,4 @@ class EvaluationJournal(ABC):
 
     @abstractmethod
     def outcomes(self, *, lightweight: bool = False) -> Iterator[CaseOutcome]:
-        """Iterate stored outcomes in bounded pages, optionally omitting transcript text."""
+        """Stream stored outcomes with optional transcript omission."""

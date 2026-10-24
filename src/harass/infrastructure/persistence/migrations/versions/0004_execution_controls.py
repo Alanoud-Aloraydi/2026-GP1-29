@@ -10,7 +10,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    """Preserve existing evidence without fabricating historical start times."""
+    """Add execution controls without inventing historical times."""
     op.create_table(
         "worker_presence",
         sa.Column("slot_key", sa.String(64), primary_key=True),
@@ -18,13 +18,21 @@ def upgrade() -> None:
     )
     op.add_column("users", sa.Column("created_at", sa.DateTime(timezone=True)))
     op.add_column(
-        "connections", sa.Column("revision", sa.Integer(), nullable=False, server_default="0")
+        "connections",
+        sa.Column(
+            "revision", sa.Integer(), nullable=False, server_default="0"
+        ),
     )
     for name in ("created_at", "updated_at"):
-        op.add_column("connections", sa.Column(name, sa.DateTime(timezone=True)))
+        op.add_column(
+            "connections", sa.Column(name, sa.DateTime(timezone=True))
+        )
     op.add_column("runs", sa.Column("started_at", sa.DateTime(timezone=True)))
     op.add_column(
-        "runs", sa.Column("lifecycle_events", sa.JSON(), nullable=False, server_default="[]")
+        "runs",
+        sa.Column(
+            "lifecycle_events", sa.JSON(), nullable=False, server_default="[]"
+        ),
     )
     op.add_column("run_jobs", sa.Column("connection_revision", sa.Integer()))
     op.create_index(
@@ -32,8 +40,12 @@ def upgrade() -> None:
         "runs",
         ["owner_id"],
         unique=True,
-        postgresql_where=sa.text("status IN ('pending', 'running') OR resumable = true"),
-        sqlite_where=sa.text("status IN ('pending', 'running') OR resumable = 1"),
+        postgresql_where=sa.text(
+            "status IN ('pending', 'running') OR resumable = true"
+        ),
+        sqlite_where=sa.text(
+            "status IN ('pending', 'running') OR resumable = 1"
+        ),
     )
 
 

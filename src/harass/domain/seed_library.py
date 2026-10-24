@@ -1,4 +1,4 @@
-"""Group linked linguistic variants while rejecting ambiguous base-case identities."""
+"""Group linguistic variants by unambiguous base-case identity."""
 
 from collections import defaultdict
 from collections.abc import Sequence
@@ -11,7 +11,7 @@ from harass.domain.taxonomy import ArabicVariety, Axis
 
 @dataclass(frozen=True)
 class SeedGroup:
-    """The available varieties of one human-defined request, not inferred paraphrases."""
+    """Collect authored varieties of one base request."""
 
     axis: Axis
     base_case_number: str
@@ -20,11 +20,13 @@ class SeedGroup:
     @property
     def missing_varieties(self) -> frozenset[ArabicVariety]:
         """Expose incomplete groups without manufacturing translations."""
-        return frozenset(ArabicVariety) - {case.identifier.variety for case in self.cases}
+        return frozenset(ArabicVariety) - {
+            case.identifier.variety for case in self.cases
+        }
 
 
 def group_seeds(cases: Sequence[EvaluationCase]) -> tuple[SeedGroup, ...]:
-    """Validate and group base requests for paired sampling and prompt-clustered metrics."""
+    """Validate and group seeds for paired sampling and metrics."""
     groups: dict[tuple[Axis, str], list[EvaluationCase]] = defaultdict(list)
     for case in cases:
         groups[(case.axis, case.identifier.base_case_number)].append(case)
@@ -42,7 +44,8 @@ def group_seeds(cases: Sequence[EvaluationCase]) -> tuple[SeedGroup, ...]:
         varieties = [case.identifier.variety for case in members]
         if len(classifications) != 1 or len(varieties) != len(set(varieties)):
             raise InvalidEvaluationCaseError(
-                f"Base case {axis.value}-{number} has conflicting classifications "
+                f"Base case {axis.value}-{number} has "
+                "conflicting classifications "
                 "or duplicate varieties."
             )
         result.append(SeedGroup(axis, number, tuple(members)))

@@ -7,15 +7,21 @@ from pathlib import Path
 import pytest
 
 from harass.application.errors import ReportExportError
-from harass.application.evaluation_report import EvaluationReport
-from harass.application.report_document import report_document
+from harass.application.evaluation.contracts import EvaluationReport
+from harass.application.reporting.document import report_document
 from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.case_outcome import CaseOutcome
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.metrics import compute_metrics
-from harass.domain.prompt_variant import AdaptiveSettings, EvaluationMode, VariantSelection
+from harass.domain.prompt_variant import (
+    AdaptiveSettings,
+    EvaluationMode,
+    VariantSelection,
+)
 from harass.domain.taxonomy import ResponseCategory
-from harass.infrastructure.reporting.json_report_exporter import JsonReportExporter
+from harass.infrastructure.reporting.json_report_exporter import (
+    JsonReportExporter,
+)
 
 
 def make_report() -> EvaluationReport:
@@ -23,7 +29,9 @@ def make_report() -> EvaluationReport:
     outcomes = (
         CaseOutcome(
             case=EvaluationCase(
-                identifier=CaseIdentifier.parse("AT-HSB-CRM-DIR-LLM01-MSA-00001"),
+                identifier=CaseIdentifier.parse(
+                    "AT-HSB-CRM-DIR-LLM01-MSA-00001"
+                ),
                 prompt_text="p",
                 objective="o",
             ),
@@ -51,8 +59,10 @@ def make_report() -> EvaluationReport:
     )
 
 
-def test_report_is_readable_utf8_json_with_agreed_labels(tmp_path: Path) -> None:
-    """Arabic labels are written as text, not escapes, next to the machine codes."""
+def test_report_is_readable_utf8_json_with_agreed_labels(
+    tmp_path: Path,
+) -> None:
+    """Verify report is readable utf8 json with agreed labels."""
     destination = tmp_path / "reports" / "run.json"
 
     JsonReportExporter().export(make_report(), destination)
@@ -82,11 +92,14 @@ def test_unwritable_destination_is_reported(tmp_path: Path) -> None:
 
 
 def test_agentic_and_control_denominators_remain_separate() -> None:
-    """A successful control must not inflate the generated-attempt success rate."""
+    """Verify agentic and control denominators remain separate."""
     report = make_report()
     control = report.outcomes[0]
     generated = replace(
-        control, variant_name="seed+tatweel", attempt_number=1, attack_succeeded=False
+        control,
+        variant_name="seed+tatweel",
+        attempt_number=1,
+        attack_succeeded=False,
     )
     outcomes = (control, generated)
     document = report_document(
@@ -99,14 +112,25 @@ def test_agentic_and_control_denominators_remain_separate() -> None:
         )
     )
     assert document["run_type"] == "agentic"
-    assert document["baseline_metrics"]["adversarial"]["attack_success"]["rate"] == 1
-    assert document["primary_metrics"]["adversarial"]["attack_success"]["rate"] == 0
-    assert document["primary_metrics"]["adversarial"]["attack_success"]["total"] == 1
+    assert (
+        document["baseline_metrics"]["adversarial"]["attack_success"]["rate"]
+        == 1
+    )
+    assert (
+        document["primary_metrics"]["adversarial"]["attack_success"]["rate"]
+        == 0
+    )
+    assert (
+        document["primary_metrics"]["adversarial"]["attack_success"]["total"]
+        == 1
+    )
 
 
-def test_baseline_report_has_no_adaptive_curve_and_serializable_selection() -> None:
-    """Original-only runs show control metrics without an artificial discovery curve."""
-    document = report_document(replace(make_report(), variant_selection=VariantSelection((), ())))
+def test_baseline_report_scope_and_selection() -> None:
+    """Verify baseline report scope and selection."""
+    document = report_document(
+        replace(make_report(), variant_selection=VariantSelection((), ()))
+    )
     assert document["run_type"] == "baseline"
     assert document["adaptive"] is None
     assert document["primary_metrics"] == document["baseline_metrics"]

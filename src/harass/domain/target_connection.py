@@ -5,11 +5,9 @@ from urllib.parse import urlsplit
 
 from harass.domain.errors import InvalidTargetConnectionError
 
-SUPPORTED_URL_SCHEMES = ("https://", "http://")
-
 
 def validate_endpoint(base_url: str, model_name: str) -> None:
-    """Validate an endpoint without reflecting URL credentials in error messages."""
+    """Validate endpoint URLs without exposing credentials."""
     try:
         parsed = urlsplit(base_url)
         port = parsed.port
@@ -29,17 +27,23 @@ def validate_endpoint(base_url: str, model_name: str) -> None:
         or port == 0
     ):
         raise InvalidTargetConnectionError(
-            "Use an HTTP or HTTPS endpoint without credentials, query or fragment."
+            "Use an HTTP or HTTPS endpoint without "
+            "credentials, query or fragment."
         )
-    if not 1 <= len(model_name.strip()) <= 200 or any(ord(c) < 32 for c in model_name):
-        raise InvalidTargetConnectionError("Model name must contain 1-200 printable characters.")
+    if not 1 <= len(model_name.strip()) <= 200 or any(
+        ord(c) < 32 for c in model_name
+    ):
+        raise InvalidTargetConnectionError(
+            "Model name must contain 1-200 printable characters."
+        )
 
 
 @dataclass(frozen=True)
 class TargetConnection:
-    """OpenAI-compatible endpoint supplied by the client for the model under evaluation.
+    """Describe the client-supplied evaluation endpoint.
 
-    The API key is excluded from the representation so that it never reaches logs.
+    The API key is excluded from the representation so that it never reaches
+    logs.
     """
 
     base_url: str
@@ -57,5 +61,10 @@ class TargetConnection:
             or any(ord(c) < 32 for c in self.api_key)
         ):
             raise InvalidTargetConnectionError("An API key is required.")
-        if self.max_requests_per_minute is not None and self.max_requests_per_minute < 1:
-            raise InvalidTargetConnectionError("The request rate limit must be at least one.")
+        if (
+            self.max_requests_per_minute is not None
+            and self.max_requests_per_minute < 1
+        ):
+            raise InvalidTargetConnectionError(
+                "The request rate limit must be at least one."
+            )

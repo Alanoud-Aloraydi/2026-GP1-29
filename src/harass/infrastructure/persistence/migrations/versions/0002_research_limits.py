@@ -47,23 +47,38 @@ def upgrade() -> None:
             ["runs.run_id"],
         ),
         sa.PrimaryKeyConstraint("finding_id"),
-        sa.UniqueConstraint("run_id", "case_id", "variant_id", "attempt_number"),
+        sa.UniqueConstraint(
+            "run_id", "case_id", "variant_id", "attempt_number"
+        ),
     )
-    op.create_index("ix_request_limits_window_start", "request_limits", ["window_start"])
+    op.create_index(
+        "ix_request_limits_window_start", "request_limits", ["window_start"]
+    )
     op.create_index(
         op.f("ix_prompt_findings_content_sha256"),
         "prompt_findings",
         ["content_sha256"],
         unique=False,
     )
-    op.create_index(op.f("ix_prompt_findings_run_id"), "prompt_findings", ["run_id"], unique=False)
+    op.create_index(
+        op.f("ix_prompt_findings_run_id"),
+        "prompt_findings",
+        ["run_id"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
     """Reverse this schema revision."""
-    op.drop_index(op.f("ix_prompt_findings_run_id"), table_name="prompt_findings")
-    op.drop_index(op.f("ix_prompt_findings_content_sha256"), table_name="prompt_findings")
+    op.drop_index(
+        op.f("ix_prompt_findings_run_id"), table_name="prompt_findings"
+    )
+    op.drop_index(
+        op.f("ix_prompt_findings_content_sha256"), table_name="prompt_findings"
+    )
     op.drop_table("prompt_findings")
-    op.drop_index("ix_request_limits_window_start", table_name="request_limits")
+    op.drop_index(
+        "ix_request_limits_window_start", table_name="request_limits"
+    )
     op.drop_table("request_limits")
     op.drop_table("generated_prompts")

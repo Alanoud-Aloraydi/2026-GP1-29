@@ -4,10 +4,13 @@ import pytest
 from pyrit.models import Message
 
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.pyrit.target_builder import build_judge, build_target, close_target
+from harass.infrastructure.pyrit.target_builder import (
+    build_judge,
+    build_target,
+    close_target,
+)
 from harass.infrastructure.settings import (
     DEFAULT_JUDGE_TEMPERATURE,
-    DEFAULT_MAX_CONCURRENCY,
     DEFAULT_TARGET_MAX_COMPLETION_TOKENS,
     DEFAULT_TARGET_TEMPERATURE,
     JudgeSettings,
@@ -29,8 +32,10 @@ def test_optional_settings_fall_back_to_documented_defaults() -> None:
 
     assert settings.judge.temperature == DEFAULT_JUDGE_TEMPERATURE
     assert settings.target_generation.temperature == DEFAULT_TARGET_TEMPERATURE
-    assert settings.target_generation.max_completion_tokens == DEFAULT_TARGET_MAX_COMPLETION_TOKENS
-    assert settings.max_concurrency == DEFAULT_MAX_CONCURRENCY
+    assert (
+        settings.target_generation.max_completion_tokens
+        == DEFAULT_TARGET_MAX_COMPLETION_TOKENS
+    )
 
 
 def test_missing_required_setting_names_the_variable() -> None:
@@ -41,9 +46,25 @@ def test_missing_required_setting_names_the_variable() -> None:
         Settings.from_environment(environment)
 
 
+def test_admission_settings_do_not_require_the_judge_key() -> None:
+    """The API fingerprints runs without receiving the judge credential."""
+    environment = {
+        name: value
+        for name, value in REQUIRED_JUDGE_ENVIRONMENT.items()
+        if name != "HARASS_JUDGE_API_KEY"
+    }
+
+    settings = Settings.for_admission(environment)
+
+    assert settings.judge.api_key == ""
+
+
 def test_malformed_number_is_rejected() -> None:
     """Numeric settings are validated instead of failing later inside a run."""
-    environment = {**REQUIRED_JUDGE_ENVIRONMENT, "HARASS_TARGET_TEMPERATURE": "cold"}
+    environment = {
+        **REQUIRED_JUDGE_ENVIRONMENT,
+        "HARASS_TARGET_TEMPERATURE": "cold",
+    }
 
     with pytest.raises(SettingsError, match="HARASS_TARGET_TEMPERATURE"):
         Settings.from_environment(environment)
@@ -51,7 +72,9 @@ def test_malformed_number_is_rejected() -> None:
 
 def test_judge_settings_never_expose_the_api_key() -> None:
     """Settings can be logged without leaking the judge key."""
-    settings = JudgeSettings(base_url="http://judge/v1", model_name="judge", api_key="secret")
+    settings = JudgeSettings(
+        base_url="http://judge/v1", model_name="judge", api_key="secret"
+    )
 
     assert "secret" not in repr(settings)
 
@@ -60,7 +83,11 @@ def test_judge_settings_never_expose_the_api_key() -> None:
 def test_target_applies_system_wide_generation_settings() -> None:
     """Every model under evaluation receives the same decoding parameters."""
     target = build_target(
-        TargetConnection(base_url="https://api.example.com/v1", model_name="model", api_key="k"),
+        TargetConnection(
+            base_url="https://api.example.com/v1",
+            model_name="model",
+            api_key="k",
+        ),
         TargetGenerationSettings(temperature=0.0, max_completion_tokens=900),
     )
 
@@ -71,12 +98,13 @@ def test_target_applies_system_wide_generation_settings() -> None:
 
 @pytest.mark.usefixtures("pyrit_memory")
 @pytest.mark.parametrize(
-    ("supports_system_prompt", "expected_roles"), [(True, ["system", "user"]), (False, ["user"])]
+    ("supports_system_prompt", "expected_roles"),
+    [(True, ["system", "user"]), (False, ["user"])],
 )
 async def test_judge_system_prompt_handling_follows_the_setting(
     supports_system_prompt: bool, expected_roles: list[str]
 ) -> None:
-    """Scorer instructions stay a system message or are folded into the user turn as configured."""
+    """Verify judge system prompt handling follows setting."""
     judge = build_judge(
         JudgeSettings(
             base_url="http://localhost:11434/v1",
@@ -90,20 +118,29 @@ async def test_judge_system_prompt_handling_follows_the_setting(
         Message.from_prompt(prompt="response to score", role="user"),
     ]
 
-    normalized = await judge.configuration.normalize_async(messages=conversation)
+    normalized = await judge.configuration.normalize_async(
+        messages=conversation
+    )
 
     assert [message.api_role for message in normalized] == expected_roles
-    sent_text = " ".join(message.message_pieces[0].converted_value for message in normalized)
+    sent_text = " ".join(
+        message.message_pieces[0].converted_value for message in normalized
+    )
     assert "scoring instructions" in sent_text
     assert "response to score" in sent_text
 
 
 @pytest.mark.parametrize("raw_value", ["0", "-5", "12.5", "many"])
 def test_token_limits_must_be_positive_whole_numbers(raw_value: str) -> None:
-    """A token limit of zero, a negative or a fraction cannot bound generation."""
-    environment = {**REQUIRED_JUDGE_ENVIRONMENT, "HARASS_JUDGE_MAX_COMPLETION_TOKENS": raw_value}
+    """Verify token limits must be positive whole numbers."""
+    environment = {
+        **REQUIRED_JUDGE_ENVIRONMENT,
+        "HARASS_JUDGE_MAX_COMPLETION_TOKENS": raw_value,
+    }
 
-    with pytest.raises(SettingsError, match="HARASS_JUDGE_MAX_COMPLETION_TOKENS"):
+    with pytest.raises(
+        SettingsError, match="HARASS_JUDGE_MAX_COMPLETION_TOKENS"
+    ):
         Settings.from_environment(environment)
 
 
@@ -124,9 +161,11 @@ def test_judge_generation_is_bounded() -> None:
 
 @pytest.mark.usefixtures("pyrit_memory")
 async def test_owned_client_is_closed_before_loop_shutdown() -> None:
-    """Explicit disposal avoids scheduling network cleanup after the event loop is closed."""
+    """Verify owned client is closed before loop shutdown."""
     judge = build_judge(
-        JudgeSettings(base_url="http://judge.invalid/v1", model_name="j", api_key="k")
+        JudgeSettings(
+            base_url="http://judge.invalid/v1", model_name="j", api_key="k"
+        )
     )
     assert judge._async_client is not None
     await close_target(judge)
@@ -134,8 +173,10 @@ async def test_owned_client_is_closed_before_loop_shutdown() -> None:
 
 
 @pytest.mark.usefixtures("pyrit_memory")
-async def test_ollama_receives_only_its_supported_token_limit_parameter() -> None:
-    """The actual request carries max_tokens rather than an ignored completion limit."""
+async def test_ollama_receives_only_its_supported_token_limit_parameter() -> (
+    None
+):
+    """Verify ollama receives only its supported token limit parameter."""
     from inspect import signature
 
     from pyrit.models import JsonResponseConfig
@@ -178,16 +219,24 @@ def test_invalid_judge_token_limit_parameter_fails_early() -> None:
 
 def test_malformed_boolean_is_rejected() -> None:
     """True/false settings accept only true or false."""
-    environment = {**REQUIRED_JUDGE_ENVIRONMENT, "HARASS_JUDGE_SUPPORTS_SYSTEM_PROMPT": "yes"}
+    environment = {
+        **REQUIRED_JUDGE_ENVIRONMENT,
+        "HARASS_JUDGE_SUPPORTS_SYSTEM_PROMPT": "yes",
+    }
 
-    with pytest.raises(SettingsError, match="HARASS_JUDGE_SUPPORTS_SYSTEM_PROMPT"):
+    with pytest.raises(
+        SettingsError, match="HARASS_JUDGE_SUPPORTS_SYSTEM_PROMPT"
+    ):
         Settings.from_environment(environment)
 
 
 @pytest.mark.parametrize("raw_value", ["2", "0"])
 def test_judge_votes_must_be_odd_and_positive(raw_value: str) -> None:
     """An even vote count could tie a true/false verdict."""
-    environment = {**REQUIRED_JUDGE_ENVIRONMENT, "HARASS_JUDGE_VOTES": raw_value}
+    environment = {
+        **REQUIRED_JUDGE_ENVIRONMENT,
+        "HARASS_JUDGE_VOTES": raw_value,
+    }
 
     with pytest.raises(SettingsError, match=r"HARASS_JUDGE_VOTES|votes"):
         Settings.from_environment(environment)

@@ -1,4 +1,4 @@
-"""Composition root for blind review preparation and reliability/calibration analysis."""
+"""Compose blind-review preparation and calibration commands."""
 
 import sys
 
@@ -12,7 +12,7 @@ from harass.interfaces.cli.review_command import run_review_command
 
 
 def main() -> None:
-    """Wire review file adapters into the command without loading model credentials."""
+    """Compose review commands without loading model credentials."""
     sys.exit(
         run_review_command(
             sys.argv[1:],

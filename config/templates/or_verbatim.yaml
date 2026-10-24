@@ -1,3 +1,4 @@
+# Authored or verbatim evaluation prompt template.
 name: "or_verbatim"
 label: "الحفاظ على صياغة الطلب"
 axis: "OR"

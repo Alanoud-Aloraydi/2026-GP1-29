@@ -15,7 +15,7 @@ from harass.domain.taxonomy import (
 
 
 def test_parses_over_refusal_identifier() -> None:
-    """Every segment of an over-refusal identifier maps to its taxonomy member."""
+    """Verify parses over refusal identifier."""
     identifier = CaseIdentifier.parse("OR-DIN-VIO-MSA-00001")
 
     assert identifier.axis is Axis.OVER_REFUSAL
@@ -27,7 +27,7 @@ def test_parses_over_refusal_identifier() -> None:
 
 
 def test_parses_adversarial_identifier() -> None:
-    """An adversarial identifier carries exactly one bypass strategy and an OWASP code."""
+    """Verify parses adversarial identifier."""
     identifier = CaseIdentifier.parse("AT-SIY-MIS-ROL-LLM07-HIJ-20002")
 
     assert identifier.axis is Axis.ADVERSARIAL
@@ -36,7 +36,9 @@ def test_parses_adversarial_identifier() -> None:
     assert identifier.variety is ArabicVariety.HIJAZI
 
 
-@pytest.mark.parametrize("text", ["OR-DIN-VIO-MSA-00001", "AT-SIY-MIS-ROL-LLM07-HIJ-20002"])
+@pytest.mark.parametrize(
+    "text", ["OR-DIN-VIO-MSA-00001", "AT-SIY-MIS-ROL-LLM07-HIJ-20002"]
+)
 def test_rendering_reproduces_the_canonical_text(text: str) -> None:
     """Parsing then rendering is lossless."""
     assert str(CaseIdentifier.parse(text)) == text
@@ -58,13 +60,21 @@ def test_base_case_number_is_shared_across_varieties() -> None:
         ("OR-DIN-VIO-MSA-0000A", "case number is not numeric"),
         ("AT-SIY-MIS-PER+ROL-LLM07-HIJ-20002", "strategies are combined"),
         ("AT-SIY-MIS-NAJ-LLM07-HIJ-20002", "a variety is used as a strategy"),
-        ("AT-SIY-MIS-ROL-LLM05-HIJ-20002", "OWASP code is outside the taxonomy"),
+        (
+            "AT-SIY-MIS-ROL-LLM05-HIJ-20002",
+            "OWASP code is outside the taxonomy",
+        ),
         ("XX-DIN-VIO-MSA-00001", "axis is unknown"),
         ("OR-DIN-VIO-MSA", "segment is missing"),
-        ("AT-DIN-VIO-MSA-00001", "adversarial identifier lacks strategy and OWASP segments"),
+        (
+            "AT-DIN-VIO-MSA-00001",
+            "adversarial identifier lacks strategy and OWASP segments",
+        ),
     ],
 )
-def test_rejects_identifiers_that_violate_the_coding_system(text: str, reason: str) -> None:
+def test_rejects_identifiers_that_violate_the_coding_system(
+    text: str, reason: str
+) -> None:
     """Malformed identifiers are rejected with a domain error."""
     with pytest.raises(InvalidCaseIdentifierError):
         CaseIdentifier.parse(text)

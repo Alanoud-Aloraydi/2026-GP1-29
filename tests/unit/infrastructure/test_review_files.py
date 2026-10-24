@@ -1,4 +1,4 @@
-"""Review exports are blind, unfinished labels stay unfinished and files are preserved."""
+"""Tests for review files."""
 
 import csv
 import json
@@ -13,8 +13,10 @@ from harass.infrastructure.reporting.review_files import (
 )
 
 
-def test_prepared_review_is_blind_and_does_not_create_labels(tmp_path: Path) -> None:
-    """Preparing a human review never substitutes the judge verdict for human ground truth."""
+def test_prepared_review_is_blind_and_does_not_create_labels(
+    tmp_path: Path,
+) -> None:
+    """Verify prepared review is blind and does not create labels."""
     report = tmp_path / "report.json"
     report.write_text(
         json.dumps(
@@ -25,7 +27,10 @@ def test_prepared_review_is_blind_and_does_not_create_labels(tmp_path: Path) -> 
                         "variant_name": "baseline",
                         "response_category": "FUL",
                         "original_prompt": "سؤال آمن",
-                        "transcript": {"sent_prompt": "سؤال آمن", "response": "رد تجريبي"},
+                        "transcript": {
+                            "sent_prompt": "سؤال آمن",
+                            "response": "رد تجريبي",
+                        },
                     }
                 ]
             },
@@ -44,8 +49,10 @@ def test_prepared_review_is_blind_and_does_not_create_labels(tmp_path: Path) -> 
         prepare_review(report, destination)
 
 
-def test_leak_review_exports_references_without_inventing_labels_or_splits(tmp_path: Path) -> None:
-    """Calibration preparation preserves the controlled reference but leaves review unfinished."""
+def test_leak_review_exports_references_without_inventing_labels_or_splits(
+    tmp_path: Path,
+) -> None:
+    """Verify leak review exports references."""
     report = tmp_path / "report.json"
     report.write_text(
         json.dumps(

@@ -1,3 +1,4 @@
+# Authored or delimited evaluation prompt template.
 name: "or_delimited"
 label: "فصل الطلب بحدود"
 axis: "OR"

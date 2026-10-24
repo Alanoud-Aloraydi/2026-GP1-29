@@ -11,8 +11,8 @@ class SeedSource(ABC):
 
     @abstractmethod
     def load_cases(self, selection: CaseSelection) -> list[EvaluationCase]:
-        """Return the cases matching the selection, ordered by case identifier.
+        """Load selected cases in identifier order.
 
-        Raises:
-            SeedSourceError: If the seed data cannot be read or violates the seed schema.
+        Raises: SeedSourceError: If the seed data cannot be read or violates
+        the seed schema.
         """

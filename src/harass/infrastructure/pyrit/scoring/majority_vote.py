@@ -1,8 +1,9 @@
 """Majority vote over repeated judge verdicts on the same response.
 
-A reasoning judge sampled at its recommended temperature can return different verdicts for the
-same response; the DeepSeek-R1 model card recommends running several tests and aggregating them.
-Voting improves stability only: it does not make a weak judge accurate.
+A reasoning judge sampled at its recommended temperature can return different
+verdicts for the same response; the DeepSeek-R1 model card recommends running
+several tests and aggregating them. Voting improves stability only: it does not
+make a weak judge accurate.
 """
 
 import logging
@@ -18,9 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 async def collect_majority(
-    verdict: Callable[[], Awaitable[Score]], *, votes: int, key: Callable[[Score], str]
+    verdict: Callable[[], Awaitable[Score]],
+    *,
+    votes: int,
+    key: Callable[[Score], str],
 ) -> Score:
-    """Stop only when remaining votes cannot change the predeclared majority decision."""
+    """Stop voting when remaining votes cannot alter the majority."""
     if votes < 1 or votes % 2 == 0:
         raise ValueError("Judge votes must be odd and positive.")
     scores: list[Score] = []
@@ -34,7 +38,10 @@ async def collect_majority(
             break
     result = majority_score(scores, key)
     logger.info(
-        "Judge decision: %d/%d calls, %.2f seconds", len(scores), votes, perf_counter() - started
+        "Judge decision: %d/%d calls, %.2f seconds",
+        len(scores),
+        votes,
+        perf_counter() - started,
     )
     return result.model_copy(
         update={
@@ -48,17 +55,23 @@ async def collect_majority(
     )
 
 
-def majority_score(scores: Sequence[Score], key: Callable[[Score], str]) -> Score:
-    """Return the first score carrying the strict-majority verdict, annotated with all votes.
+def majority_score(
+    scores: Sequence[Score], key: Callable[[Score], str]
+) -> Score:
+    """Annotate the strict-majority score with all observed votes.
 
-    When no verdict holds a strict majority, the returned score carries the category
-    ``NO_MAJORITY_CATEGORY`` and a false value, which downstream code treats as unscored.
+    When no verdict holds a strict majority, the returned score carries the
+    category ``NO_MAJORITY_CATEGORY`` and a false value, which downstream code
+    treats as unscored.
     """
     if not scores:
         raise ValueError("At least one judge verdict is required.")
     votes = [key(score) for score in scores]
     winner, count = Counter(votes).most_common(1)[0]
-    metadata = {**(scores[0].score_metadata or {}), VOTES_METADATA_KEY: ",".join(votes)}
+    metadata = {
+        **(scores[0].score_metadata or {}),
+        VOTES_METADATA_KEY: ",".join(votes),
+    }
     if count * 2 > len(votes):
         chosen = next(score for score in scores if key(score) == winner)
         return chosen.model_copy(update={"score_metadata": metadata})
@@ -66,7 +79,9 @@ def majority_score(scores: Sequence[Score], key: Callable[[Score], str]) -> Scor
         update={
             "score_value": "false",
             "score_category": [NO_MAJORITY_CATEGORY],
-            "score_rationale": f"No majority among judge verdicts: {', '.join(votes)}.",
+            "score_rationale": (
+                f"No majority among judge verdicts: {', '.join(votes)}."
+            ),
             "score_metadata": metadata,
         }
     )

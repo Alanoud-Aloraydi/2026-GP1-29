@@ -9,7 +9,7 @@ from harass.domain.target_connection import TargetConnection
 
 
 class AttemptExecutor(ABC):
-    """Execute a variant in a new target conversation, with OWASP-specific context."""
+    """Execute an isolated variant with OWASP-specific context."""
 
     @abstractmethod
     async def execute(
@@ -19,4 +19,4 @@ class AttemptExecutor(ABC):
         target: TargetConnection,
         run_identifier: str,
     ) -> CaseOutcome:
-        """Return an outcome, preserving an error rather than inventing a verdict."""
+        """Execute an attempt and preserve any technical failure."""

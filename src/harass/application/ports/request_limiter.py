@@ -8,4 +8,4 @@ class RequestLimiter(ABC):
 
     @abstractmethod
     def consume(self, key: str, limit: int, window_seconds: int = 60) -> int:
-        """Return zero if admitted, otherwise seconds until the current window ends."""
+        """Admit a request or return its remaining rate-limit wait."""

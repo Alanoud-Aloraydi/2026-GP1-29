@@ -1,4 +1,4 @@
-"""Real cryptographic and HTTP authentication checks against isolated SQLite stores."""
+"""Tests for authentication."""
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -9,22 +9,29 @@ import jwt
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session, sessionmaker
 
+from harass.application.accounts.authentication import (
+    ManageAuthentication,
+)
+from harass.application.connections import ManageConnections
+from harass.application.evaluation.run_service import ManageRuns
 from harass.application.ports.connection_verifier import ConnectionVerifier
-from harass.application.use_cases.manage_authentication import ManageAuthentication
-from harass.application.use_cases.manage_connections import ManageConnections
-from harass.application.use_cases.manage_runs import ManageRuns
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.persistence.sqlalchemy_request_limiter import SqlAlchemyRequestLimiter
-from harass.infrastructure.persistence.sqlalchemy_stores import SqlAlchemyConnectionStore
-from harass.infrastructure.persistence.tables import Base
-from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
-from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
+from harass.infrastructure.persistence.sqlalchemy_connections import (
+    SqlAlchemyConnectionStore,
+)
+from harass.infrastructure.persistence.sqlalchemy_request_limiter import (
+    SqlAlchemyRequestLimiter,
+)
+from harass.infrastructure.security.fernet_secret_cipher import (
+    FernetSecretCipher,
+)
+from harass.infrastructure.security.jwt_authentication import (
+    JwtAuthenticationSecurity,
+)
 from harass.interfaces.api.app import create_app
 
 SIGNING_KEY = "isolated-auth-test-signing-key-at-least-48-bytes-long"
@@ -33,15 +40,14 @@ MUTATION = {"X-Harass-Request": "1"}
 
 
 @pytest.fixture
-def client(request: pytest.FixtureRequest) -> Iterator[TestClient]:
-    """Wire the real auth service and owner-scoped connections without external endpoints."""
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(engine)
+def client(
+    request: pytest.FixtureRequest, database_factory: sessionmaker[Session]
+) -> Iterator[TestClient]:
+    """Provide isolated client."""
+    factory = database_factory
     authentication = ManageAuthentication(
-        SqlAlchemyAuthenticationStore(factory), JwtAuthenticationSecurity(SIGNING_KEY)
+        SqlAlchemyAuthenticationStore(factory),
+        JwtAuthenticationSecurity(SIGNING_KEY),
     )
     connections = ManageConnections(
         SqlAlchemyConnectionStore(factory),
@@ -59,18 +65,26 @@ def client(request: pytest.FixtureRequest) -> Iterator[TestClient]:
         )
     ) as http:
         yield http
-    engine.dispose()
 
 
 def signup(client: TestClient, email: str = "first@example.test") -> str:
-    """Create a test user and return its cookie without exposing it to output."""
+    """Create an isolated account."""
     response = client.post(
         "/auth/signup",
         headers=MUTATION,
-        json={"full_name": "مستخدم اختبار", "email": email, "password": PASSWORD},
+        json={
+            "full_name": "مستخدم اختبار",
+            "email": email,
+            "password": PASSWORD,
+        },
     )
     assert response.status_code == 201
-    assert set(response.json()) == {"user_id", "full_name", "email"}
+    assert set(response.json()) == {
+        "user_id",
+        "full_name",
+        "email",
+        "email_verified",
+    }
     cookie = response.headers["set-cookie"]
     assert "HttpOnly" in cookie and "SameSite=strict" in cookie
     assert response.headers["cache-control"] == "no-store"
@@ -78,17 +92,24 @@ def signup(client: TestClient, email: str = "first@example.test") -> str:
 
 
 @pytest.mark.parametrize("client", [True], indirect=True)
-def test_shared_limiter_rejects_requests_before_password_validation(client: TestClient) -> None:
+def test_shared_limiter_rejects_requests_before_password_validation(
+    client: TestClient,
+) -> None:
     """Production admission control also counts malformed login bodies."""
     for _ in range(10):
-        assert client.post("/auth/login", headers=MUTATION, json={}).status_code == 422
+        assert (
+            client.post("/auth/login", headers=MUTATION, json={}).status_code
+            == 422
+        )
     response = client.post("/auth/login", headers=MUTATION, json={})
     assert response.status_code == 429
     assert 1 <= int(response.headers["retry-after"]) <= 60
 
 
-def test_cookie_login_and_logout_revokes_replayed_token(client: TestClient) -> None:
-    """Deleting a browser cookie is backed by server revocation, preventing replay."""
+def test_cookie_login_and_logout_revokes_replayed_token(
+    client: TestClient,
+) -> None:
+    """Verify cookie login and logout revokes replayed token."""
     token = signup(client)
     assert client.get("/auth/me").status_code == 200
     assert client.post("/auth/logout", headers=MUTATION).status_code == 204
@@ -96,13 +117,17 @@ def test_cookie_login_and_logout_revokes_replayed_token(client: TestClient) -> N
     assert client.get("/auth/me").status_code == 401
     client.cookies.clear()
     response = client.post(
-        "/auth/login", headers=MUTATION, json={"email": "FIRST@EXAMPLE.TEST", "password": PASSWORD}
+        "/auth/login",
+        headers=MUTATION,
+        json={"email": "FIRST@EXAMPLE.TEST", "password": PASSWORD},
     )
     assert response.status_code == 200
 
 
-def test_connections_are_isolated_between_signed_in_accounts(client: TestClient) -> None:
-    """A second user cannot read a first user's connection even with a forged owner header."""
+def test_connections_are_isolated_between_signed_in_accounts(
+    client: TestClient,
+) -> None:
+    """Verify connections are isolated between signed in accounts."""
     signup(client)
     response = client.post(
         "/connections",
@@ -118,13 +143,19 @@ def test_connections_are_isolated_between_signed_in_accounts(client: TestClient)
     assert response.headers["cache-control"] == "no-store"
     client.post("/auth/logout", headers=MUTATION)
     signup(client, "second@example.test")
-    assert client.get("/connections", headers={"X-Owner-Id": first_id}).json() == []
+    assert (
+        client.get("/connections", headers={"X-Owner-Id": first_id}).json()
+        == []
+    )
     connection_id = response.json()["connection_id"]
     assert (
         client.put(
             f"/connections/{connection_id}",
             headers=MUTATION,
-            json={"base_url": "https://fixture.invalid/v1", "model_name": "fixture"},
+            json={
+                "base_url": "https://fixture.invalid/v1",
+                "model_name": "fixture",
+            },
         ).status_code
         == 404
     )
@@ -142,7 +173,7 @@ def test_cross_origin_or_unmarked_mutation_is_rejected(
     client: TestClient,
     mutation_headers: dict[str, str],
 ) -> None:
-    """Login is protected against cross-site mutation as well as authenticated writes."""
+    """Verify cross origin or unmarked mutation is rejected."""
     assert (
         client.post(
             "/auth/login",
@@ -154,7 +185,7 @@ def test_cross_origin_or_unmarked_mutation_is_rejected(
 
 
 def test_validation_never_echoes_credentials(client: TestClient) -> None:
-    """Invalid fields return locations and recovery messages without submitted secrets."""
+    """Verify validation never echoes credentials."""
     response = client.post(
         "/auth/signup",
         headers=MUTATION,
@@ -164,10 +195,14 @@ def test_validation_never_echoes_credentials(client: TestClient) -> None:
     assert all("input" not in item for item in response.json()["detail"])
 
 
-def test_tampered_expired_and_wrong_algorithm_tokens_are_rejected(client: TestClient) -> None:
-    """Signatures, expiry and allowed algorithms are validated before owner resolution."""
+def test_tampered_expired_and_wrong_algorithm_tokens_are_rejected(
+    client: TestClient,
+) -> None:
+    """Verify tampered expired and wrong algorithm tokens are rejected."""
     token = signup(client)
-    claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"], audience="harass-web")
+    claims = jwt.decode(
+        token, SIGNING_KEY, algorithms=["HS256"], audience="harass-web"
+    )
     claims["exp"] = datetime.now(UTC) - timedelta(seconds=1)
     expired = jwt.encode(claims, SIGNING_KEY, algorithm="HS256")
     claims["exp"] = datetime.now(UTC) + timedelta(seconds=60)
@@ -181,16 +216,25 @@ def test_tampered_expired_and_wrong_algorithm_tokens_are_rejected(client: TestCl
         assert client.get("/connections").status_code == 401
 
 
-def test_rate_limit_precedes_repeated_password_work(client: TestClient) -> None:
+def test_rate_limit_precedes_repeated_password_work(
+    client: TestClient,
+) -> None:
     """Even malformed repeated auth requests are bounded per client."""
     for _ in range(10):
-        assert client.post("/auth/login", headers=MUTATION, json={}).status_code == 422
+        assert (
+            client.post("/auth/login", headers=MUTATION, json={}).status_code
+            == 422
+        )
     response = client.post("/auth/login", headers=MUTATION, json={})
-    assert response.status_code == 429 and response.headers["Retry-After"] == "60"
+    assert (
+        response.status_code == 429 and response.headers["Retry-After"] == "60"
+    )
 
 
-def test_wrong_credentials_and_duplicate_registration(client: TestClient) -> None:
-    """Wrong passwords are rejected and canonical duplicate accounts are not created."""
+def test_wrong_credentials_and_duplicate_registration(
+    client: TestClient,
+) -> None:
+    """Verify wrong credentials and duplicate registration."""
     signup(client)
     response = client.post(
         "/auth/login",
@@ -201,14 +245,20 @@ def test_wrong_credentials_and_duplicate_registration(client: TestClient) -> Non
     duplicate = client.post(
         "/auth/signup",
         headers=MUTATION,
-        json={"full_name": "مستخدم آخر", "email": "FIRST@EXAMPLE.TEST", "password": PASSWORD},
+        json={
+            "full_name": "مستخدم آخر",
+            "email": "FIRST@EXAMPLE.TEST",
+            "password": PASSWORD,
+        },
     )
     assert duplicate.status_code == 400
 
 
 def test_key_rotation_canonicalizes_legacy_ids_and_rejects_expiry() -> None:
-    """Previous signing keys verify valid sessions without weakening expiration checks."""
-    from harass.application.use_cases.manage_authentication import AuthenticationError
+    """Verify key rotation canonicalizes legacy ids and rejects expiry."""
+    from harass.application.accounts.errors import (
+        AuthenticationError,
+    )
     from harass.domain.authentication import AuthenticationSession
 
     previous = "previous-test-key-32-bytes-minimum-material"
@@ -223,33 +273,48 @@ def test_key_rotation_canonicalizes_legacy_ids_and_rejects_expiry() -> None:
     assert decoded.session_id == "10000000-0000-4000-8000-000000000001"
     assert decoded.user_id == "20000000-0000-4000-8000-000000000001"
     expired = AuthenticationSession(
-        session.session_id, session.user_id, datetime.now(UTC) - timedelta(seconds=1)
+        session.session_id,
+        session.user_id,
+        datetime.now(UTC) - timedelta(seconds=1),
     )
     with pytest.raises(AuthenticationError):
         current.decode_session(old.encode_session(expired))
     with pytest.raises(AuthenticationError):
-        JwtAuthenticationSecurity(SIGNING_KEY).decode_session(old.encode_session(session))
+        JwtAuthenticationSecurity(SIGNING_KEY).decode_session(
+            old.encode_session(session)
+        )
 
 
-def test_body_limit_applies_before_parsing_and_security_headers(client: TestClient) -> None:
-    """Oversized credential requests fail without reaching JSON or password processing."""
-    response = client.post("/auth/login", headers=MUTATION, content=b"x" * 65537)
+def test_body_limit_applies_before_parsing_and_security_headers(
+    client: TestClient,
+) -> None:
+    """Verify body limit applies before parsing and security headers."""
+    response = client.post(
+        "/auth/login", headers=MUTATION, content=b"x" * 65537
+    )
     assert response.status_code == 413
     response = client.get("/auth/me")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
 
 
-def test_repeated_password_has_actionable_code_and_ownership_fields_are_forbidden(
+def test_weak_password_feedback_and_forbidden_ownership(
     client: TestClient,
 ) -> None:
-    """Weak-password feedback is explicit and request bodies cannot set ownership fields."""
+    """Verify weak password feedback and forbidden ownership."""
     response = client.post(
         "/auth/signup",
         headers=MUTATION,
-        json={"full_name": "Test User", "email": "weak@example.test", "password": "a" * 20},
+        json={
+            "full_name": "Test User",
+            "email": "weak@example.test",
+            "password": "a" * 20,
+        },
     )
-    assert response.status_code == 400 and response.json()["code"] == "password_rejected"
+    assert (
+        response.status_code == 400
+        and response.json()["code"] == "password_rejected"
+    )
     response = client.post(
         "/auth/signup",
         headers=MUTATION,
@@ -261,3 +326,139 @@ def test_repeated_password_has_actionable_code_and_ownership_fields_are_forbidde
         },
     )
     assert response.status_code == 422
+
+
+def test_refresh_rotation_replay_revokes_the_family(
+    client: TestClient,
+) -> None:
+    """Replayed refresh credentials invalidate their session family."""
+    signup(client)
+    original = client.cookies.get("harass_refresh")
+    assert original
+    response = client.post("/auth/refresh", headers=MUTATION)
+    assert response.status_code == 200
+    successor = client.cookies.get("harass_refresh")
+    access = client.cookies.get("harass_session")
+    assert successor and successor != original and access
+    replay = client.post(
+        "/auth/refresh",
+        headers={**MUTATION, "Cookie": "harass_refresh=" + original},
+    )
+    assert replay.status_code == 401
+    client.cookies.clear()
+    client.cookies.set("harass_session", access)
+    assert client.get("/auth/me").status_code == 401
+
+
+def test_forged_refresh_cannot_revoke_a_known_session(
+    client: TestClient,
+) -> None:
+    """Knowing a session UUID alone cannot sign another session out."""
+    access = signup(client)
+    refresh = client.cookies.get("harass_refresh")
+    assert refresh
+    forged = refresh.split(".")[0] + "." + "x" * 43
+    assert (
+        client.post(
+            "/auth/refresh",
+            headers={**MUTATION, "Cookie": "harass_refresh=" + forged},
+        ).status_code
+        == 401
+    )
+    client.cookies.clear()
+    client.cookies.set("harass_session", access)
+    assert client.get("/auth/me").status_code == 200
+
+
+def test_password_change_revokes_previous_access_and_refresh(
+    client: TestClient,
+) -> None:
+    """Password replacement revokes every previous credential."""
+    old_access = signup(client)
+    old_refresh = client.cookies.get("harass_refresh")
+    response = client.post(
+        "/auth/password",
+        headers=MUTATION,
+        json={
+            "current_password": PASSWORD,
+            "new_password": "replacement-long-test-password-2026",
+        },
+    )
+    assert response.status_code == 200
+    assert client.get("/auth/me").status_code == 200
+    assert len(client.get("/auth/sessions").json()) == 1
+    client.cookies.clear()
+    client.cookies.set("harass_session", old_access)
+    assert client.get("/auth/me").status_code == 401
+    assert (
+        client.post(
+            "/auth/refresh",
+            headers={
+                **MUTATION,
+                "Cookie": "harass_refresh=" + str(old_refresh),
+            },
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/auth/login",
+            headers=MUTATION,
+            json={"email": "first@example.test", "password": PASSWORD},
+        ).status_code
+        == 401
+    )
+
+
+def test_sessions_are_owner_scoped_and_logout_all_revokes_refresh(
+    client: TestClient,
+) -> None:
+    """Scope session revocation to its owner and support global logout."""
+    access = signup(client)
+    first = client.get("/auth/sessions").json()[0]["session_id"]
+    client.cookies.clear()
+    signup(client, "second@example.test")
+    assert (
+        client.delete("/auth/sessions/" + first, headers=MUTATION).status_code
+        == 204
+    )
+    assert (
+        client.get(
+            "/auth/me", headers={"Cookie": "harass_session=" + access}
+        ).status_code
+        == 200
+    )
+    refresh = client.cookies.get("harass_refresh")
+    assert client.post("/auth/logout-all", headers=MUTATION).status_code == 204
+    assert (
+        client.post(
+            "/auth/refresh",
+            headers={**MUTATION, "Cookie": "harass_refresh=" + str(refresh)},
+        ).status_code
+        == 401
+    )
+
+
+@pytest.mark.parametrize(
+    "claim,value",
+    [
+        ("iss", "foreign"),
+        ("aud", "foreign"),
+        ("token_type", "refresh"),
+        ("iat", True),
+        ("nbf", 4102444800),
+    ],
+)
+def test_access_claim_boundaries(
+    client: TestClient, claim: str, value: object
+) -> None:
+    """Reject signed tokens with invalid identity or temporal claims."""
+    token = signup(client)
+    claims = jwt.decode(
+        token, SIGNING_KEY, algorithms=["HS256"], audience="harass-web"
+    )
+    claims[claim] = value
+    forged = jwt.encode(claims, SIGNING_KEY, algorithm="HS256")
+    client.cookies.clear()
+    client.cookies.set("harass_session", forged)
+    assert client.get("/auth/me").status_code == 401

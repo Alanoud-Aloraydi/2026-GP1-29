@@ -4,7 +4,9 @@ import pytest
 from cryptography.fernet import Fernet
 
 from harass.application.errors import SecretCipherError
-from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
+from harass.infrastructure.security.fernet_secret_cipher import (
+    FernetSecretCipher,
+)
 
 SECRET = "sk-test-placeholder"
 
@@ -34,7 +36,9 @@ def test_altered_token_is_rejected(cipher: FernetSecretCipher) -> None:
         cipher.decrypt(altered)
 
 
-def test_token_from_another_key_is_rejected(cipher: FernetSecretCipher) -> None:
+def test_token_from_another_key_is_rejected(
+    cipher: FernetSecretCipher,
+) -> None:
     """A token is readable only with the key that produced it."""
     other = FernetSecretCipher(Fernet.generate_key().decode("ascii"))
 

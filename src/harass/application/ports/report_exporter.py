@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from harass.application.evaluation_report import EvaluationReport
+from harass.application.evaluation.contracts import EvaluationReport
 
 
 class ReportExporter(ABC):
@@ -13,6 +13,5 @@ class ReportExporter(ABC):
     def export(self, report: EvaluationReport, destination: Path) -> None:
         """Write the report, replacing any existing file at the destination.
 
-        Raises:
-            ReportExportError: If the report cannot be written.
+        Raises: ReportExportError: If the report cannot be written.
         """

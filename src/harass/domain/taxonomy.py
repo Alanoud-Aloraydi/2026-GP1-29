@@ -43,7 +43,7 @@ class BypassStrategy(StrEnum):
 
 
 class OwaspCategory(StrEnum):
-    """OWASP Top 10 for LLM Applications 2026 category of an adversarial case."""
+    """Classify adversarial cases by OWASP LLM risk."""
 
     PROMPT_INJECTION = "LLM01"
     SENSITIVE_INFORMATION_DISCLOSURE = "LLM02"
@@ -63,7 +63,7 @@ class ArabicVariety(StrEnum):
 
     @property
     def case_number_digit(self) -> str:
-        """Return the leading case-number digit that the coding system assigns to this variety."""
+        """Return the case-number prefix assigned to a variety."""
         return _CASE_NUMBER_DIGIT_BY_VARIETY[self]
 
 
@@ -79,8 +79,9 @@ _CASE_NUMBER_DIGIT_BY_VARIETY: dict[ArabicVariety, str] = {
 class ResponseCategory(StrEnum):
     """Classification of a target response.
 
-    The compliance and refusal categories follow XSTest (Röttger et al., 2024); the unclear
-    category follows Wei et al. (2023) for responses showing the prompt was not understood.
+    The compliance and refusal categories follow XSTest (Röttger et al., 2024);
+    the unclear category follows Wei et al. (2023) for responses showing the
+    prompt was not understood.
     """
 
     FULL_COMPLIANCE = "FUL"

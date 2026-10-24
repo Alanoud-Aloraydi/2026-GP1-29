@@ -1,4 +1,4 @@
-"""Port for checking that a model endpoint is reachable with the given credentials."""
+"""Check model endpoints using the supplied credentials."""
 
 from abc import ABC, abstractmethod
 
@@ -10,4 +10,4 @@ class ConnectionVerifier(ABC):
 
     @abstractmethod
     async def verify(self, target: TargetConnection) -> str | None:
-        """Return ``None`` when the endpoint serves the model, otherwise a short reason."""
+        """Return an error message when model verification fails."""

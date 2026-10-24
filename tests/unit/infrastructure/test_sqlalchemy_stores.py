@@ -14,11 +14,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from harass.application.errors import UnknownConnectionError, UnknownRunError
 from harass.domain.evaluation_run import EvaluationRun, RunStatus
 from harass.domain.model_connection import ConnectionStatus, ModelConnection
-from harass.infrastructure.persistence.sqlalchemy_stores import (
+from harass.infrastructure.persistence.sqlalchemy_connections import (
     SqlAlchemyConnectionStore,
+)
+from harass.infrastructure.persistence.sqlalchemy_runs import (
     SqlAlchemyRunStore,
 )
-from harass.infrastructure.persistence.tables import Base, GeneratedPromptRow, PromptFindingRow
+from harass.infrastructure.persistence.tables import (
+    Base,
+    GeneratedPromptRow,
+    PromptFindingRow,
+)
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -33,7 +39,8 @@ def session_factory() -> Iterator[sessionmaker[Session]]:
 
 
 def connection(
-    owner: str = "user-1", status: ConnectionStatus = ConnectionStatus.NOT_TESTED
+    owner: str = "user-1",
+    status: ConnectionStatus = ConnectionStatus.NOT_TESTED,
 ) -> ModelConnection:
     """Return a connection for the given owner and status."""
     return ModelConnection(
@@ -45,7 +52,9 @@ def connection(
     )
 
 
-def test_connection_round_trip_and_key_update(session_factory: sessionmaker[Session]) -> None:
+def test_connection_round_trip_and_key_update(
+    session_factory: sessionmaker[Session],
+) -> None:
     """Saving then updating keeps or replaces the encrypted key as asked."""
     store = SqlAlchemyConnectionStore(session_factory)
     store.save(connection(), "enc-1")
@@ -55,7 +64,9 @@ def test_connection_round_trip_and_key_update(session_factory: sessionmaker[Sess
     assert store.encrypted_api_key("conn-1", "user-1") == "enc-1"
 
 
-def test_connection_is_scoped_to_its_owner(session_factory: sessionmaker[Session]) -> None:
+def test_connection_is_scoped_to_its_owner(
+    session_factory: sessionmaker[Session],
+) -> None:
     """Another owner cannot read the connection."""
     store = SqlAlchemyConnectionStore(session_factory)
     store.save(connection(), "enc-1")
@@ -74,7 +85,9 @@ def test_saving_without_a_key_for_a_new_connection_fails(
         store.save(connection(), None)
 
 
-def run(run_id: str = "run-1", owner: str = "user-1", created: datetime = NOW) -> EvaluationRun:
+def run(
+    run_id: str = "run-1", owner: str = "user-1", created: datetime = NOW
+) -> EvaluationRun:
     """Return a pending run."""
     return EvaluationRun(
         run_id=run_id,
@@ -86,7 +99,9 @@ def run(run_id: str = "run-1", owner: str = "user-1", created: datetime = NOW) -
     )
 
 
-def test_run_lifecycle_and_report(session_factory: sessionmaker[Session]) -> None:
+def test_run_lifecycle_and_report(
+    session_factory: sessionmaker[Session],
+) -> None:
     """A run can be created, advanced and given a report."""
     store = SqlAlchemyRunStore(session_factory)
     store.create(run())
@@ -107,20 +122,28 @@ def test_run_lifecycle_and_report(session_factory: sessionmaker[Session]) -> Non
     assert store.get_report("run-1", "user-1")["run_identifier"] == "run-1"
 
 
-def test_runs_are_listed_most_recent_first(session_factory: sessionmaker[Session]) -> None:
+def test_runs_are_listed_most_recent_first(
+    session_factory: sessionmaker[Session],
+) -> None:
     """Listing orders by creation time, newest first."""
     store = SqlAlchemyRunStore(session_factory)
     store.create(
         replace(
-            run("run-old", created=datetime(2026, 1, 1, tzinfo=UTC)), status=RunStatus.COMPLETED
+            run("run-old", created=datetime(2026, 1, 1, tzinfo=UTC)),
+            status=RunStatus.COMPLETED,
         )
     )
     store.create(run("run-new", created=datetime(2026, 2, 1, tzinfo=UTC)))
 
-    assert [r.run_id for r in store.list_for_owner("user-1")] == ["run-new", "run-old"]
+    assert [r.run_id for r in store.list_for_owner("user-1")] == [
+        "run-new",
+        "run-old",
+    ]
 
 
-def test_missing_report_is_reported(session_factory: sessionmaker[Session]) -> None:
+def test_missing_report_is_reported(
+    session_factory: sessionmaker[Session],
+) -> None:
     """A run without a stored report raises when its report is requested."""
     store = SqlAlchemyRunStore(session_factory)
     store.create(run())
@@ -150,15 +173,26 @@ def test_archive_deduplicates_text_but_retains_independent_observations(
 ) -> None:
     """Replayed delivery is idempotent; another run retains another finding."""
     store = SqlAlchemyRunStore(session_factory)
-    document = {"outcomes": [generated_outcome()], "target_endpoint": "https://api.invalid/v1"}
+    document = {
+        "outcomes": [generated_outcome()],
+        "target_endpoint": "https://api.invalid/v1",
+    }
     store.create(replace(run(), status=RunStatus.COMPLETED))
     store.create(run("run-2"))
     store.save_report("run-1", document)
     store.save_report("run-1", document)
     store.save_report("run-2", document)
     with session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(GeneratedPromptRow)) == 1
-        assert session.scalar(select(func.count()).select_from(PromptFindingRow)) == 2
+        assert (
+            session.scalar(
+                select(func.count()).select_from(GeneratedPromptRow)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(PromptFindingRow))
+            == 2
+        )
         finding = session.scalars(select(PromptFindingRow)).first()
         assert finding is not None
         assert finding.evidence["label_source"] == "automated_judge"
@@ -181,12 +215,17 @@ def test_archive_deduplicates_text_but_retains_independent_observations(
 def test_archive_excludes_originals_failed_and_unscored_attempts(
     session_factory: sessionmaker[Session], changes: dict[str, Any]
 ) -> None:
-    """Research findings never treat missing verdicts or non-defects as successes."""
+    """Verify archive excludes originals failed and unscored attempts."""
     store = SqlAlchemyRunStore(session_factory)
     store.create(run())
-    store.save_report("run-1", {"outcomes": [{**generated_outcome(), **changes}]})
+    store.save_report(
+        "run-1", {"outcomes": [{**generated_outcome(), **changes}]}
+    )
     with session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(PromptFindingRow)) == 0
+        assert (
+            session.scalar(select(func.count()).select_from(PromptFindingRow))
+            == 0
+        )
 
 
 def test_archive_preserves_invisible_characters_and_over_refusal_findings(
@@ -209,21 +248,34 @@ def test_archive_preserves_invisible_characters_and_over_refusal_findings(
             "request",
             "re\u200bquest",
         }
-        assert session.scalar(select(func.count()).select_from(PromptFindingRow)) == 2
+        assert (
+            session.scalar(select(func.count()).select_from(PromptFindingRow))
+            == 2
+        )
 
 
-def test_concurrent_report_delivery_archives_one_observation(tmp_path: Path) -> None:
-    """Concurrent deliveries cannot duplicate either the report or its research finding."""
+def test_concurrent_report_delivery_archives_one_observation(
+    tmp_path: Path,
+) -> None:
+    """Verify concurrent report delivery archives one observation."""
     engine = create_engine(f"sqlite:///{tmp_path / 'archive.sqlite'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
     store = SqlAlchemyRunStore(factory)
     store.create(run())
-    document = {"outcomes": [generated_outcome()], "target_model": "executed-model"}
+    document = {
+        "outcomes": [generated_outcome()],
+        "target_model": "executed-model",
+    }
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(lambda _: store.save_report("run-1", document), range(8)))
+        list(
+            pool.map(lambda _: store.save_report("run-1", document), range(8))
+        )
     with factory() as session:
-        assert session.scalar(select(func.count()).select_from(PromptFindingRow)) == 1
+        assert (
+            session.scalar(select(func.count()).select_from(PromptFindingRow))
+            == 1
+        )
         finding = session.scalars(select(PromptFindingRow)).one()
         assert finding.target_model == "executed-model"
     engine.dispose()
@@ -238,7 +290,10 @@ def test_archive_failure_rolls_back_report_and_prior_findings(
     document = {
         "outcomes": [
             generated_outcome(),
-            {**generated_outcome(), "transcript": {"response": "missing sent prompt"}},
+            {
+                **generated_outcome(),
+                "transcript": {"response": "missing sent prompt"},
+            },
         ]
     }
     with pytest.raises(KeyError):
@@ -246,8 +301,16 @@ def test_archive_failure_rolls_back_report_and_prior_findings(
     with pytest.raises(UnknownRunError):
         store.get_report("run-1", "user-1")
     with session_factory() as session:
-        assert session.scalar(select(func.count()).select_from(GeneratedPromptRow)) == 0
-        assert session.scalar(select(func.count()).select_from(PromptFindingRow)) == 0
+        assert (
+            session.scalar(
+                select(func.count()).select_from(GeneratedPromptRow)
+            )
+            == 0
+        )
+        assert (
+            session.scalar(select(func.count()).select_from(PromptFindingRow))
+            == 0
+        )
 
 
 def test_snapshot_rejects_stale_verification_and_keeps_matching_key(
@@ -264,12 +327,17 @@ def test_snapshot_rejects_stale_verification_and_keeps_matching_key(
         store.save(replace(original, status=ConnectionStatus.CONNECTED), None)
     latest, latest_key = store.snapshot("conn-1", "user-1")
     assert original_key == "first-key" and latest_key == "second-key"
-    assert latest.model_name == "new-model" and latest.revision == original.revision + 1
+    assert (
+        latest.model_name == "new-model"
+        and latest.revision == original.revision + 1
+    )
     assert latest.created_at is not None and latest.created_at.tzinfo is UTC
 
 
-def test_sqlite_run_timestamps_retain_utc(session_factory: sessionmaker[Session]) -> None:
-    """Browser elapsed-time calculations receive an explicit timezone on every dialect."""
+def test_sqlite_run_timestamps_retain_utc(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Verify sqlite run timestamps retain utc."""
     store = SqlAlchemyRunStore(session_factory)
     store.create(run())
     restored = store.get("run-1", "user-1")

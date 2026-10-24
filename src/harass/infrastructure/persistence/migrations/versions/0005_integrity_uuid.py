@@ -23,10 +23,12 @@ IDENTIFIERS = {
 
 
 def _identifiers(native: bool) -> None:
-    """Alter dependent columns together while retaining existing UUID values."""
+    """Convert dependent identifier columns while preserving UUIDs."""
     if op.get_bind().dialect.name != "postgresql":
         return
-    constraints: list[tuple[str, str, list[str], str, list[str], dict[str, Any]]] = []
+    constraints: list[
+        tuple[str, str, list[str], str, list[str], dict[str, Any]]
+    ] = []
     if context.is_offline_mode():
         for table, column, parent, parent_column in (
             ("authentication_sessions", "user_id", "users", "user_id"),
@@ -35,9 +37,18 @@ def _identifiers(native: bool) -> None:
             ("run_jobs", "run_id", "runs", "run_id"),
             ("run_outcomes", "run_id", "runs", "run_id"),
         ):
-            options: dict[str, Any] = {"ondelete": "CASCADE"} if table == "reports" else {}
+            options: dict[str, Any] = (
+                {"ondelete": "CASCADE"} if table == "reports" else {}
+            )
             constraints.append(
-                (table, f"{table}_{column}_fkey", [column], parent, [parent_column], options)
+                (
+                    table,
+                    f"{table}_{column}_fkey",
+                    [column],
+                    parent,
+                    [parent_column],
+                    options,
+                )
             )
     else:
         inspector = sa.inspect(op.get_bind())
@@ -46,7 +57,9 @@ def _identifiers(native: bool) -> None:
                 if set(foreign_key["constrained_columns"]) & set(columns):
                     name = foreign_key["name"]
                     if name is None:
-                        raise RuntimeError("PostgreSQL identifier foreign keys must be named.")
+                        raise RuntimeError(
+                            "PostgreSQL identifier foreign keys must be named."
+                        )
                     constraints.append(
                         (
                             table,
@@ -65,28 +78,48 @@ def _identifiers(native: bool) -> None:
                 table,
                 column,
                 type_=sa.Uuid(as_uuid=False) if native else sa.String(64),
-                postgresql_using=f'"{column}"::' + ("uuid" if native else "text"),
+                postgresql_using=f'"{column}"::'
+                + ("uuid" if native else "text"),
             )
-    for table, name, local_columns, parent, parent_columns, foreign_options in constraints:
+    for (
+        table,
+        name,
+        local_columns,
+        parent,
+        parent_columns,
+        foreign_options,
+    ) in constraints:
         op.create_foreign_key(
-            name, table, parent, local_columns, parent_columns, **foreign_options
+            name,
+            table,
+            parent,
+            local_columns,
+            parent_columns,
+            **foreign_options,
         )
 
 
 def upgrade() -> None:
-    """Reject invalid legacy ownership rather than deleting or reassigning records."""
+    """Validate legacy ownership and apply identifier constraints."""
     _identifiers(True)
     with op.batch_alter_table("connections") as batch:
         batch.create_unique_constraint(
             "uq_connections_identity_owner", ["connection_id", "owner_id"]
         )
-        batch.create_foreign_key("fk_connections_owner", "users", ["owner_id"], ["user_id"])
-        batch.create_check_constraint(
-            "ck_connections_status", "status IN ('not_tested', 'connected', 'failed')"
+        batch.create_foreign_key(
+            "fk_connections_owner", "users", ["owner_id"], ["user_id"]
         )
-        batch.create_check_constraint("ck_connections_revision", "revision >= 0")
+        batch.create_check_constraint(
+            "ck_connections_status",
+            "status IN ('not_tested', 'connected', 'failed')",
+        )
+        batch.create_check_constraint(
+            "ck_connections_revision", "revision >= 0"
+        )
     with op.batch_alter_table("runs") as batch:
-        batch.create_foreign_key("fk_runs_owner", "users", ["owner_id"], ["user_id"])
+        batch.create_foreign_key(
+            "fk_runs_owner", "users", ["owner_id"], ["user_id"]
+        )
         batch.create_foreign_key(
             "fk_runs_connection_owner",
             "connections",
@@ -95,12 +128,18 @@ def upgrade() -> None:
         )
         batch.create_check_constraint(
             "ck_runs_status",
-            "status IN ('pending', 'running', 'completed', 'failed', 'cancelled')",
+            (
+                "status IN ('pending', 'running', 'completed', "
+                "'failed', 'cancelled')"
+            ),
         )
         batch.create_check_constraint(
             "ck_runs_progress",
-            "total_cases >= 0 AND completed_cases >= 0 AND completed_cases <= total_cases "
-            "AND completed_attempts >= 0",
+            (
+                "total_cases >= 0 AND completed_cases >= 0 AND "
+                "completed_cases <= total_cases AND "
+                "completed_attempts >= 0"
+            ),
         )
 
 
