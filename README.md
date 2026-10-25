@@ -2,93 +2,79 @@
 
 **Hardened Arabic Red-Teaming and Safety Shield**
 
-HARASS evaluates the safety of Arabic-supporting large language models through baseline and adaptive single-turn testing. It measures adversarial compliance and over-refusal across Modern Standard Arabic, Najdi, Hijazi, Egyptian, and Levantine Arabic.
+King Saud University  
+College of Computer and Information Sciences  
+Department of Information Technology  
+Information Technology (IT) 496: Graduation Project-1  
+First Semester 1448H - Fall 2026
 
-## Current capabilities
+---
 
-- Baseline evaluation using human-authored cases.
-- Adaptive single-turn evaluation using authored prompt variants.
-- Independent target and judge endpoints with OpenAI-compatible APIs.
-- Repeated judge verdicts combined through majority voting.
-- Durable evaluation jobs with checkpoints and recovery.
-- Arabic safety reports with coverage, metrics, and judge evidence.
-- Encrypted target credentials and revocable user sessions.
+## Introduction
 
-Adaptive multi-turn evaluation and generated prompt discovery are planned extensions.
+HARASS is a web-based platform for evaluating the safety of
+Arabic-supporting large language models (LLMs). It examines Adversarial
+Attacks and Over-refusal across Modern Standard Arabic (MSA), Najdi,
+Hijazi, Egyptian, and Levantine Arabic.
 
-## Architecture
+The HARASS Safety Dataset supports standardized baseline evaluation and
+provides seed cases for HARASS Agent. The agent generates and adapts
+single-turn and multi-turn test cases using assessment feedback from
+previous model responses.
 
-HARASS follows a layered architecture:
+The results form the HARASS Benchmark for comparing six selected models
+and guide HARASS Shield, which measures model safety before and after a
+defensive intervention. HARASS aims to provide developers and model owners
+with a systematic framework for identifying, measuring, and comparing
+safety weaknesses in Arabic-supporting LLMs.
 
-```text
-Bootstrap
-    ↓
-Interfaces and Infrastructure
-    ↓
-Application
-    ↓
-Domain
-```
+## Technologies Used
 
-The API validates and queues evaluations in PostgreSQL. An independent worker processes queued runs through PyRIT and stores their results. PostgreSQL holds application records, while a dedicated Docker volume preserves PyRIT memory.
+- **Frontend:** HyperText Markup Language (HTML), Cascading Style Sheets
+  (CSS), and JavaScript
+- **Model Connectivity:** OpenAI-compatible application programming
+  interfaces (APIs)
+- **Backend:** Python and FastAPI
+- **Agentic Evaluation:** Python Risk Identification Tool for generative
+  artificial intelligence (PyRIT) and HARASS evaluation components
+- **Database:** PostgreSQL, SQLAlchemy, and Alembic
+- **Authentication:** JSON Web Tokens (JWTs)
+- **Containerization:** Docker Compose
+- **Testing and Code Quality:** pytest, Ruff, mypy, and Import Linter
+- **Continuous Integration:** GitHub Actions
 
-## Technology
+## Launch Instructions
 
-- Python, FastAPI, PyRIT
-- PostgreSQL, SQLAlchemy, Alembic
-- HTML, CSS, JavaScript
-- Docker Compose
-- pytest, Ruff, mypy, Import Linter
-- GitHub Actions
-
-## Run
-
-Copy the environment template and add the required credentials:
+Create the environment configuration file:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Start the application:
+Add the required configuration values to `.env`, then build and start the
+services:
 
 ```powershell
 docker compose up --build -d
 ```
 
-Open `http://127.0.0.1:8000`, then check the services:
+Open the platform at `http://127.0.0.1:8000`.
 
-```powershell
-docker compose ps
-```
-
-Stop the application without deleting stored data:
+Stop the services without deleting stored data:
 
 ```powershell
 docker compose down
 ```
 
-Do not use `docker compose down -v` unless the PostgreSQL and PyRIT volumes should be deleted.
+## Repository Structure
 
-## Quality checks
+The project directories and file responsibilities are documented in
+[`doc/file-structure.md`](doc/file-structure.md).
 
-```powershell
-python -m pytest -q
-ruff format --check src tests
-ruff check src tests
-mypy --no-incremental src
-lint-imports
-```
+## Supervisor
 
-## Repository structure
+**Prof. Hend Al-Khalifa**
 
-See [`doc/file-structure.md`](doc/file-structure.md).
+## Authors
 
-## Academic context
-
-IT 496: Graduation Project-1<br>
-Department of Information Technology<br>
-College of Computer and Information Sciences<br>
-King Saud University
-
-**Supervisor:** Prof. Hend Al-Khalifa<br>
-**Authors:** See [`AUTHORS`](AUTHORS).
+Project authors are listed in the [AUTHORS](AUTHORS) file.
