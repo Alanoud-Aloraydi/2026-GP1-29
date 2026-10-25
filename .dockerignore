@@ -1,0 +1,16 @@
+# Keep credentials, local environments and unrelated files outside build context.
+**
+!Dockerfile
+!pyproject.toml
+!requirements.txt
+!src/
+!src/**
+!frontend/
+!frontend/**
+!config/
+!config/**
+!data/
+!data/**
+**/__pycache__/
+**/*.pyc
+**/.env*

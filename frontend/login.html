@@ -1,0 +1,65 @@
+<!-- Login interface for the HARASS evaluation service. -->
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>تسجيل الدخول — HARASS</title>
+    <link rel="stylesheet" href="assets/css/styles.css?v=11">
+    <script src="assets/js/core/ui.js?v=11" defer></script>
+    <script src="assets/js/core/api-client.js?v=11" defer></script>
+    <script src="assets/js/core/forms.js?v=11" defer></script>
+    <script src="assets/js/pages/auth.js?v=11" defer></script>
+    <script src="assets/js/core/bootstrap.js?v=11" defer></script>
+  </head>
+  <body data-page="login">
+    <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
+    <div class="page">
+      <header data-shell-header></header>
+      <main class="main" id="main">
+        <div class="container form-container">
+          <div class="page-head">
+            <h1>تسجيل الدخول</h1>
+            <p>افتح حسابك للوصول إلى اتصالاتك وتقاريرك.</p>
+          </div>
+          <div
+            id="pageError"
+            class="alert alert-error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          ></div>
+          <form id="authForm" class="form-panel">
+            <div class="form-group">
+              <label for="email">البريد الإلكتروني</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                autocomplete="email">
+            </div>
+            <div class="form-group">
+              <label for="password">كلمة المرور</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                autocomplete="current-password">
+            </div>
+            <button class="btn btn-primary" type="submit">تسجيل الدخول</button>
+          </form>
+          <p id="forgotPasswordLink" class="mt-4" hidden>
+            <a href="forgot-password.html">نسيت كلمة المرور؟</a>
+          </p>
+          <p class="mt-4">
+            ليس لديك حساب؟
+            <a href="signup.html">إنشاء حساب</a>
+          </p>
+        </div>
+      </main>
+      <footer class="app-footer" data-shell-footer></footer>
+    </div>
+  </body>
+</html>

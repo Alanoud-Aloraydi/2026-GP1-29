@@ -1,0 +1,100 @@
+# Package metadata, dependency constraints and automated quality rules.
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harass"
+version = "0.1.0"
+description = "Agentic red-teaming system for evaluating the safety of Arabic large language models."
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "cryptography==50.0.2",
+    "httpx==0.28.1",
+    "httpcore==1.0.9",
+    "fastapi==0.141.1",
+    "uvicorn==0.54.0",
+    "sqlalchemy==2.1.4",
+    "psycopg[binary]==3.3.6",
+    "alembic==1.20.0",
+    "openpyxl==3.1.5",
+    "pyrit==1.1.0",
+    "python-dotenv==1.2.4",
+    "pyyaml==6.0.3",
+    "PyJWT==2.15.1",
+]
+
+[project.scripts]
+harass = "harass.bootstrap.cli:main"
+harass-api = "harass.bootstrap.api:run"
+harass-worker = "harass.bootstrap.worker:main"
+harass-review = "harass.bootstrap.review_cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "import-linter==2.15",
+    "mypy==2.4.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.17.0",
+    "types-PyYAML==6.0.12.20260906",
+    "types-openpyxl==3.1.5.20260807",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+harass = ["**/*.yaml", "**/*.mako", "**/*.sha256", "**/migrations/versions/*.py", "**/migrations/env.py"]
+
+[tool.ruff]
+line-length = 79
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ANN", "SIM", "RUF"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+packages = ["harass"]
+
+# PyRIT builds __all__ dynamically for lazy loading, which hides its public re-exports from mypy.
+[[tool.mypy.overrides]]
+module = ["pyrit", "pyrit.*"]
+implicit_reexport = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-m 'not live and not scale'"
+markers = [
+    "live: calls the target and judge endpoints configured in .env",
+    "scale: long synthetic dataset and persistence tests without model calls",
+]
+
+[tool.importlinter]
+root_package = "harass"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Dependencies point inward"
+type = "layers"
+layers = [
+    "harass.bootstrap",
+    "harass.interfaces | harass.infrastructure",
+    "harass.application",
+    "harass.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Inner layers are framework independent"
+type = "forbidden"
+source_modules = ["harass.domain", "harass.application"]
+forbidden_modules = ["pyrit", "fastapi", "sqlalchemy", "pydantic", "cryptography"]

@@ -1,0 +1,1 @@
+"""Secret protection adapters."""

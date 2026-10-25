@@ -1,0 +1,150 @@
+<!-- Evaluation setup interface for the HARASS evaluation service. -->
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>تقييم جديد — HARASS</title>
+    <link rel="stylesheet" href="assets/css/styles.css?v=11">
+    <script src="assets/js/core/ui.js?v=11" defer></script>
+    <script src="assets/js/views/run.js?v=11" defer></script>
+    <script src="assets/js/core/api-client.js?v=11" defer></script>
+    <script src="assets/js/core/forms.js?v=11" defer></script>
+    <script src="assets/js/pages/evaluation.js?v=11" defer></script>
+    <script src="assets/js/core/bootstrap.js?v=11" defer></script>
+  </head>
+  <body data-page="evaluation-setup">
+    <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
+    <div class="page">
+      <header data-shell-header></header>
+      <main class="main" id="main">
+        <div class="container">
+          <div class="page-head">
+            <h1>تقييم جديد</h1>
+            <p>
+              اختر طريقة التقييم ونطاقه. يتولى حَرَس اختيار الحالات من مجموعة
+              البيانات.
+            </p>
+          </div>
+          <div
+            id="pageError"
+            class="alert alert-error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          ></div>
+          <form id="evaluationForm" class="form-panel">
+            <div class="form-group">
+              <label for="connection">النموذج</label>
+              <select
+                id="connection"
+                required
+                aria-describedby="connectionHint"
+              >
+                <option value="">جارٍ تحميل الاتصالات…</option>
+              </select>
+              <p class="hint" id="connectionHint">
+                تظهر الاتصالات التي اجتازت اختبار الوصول.
+                <a href="connections.html">إدارة الاتصالات</a>
+              </p>
+            </div>
+            <fieldset>
+              <legend>طريقة التقييم</legend>
+              <div class="choice-grid">
+                <label class="choice">
+                  <input
+                    type="radio"
+                    name="run_type"
+                    value="baseline"
+                    checked>
+                  <span>
+                    <strong>الاختبار الأساسي · Baseline</strong>
+                    <small
+                      >يرسل الطلبات الأصلية كما وردت في مجموعة البيانات.</small
+                    >
+                  </span>
+                </label>
+                <label class="choice">
+                  <input type="radio" name="run_type" value="agentic">
+                  <span>
+                    <strong>الاختبار التكيفي · Agentic</strong>
+                    <small
+                      >يختار محاولات متنوعة وفق النتائج، مع الطلب الأصلي
+                      للمقارنة.</small
+                    >
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>نطاق التقييم</legend>
+              <div class="choice-grid">
+                <label class="choice">
+                  <input name="axis" type="radio" value="all" checked>
+                  <span>
+                    <strong>تقييم كامل للمحورين</strong>
+                    <small>الهجمات الخصومية والرفض المفرط.</small>
+                  </span>
+                </label>
+                <label class="choice">
+                  <input name="axis" type="radio" value="AT">
+                  <span>
+                    <strong>الهجمات الخصومية · AT</strong>
+                    <small>هل يستجيب النموذج لطلبات غير آمنة؟</small>
+                  </span>
+                </label>
+                <label class="choice">
+                  <input name="axis" type="radio" value="OR">
+                  <span>
+                    <strong>الرفض المفرط · OR</strong>
+                    <small>هل يرفض النموذج طلبات مسموحة؟</small>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>اللغة واللهجات</legend>
+              <p class="hint" id="varietiesHint">
+                اختر واحدة على الأقل. تُستخدم الحالات المتاحة دون ترجمة أو
+                توليد لهجات جديدة.
+              </p>
+              <div class="dialect-options" aria-describedby="varietiesHint">
+                <label>
+                  <input type="checkbox" name="variety" value="MSA" checked>
+                  العربية الفصحى
+                </label>
+                <label>
+                  <input type="checkbox" name="variety" value="NAJ" checked>
+                  النجدية
+                </label>
+                <label>
+                  <input type="checkbox" name="variety" value="HIJ" checked>
+                  الحجازية
+                </label>
+                <label>
+                  <input type="checkbox" name="variety" value="EGY" checked>
+                  المصرية
+                </label>
+                <label>
+                  <input type="checkbox" name="variety" value="LEV" checked>
+                  الشامية
+                </label>
+              </div>
+            </fieldset>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit" id="start">
+                بدء التقييم
+              </button>
+              <a href="dashboard.html" class="btn">إلغاء</a>
+            </div>
+            <p class="hint">
+              تُحفظ النتائج في سجل حسابك. النتائج مرتبطة بالحالات المختبرة
+              وليست شهادة سلامة شاملة.
+            </p>
+          </form>
+        </div>
+      </main>
+      <footer class="app-footer" data-shell-footer></footer>
+    </div>
+  </body>
+</html>

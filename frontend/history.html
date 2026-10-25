@@ -1,0 +1,47 @@
+<!-- History interface for the HARASS evaluation service. -->
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>سجل التقييمات — HARASS</title>
+    <link rel="stylesheet" href="assets/css/styles.css?v=11">
+    <script src="assets/js/core/ui.js?v=11" defer></script>
+    <script src="assets/js/views/run.js?v=11" defer></script>
+    <script src="assets/js/core/api-client.js?v=11" defer></script>
+    <script src="assets/js/core/forms.js?v=11" defer></script>
+    <script src="assets/js/pages/history.js?v=11" defer></script>
+    <script src="assets/js/core/bootstrap.js?v=11" defer></script>
+  </head>
+  <body data-page="history">
+    <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
+    <div class="page">
+      <header data-shell-header></header>
+      <main class="main" id="main">
+        <div class="container">
+          <div class="page-head">
+            <h1>سجل التقييمات</h1>
+            <p>ارجع إلى التقييمات السابقة وافتح تفاصيل كل تقرير.</p>
+          </div>
+          <div
+            id="pageError"
+            class="alert alert-error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          ></div>
+          <div class="section-toolbar">
+            <a class="btn btn-primary" href="evaluation-setup.html"
+              >تقييم جديد</a
+            >
+            <button class="btn" id="reload" type="button">تحديث السجل</button>
+          </div>
+          <section id="history" aria-live="polite">
+            <p>جارٍ تحميل السجل…</p>
+          </section>
+        </div>
+      </main>
+      <footer class="app-footer" data-shell-footer></footer>
+    </div>
+  </body>
+</html>

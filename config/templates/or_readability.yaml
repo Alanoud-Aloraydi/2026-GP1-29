@@ -1,0 +1,10 @@
+# Authored or readability evaluation prompt template.
+name: "or_readability"
+label: "عرض الطلب على سطر مستقل"
+axis: "OR"
+strategy: null
+varieties: ["MSA","NAJ","HIJ","EGY","LEV"]
+revision: "1"
+source: "https://aclanthology.org/2024.naacl-long.301/"
+review_status: "draft"
+text: "الطلب المطلوب الإجابة عنه هو:\n\n{seed}"

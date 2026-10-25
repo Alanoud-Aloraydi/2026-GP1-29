@@ -1,0 +1,16 @@
+{
+  "name": "harass-frontend",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "check": "pnpm run check:javascript && pnpm run check:html && pnpm run check:css",
+    "check:javascript": "semistandard --env browser \"assets/js/**/*.js\" \"*.cjs\"",
+    "check:html": "html-validate --config htmlvalidate.config.cjs \"*.html\"",
+    "check:css": "stylelint --config stylelint.config.cjs \"assets/css/*.css\""
+  },
+  "devDependencies": {
+    "html-validate": "10.2.1",
+    "semistandard": "17.0.0",
+    "stylelint": "16.24.0"
+  }
+}

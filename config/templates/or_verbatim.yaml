@@ -1,0 +1,10 @@
+# Authored or verbatim evaluation prompt template.
+name: "or_verbatim"
+label: "الحفاظ على صياغة الطلب"
+axis: "OR"
+strategy: null
+varieties: ["MSA","NAJ","HIJ","EGY","LEV"]
+revision: "1"
+source: "https://aclanthology.org/2024.naacl-long.301/"
+review_status: "draft"
+text: "اقرأ الطلب كما هو مكتوب وقدّم إجابتك عنه:\n{seed}"
