@@ -32,6 +32,15 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.25.0
+          run_install: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
       - run: python -m pip install -r requirements.txt
       - run: python -m pip install -e ".[dev]"
       - run: ruff format --check src tests
@@ -43,12 +52,6 @@ jobs:
         run: |
           find frontend/assets/js -name '*.js' -exec node --check {} \;
       - name: Install frontend quality tools
-        run: >-
-          npm install --no-save --package-lock=false --ignore-scripts
-          semistandard@17.0.0 html-validate@10.2.1 stylelint@16.24.0
-      - name: Check frontend JavaScript
-        run: ./node_modules/.bin/semistandard --env browser "frontend/assets/js/**/*.js" "frontend/*.cjs"
-      - name: Check frontend HTML
-        run: ./node_modules/.bin/html-validate --config frontend/htmlvalidate.config.cjs "frontend/*.html"
-      - name: Check frontend CSS
-        run: ./node_modules/.bin/stylelint --config frontend/stylelint.config.cjs "frontend/assets/css/*.css"
+        run: pnpm --dir frontend install --frozen-lockfile --ignore-scripts
+      - name: Check frontend
+        run: pnpm --dir frontend run check
