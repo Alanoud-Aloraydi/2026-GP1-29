@@ -42,6 +42,13 @@ jobs:
       - name: Check frontend syntax
         run: |
           find frontend/assets/js -name '*.js' -exec node --check {} \;
-      - run: npx --yes semistandard@17.0.0 --env browser "frontend/assets/js/**/*.js" "frontend/*.cjs"
-      - run: npx --yes html-validate@10.2.1 --config frontend/htmlvalidate.config.cjs "frontend/*.html"
-      - run: npx --yes stylelint@16.24.0 --config frontend/stylelint.config.cjs "frontend/assets/css/*.css"
+      - name: Install frontend quality tools
+        run: >-
+          npm install --no-save --package-lock=false --ignore-scripts
+          semistandard@17.0.0 html-validate@10.2.1 stylelint@16.24.0
+      - name: Check frontend JavaScript
+        run: ./node_modules/.bin/semistandard --env browser "frontend/assets/js/**/*.js" "frontend/*.cjs"
+      - name: Check frontend HTML
+        run: ./node_modules/.bin/html-validate --config frontend/htmlvalidate.config.cjs "frontend/*.html"
+      - name: Check frontend CSS
+        run: ./node_modules/.bin/stylelint --config frontend/stylelint.config.cjs "frontend/assets/css/*.css"
