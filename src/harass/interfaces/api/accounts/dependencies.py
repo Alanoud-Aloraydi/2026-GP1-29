@@ -7,7 +7,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.accounts.errors import AuthenticationError
-from harass.domain.authentication import User
+from harass.domain.authentication import User, UserRole
 from harass.interfaces.api.accounts.cookies import (
     COOKIE_NAME,
 )
@@ -17,6 +17,20 @@ async def authenticated_owner(request: Request) -> str:
     """Resolve ownership exclusively from a valid authenticated cookie."""
     user = await authenticated_user(request)
     return user.user_id
+
+
+async def administrator(request: Request) -> User:
+    """Admit only a live account that currently holds administrator rights.
+
+    The role comes from the database on every request, so a revocation
+    applies at once, and the browser can never claim it.
+    """
+    user = await authenticated_user(request)
+    if user.role is not UserRole.ADMINISTRATOR:
+        raise HTTPException(
+            status_code=403, detail="Administrator access required."
+        )
+    return user
 
 
 async def authenticated_user(request: Request) -> User:

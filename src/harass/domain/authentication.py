@@ -2,6 +2,14 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
+
+
+class UserRole(StrEnum):
+    """What an account may do beyond evaluating its own models."""
+
+    USER = "user"
+    ADMINISTRATOR = "admin"
 
 
 @dataclass(frozen=True)
@@ -13,6 +21,8 @@ class User:
     email: str
     password_hash: str = field(repr=False)
     email_verified: bool = False
+    role: UserRole = UserRole.USER
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

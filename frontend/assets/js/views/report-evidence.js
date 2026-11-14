@@ -62,7 +62,7 @@
           )
         : '') +
       (transcript.attack_rationale
-        ? evidenceField('تعليل نجاح الهجوم', transcript.attack_rationale)
+        ? evidenceField('تعليل نجاح الاختراق', transcript.attack_rationale)
         : '');
     const recipe =
       outcome.attempt_number === 0

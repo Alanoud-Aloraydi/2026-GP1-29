@@ -14,6 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from harass.domain.authentication import UserRole
 from harass.infrastructure.persistence.tables.base import ENTITY_ID, Base
 
 
@@ -21,12 +22,21 @@ class UserRow(Base):
     """Account identity and salted password hash."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),
+    )
+
     user_id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True)
     full_name: Mapped[str] = mapped_column(String(100))
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(Text)
     email_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false()
+    )
+    role: Mapped[str] = mapped_column(
+        String(16),
+        default=UserRole.USER.value,
+        server_default=UserRole.USER.value,
     )
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)

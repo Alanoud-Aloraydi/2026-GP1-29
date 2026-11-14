@@ -11,7 +11,6 @@ from harass.application.accounts.errors import (
     RegistrationError,
 )
 from harass.application.ports.request_limiter import RequestLimiter
-from harass.domain.authentication import User
 from harass.interfaces.api.accounts.cookies import (
     COOKIE_NAME,
     REFRESH_COOKIE_NAME,
@@ -21,10 +20,11 @@ from harass.interfaces.api.accounts.dependencies import authenticated_user
 from harass.interfaces.api.accounts.policy import install_auth_policy
 from harass.interfaces.api.accounts.schemas import (
     LoginRequest,
-    PasswordChangeRequest,
+    ProfileUpdateRequest,
     SessionResponse,
     SignupRequest,
     UserResponse,
+    public_user,
 )
 
 
@@ -94,7 +94,23 @@ def install_auth(
     @app.get("/auth/me", response_model=UserResponse)
     async def me(request: Request) -> UserResponse:
         """Return the authenticated account's public identity."""
-        return _public_user(await authenticated_user(request))
+        return public_user(await authenticated_user(request))
+
+    @app.patch("/auth/me", response_model=UserResponse)
+    async def rename(
+        body: ProfileUpdateRequest, request: Request
+    ) -> UserResponse:
+        """Change the authenticated account's display name."""
+        await authenticated_user(request)
+        try:
+            user = await run_in_threadpool(
+                authentication.rename,
+                request.cookies.get(COOKIE_NAME, ""),
+                body.full_name,
+            )
+        except RegistrationError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return public_user(user)
 
     @app.post("/auth/logout", status_code=204)
     async def logout(request: Request) -> Response:
@@ -152,37 +168,6 @@ def install_auth(
             request.cookies.get(COOKIE_NAME, ""),
         )
         return cookies.clear()
-
-    @app.post("/auth/password", response_model=UserResponse)
-    async def change_password(
-        body: PasswordChangeRequest, request: Request
-    ) -> Response:
-        """Change the password and revoke previous sessions."""
-        await authenticated_user(request)
-        try:
-            result = await run_in_threadpool(
-                authentication.change_password,
-                request.cookies.get(COOKIE_NAME, ""),
-                body.current_password,
-                body.new_password,
-            )
-        except PasswordRejectedError:
-            return JSONResponse(
-                status_code=400, content={"code": "password_rejected"}
-            )
-        except RegistrationError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        return cookies.response(result)
-
-
-def _public_user(user: User) -> UserResponse:
-    """Select public account fields and exclude credential material."""
-    return UserResponse(
-        user_id=user.user_id,
-        full_name=user.full_name,
-        email=user.email,
-        email_verified=user.email_verified,
-    )
 
 
 def _logout(authentication: ManageAuthentication, request: Request) -> None:

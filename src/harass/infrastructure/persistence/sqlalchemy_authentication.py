@@ -7,7 +7,11 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from harass.application.ports.authentication import AuthenticationStore
-from harass.domain.authentication import AuthenticationSession, User
+from harass.domain.authentication import (
+    AuthenticationSession,
+    User,
+    UserRole,
+)
 from harass.infrastructure.persistence.row_mapping import utc_timestamp
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import (
@@ -53,6 +57,46 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
         """Read an account by immutable identity."""
         with self._sessions() as database:
             return _user(database.get(UserRow, user_id))
+
+    def set_role(self, user_id: str, role: UserRole) -> bool:
+        """Change an account's role, reporting whether the account exists."""
+        with self._sessions() as database, database.begin():
+            changed = database.scalar(
+                update(UserRow)
+                .where(UserRow.user_id == user_id)
+                .values(role=role.value)
+                .returning(UserRow.user_id)
+            )
+        return changed is not None
+
+    def rename_user(self, user_id: str, full_name: str) -> bool:
+        """Change an account's display name; false when it is missing."""
+        with self._sessions() as database, database.begin():
+            changed = database.scalar(
+                update(UserRow)
+                .where(UserRow.user_id == user_id)
+                .values(full_name=full_name)
+                .returning(UserRow.user_id)
+            )
+        return changed is not None
+
+    def set_password(self, user_id: str, new_hash: str) -> bool:
+        """Replace a password and revoke every session of the account."""
+        with self._sessions() as database, database.begin():
+            changed = database.scalar(
+                update(UserRow)
+                .where(UserRow.user_id == user_id)
+                .values(password_hash=new_hash)
+                .returning(UserRow.user_id)
+            )
+            if changed is None:
+                return False
+            database.execute(
+                delete(AuthenticationSessionRow).where(
+                    AuthenticationSessionRow.user_id == user_id
+                )
+            )
+        return True
 
     def add_session(
         self, session: AuthenticationSession, password_hash: str
@@ -177,30 +221,6 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
                 )
             database.execute(statement)
 
-    def change_password(
-        self, user: User, new_hash: str, session: AuthenticationSession
-    ) -> bool:
-        """Replace an expected password and revoke every previous session."""
-        with self._sessions() as database, database.begin():
-            changed = database.scalar(
-                update(UserRow)
-                .where(
-                    UserRow.user_id == user.user_id,
-                    UserRow.password_hash == user.password_hash,
-                )
-                .values(password_hash=new_hash)
-                .returning(UserRow.user_id)
-            )
-            if changed is None:
-                return False
-            database.execute(
-                delete(AuthenticationSessionRow).where(
-                    AuthenticationSessionRow.user_id == user.user_id
-                )
-            )
-            database.add(_session_row(session))
-        return True
-
 
 def _user(row: UserRow | None) -> User | None:
     """Reconstruct account identity without exposing password hashes."""
@@ -211,6 +231,8 @@ def _user(row: UserRow | None) -> User | None:
             row.email,
             row.password_hash,
             row.email_verified,
+            UserRole(row.role),
+            utc_timestamp(row.created_at),
         )
         if row
         else None

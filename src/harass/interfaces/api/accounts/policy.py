@@ -95,7 +95,6 @@ def install_auth_policy(
             and (
                 request.url.path.startswith(
                     (
-                        "/auth/password",
                         "/auth/sessions",
                         "/auth/logout-all",
                         "/auth/email/request-verification",

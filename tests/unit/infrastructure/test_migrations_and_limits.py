@@ -58,8 +58,21 @@ def test_migrations_match_models_preserve_data_and_reverse(
             )
             == "Test User"
         )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT role FROM users WHERE user_id = "
+                    "'10000000-0000-4000-8000-000000000001'"
+                )
+            )
+            == "user"
+        )
         command.downgrade(config, "0001_accounts_runs")
         assert "generated_prompts" not in inspect(connection).get_table_names()
+        assert "role" not in {
+            column["name"]
+            for column in inspect(connection).get_columns("users")
+        }
         assert connection.scalar(text("SELECT count(*) FROM users")) == 1
         command.upgrade(config, "head")
     require_current_schema(engine)

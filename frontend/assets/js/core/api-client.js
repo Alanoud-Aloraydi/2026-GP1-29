@@ -139,7 +139,7 @@
     revokeSession: (id) =>
       request('DELETE', '/auth/sessions/' + encodeURIComponent(id)),
     logoutAll: () => request('POST', '/auth/logout-all'),
-    changePassword: (body) => request('POST', '/auth/password', body),
+    updateProfile: (body) => request('PATCH', '/auth/me', body),
     listConnections: async () => {
       const items = [];
       let offset = 0;
@@ -178,6 +178,9 @@
     getReport: (id) => request('GET', runPath(id) + '/report'),
     getOutcomes: (id, offset = 0) =>
       request('GET', runPath(id) + '/outcomes?limit=50&offset=' + offset),
-    reportExportUrl: (id) => runPath(id) + '/report/export'
+    reportExportUrl: (id) => runPath(id) + '/report/export',
+    judgeReports: () => request('GET', '/admin/judge-benchmarks'),
+    judgeReport: (id) =>
+      request('GET', '/admin/judge-benchmarks/' + encodeURIComponent(id))
   });
 })();

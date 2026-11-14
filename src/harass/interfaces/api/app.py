@@ -14,10 +14,12 @@ from harass.application.errors import (
     ApplicationError,
     ConflictError,
     ConnectionNotReadyError,
+    UnknownBenchmarkReportError,
     UnknownConnectionError,
     UnknownRunError,
 )
 from harass.application.evaluation.run_service import ManageRuns
+from harass.application.judge_benchmark_reports import JudgeBenchmarkReports
 from harass.application.ports.request_limiter import RequestLimiter
 from harass.application.ports.run_queue import StorageUnavailableError
 from harass.application.ports.variant_catalog import VariantCatalog
@@ -28,6 +30,7 @@ from harass.interfaces.api.accounts.recovery_routes import (
     install_recovery_routes,
 )
 from harass.interfaces.api.accounts.routes import install_auth
+from harass.interfaces.api.admin.routes import install_admin_routes
 from harass.interfaces.api.connections.routes import install_connection_routes
 from harass.interfaces.api.evaluations.catalogue import (
     install_catalogue_routes,
@@ -52,6 +55,7 @@ def create_app(
     session_seconds: int = 900,
     request_limiter: RequestLimiter | None = None,
     allowed_hosts: list[str] | None = None,
+    judge_benchmarks: JudgeBenchmarkReports | None = None,
 ) -> FastAPI:
     """Build the API, wiring routes to the injected use cases."""
     app = FastAPI(title="HARASS API")
@@ -72,6 +76,8 @@ def create_app(
     install_catalogue_routes(app, catalog)
     install_connection_routes(app, connections)
     install_run_routes(app, runs)
+    if judge_benchmarks is not None:
+        install_admin_routes(app, judge_benchmarks)
     install_security_headers(app, secure_cookie)
     app.add_middleware(RequestBodyLimit)
     if allowed_hosts is not None:
@@ -97,6 +103,7 @@ def _install_error_handlers(app: FastAPI) -> None:
             status_code=503, content={"detail": "Run storage is unavailable."}
         )
 
+    @app.exception_handler(UnknownBenchmarkReportError)
     @app.exception_handler(UnknownConnectionError)
     @app.exception_handler(UnknownRunError)
     async def _not_found(_: object, error: Exception) -> JSONResponse:

@@ -18,7 +18,10 @@
       [history.total, 'تقييمات في السجل']
     ];
     container.innerHTML =
-      '<div class="overview-strip">' +
+      '<div class="section-toolbar">' +
+      view.link('evaluation-setup.html', 'تقييم جديد', true) +
+      view.link('connections.html', 'إدارة الاتصالات') +
+      '</div><div class="overview-strip">' +
       counts
         .map(
           ([count, label]) =>
@@ -29,9 +32,6 @@
             '</span></div>'
         )
         .join('') +
-      '</div><div class="section-toolbar">' +
-      view.link('evaluation-setup.html', 'تقييم جديد') +
-      view.link('connections.html', 'إدارة الاتصالات') +
       '</div>' +
       (runs.length
         ? view.runTable(runs.slice(0, 5), 'آخر التقييمات')

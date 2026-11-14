@@ -187,6 +187,13 @@ def test_evaluation_options_are_real_library_metadata(
     assert response.status_code == 200
     assert len(response.json()["templates"]) == 16
     assert "MSA" in response.json()["varieties"]
+    assert set(response.json()["owasp_categories"]) == {
+        "LLM01",
+        "LLM02",
+        "LLM07",
+        "LLM08",
+        "NAP",
+    }
     assert "tatweel" in {
         entry["name"] for entry in response.json()["transforms"]
     }

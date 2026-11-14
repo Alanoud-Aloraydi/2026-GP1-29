@@ -24,6 +24,10 @@ class SeedSourceError(ApplicationError):
     """Raised when seed data cannot be read or violates the seed schema."""
 
 
+class GoldSetError(ApplicationError):
+    """Raised when the judge gold set cannot be read or is inconsistent."""
+
+
 class NoMatchingCasesError(ApplicationError):
     """Raised when no evaluation case satisfies the selection."""
 
@@ -50,3 +54,11 @@ class ConnectionNotReadyError(ApplicationError):
 
 class UnknownRunError(ApplicationError):
     """The requested run does not belong to the owner."""
+
+
+class UnknownBenchmarkReportError(ApplicationError):
+    """The requested judge benchmark report does not exist."""
+
+
+class InvalidBenchmarkReportError(ApplicationError):
+    """A judge benchmark report lacks the structure the site displays."""

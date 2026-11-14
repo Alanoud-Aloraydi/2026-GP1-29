@@ -27,8 +27,12 @@
 
   async function initializeAccount () {
     const user = await api.me();
+    view.showAdminNavigation(user);
     document.querySelectorAll('[data-user-name]').forEach((element) => {
       element.textContent = user.full_name;
+    });
+    document.querySelectorAll('[data-user-initial]').forEach((element) => {
+      element.textContent = user.full_name.trim().charAt(0);
     });
     document.querySelectorAll('[data-logout]').forEach((button) => {
       button.addEventListener('click', async () => {

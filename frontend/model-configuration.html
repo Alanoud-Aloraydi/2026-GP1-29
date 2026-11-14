@@ -5,19 +5,20 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>إعداد اتصال نموذج — HARASS</title>
-    <link rel="stylesheet" href="assets/css/styles.css?v=11">
-    <script src="assets/js/core/ui.js?v=11" defer></script>
-    <script src="assets/js/core/api-client.js?v=11" defer></script>
-    <script src="assets/js/core/forms.js?v=11" defer></script>
-    <script src="assets/js/pages/connections.js?v=11" defer></script>
-    <script src="assets/js/core/bootstrap.js?v=11" defer></script>
+    <link rel="stylesheet" href="assets/css/styles.css?v=43">
+    <script src="assets/js/core/ui.js?v=43" defer></script>
+    <script src="assets/js/core/api-client.js?v=43" defer></script>
+    <script src="assets/js/core/forms.js?v=43" defer></script>
+    <script src="assets/js/pages/connections.js?v=43" defer></script>
+    <script src="assets/js/core/bootstrap.js?v=43" defer></script>
   </head>
   <body data-page="model-configuration">
     <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
     <div class="page">
       <header data-shell-header></header>
       <main class="main" id="main">
-        <div class="container form-container">
+        <div class="container">
+          <nav class="breadcrumb" aria-label="مسار الصفحة"><a href="connections.html">اتصالات النماذج</a> / <span aria-current="page">إعداد اتصال</span></nav>
           <div class="page-head">
             <h1>إعداد اتصال نموذج</h1>
             <p>احفظ بيانات الاتصال ثم اختبر الوصول إلى النموذج.</p>
@@ -29,6 +30,7 @@
             tabindex="-1"
             hidden
           ></div>
+          <div class="setup-layout">
           <form id="connectionForm" class="form-panel">
             <div class="form-group">
               <label for="compatibility">نوع واجهة الاتصال</label>
@@ -52,7 +54,7 @@
                 autocomplete="off"
                 aria-describedby="modelNameHint">
               <p class="hint" id="modelNameHint">
-                استخدم المعرّف الذي يحدده المزوّد، مثل llama-3.3-70b-versatile.
+                استخدم المعرّف الذي يحدده المزوّد، مثل <code>llama-3.3-70b-versatile</code>.
               </p>
             </div>
             <div class="form-group">
@@ -65,17 +67,20 @@
                 autocomplete="off"
                 aria-describedby="endpointHint">
               <p class="hint" id="endpointHint">
-                مثال: https://api.groq.com/openai/v1
+                مثال: <code>https://api.groq.com/openai/v1</code>
               </p>
             </div>
             <div class="form-group">
               <label for="apiKey">مفتاح API</label>
-              <input
-                id="apiKey"
-                name="apiKey"
-                type="password"
-                autocomplete="off"
-                aria-describedby="apiKeyHint">
+              <div class="field-with-action">
+                <input
+                  id="apiKey"
+                  name="apiKey"
+                  type="password"
+                  autocomplete="off"
+                  aria-describedby="apiKeyHint">
+                <button class="btn btn-sm" type="button" data-reveal aria-pressed="false">إظهار</button>
+              </div>
               <p class="hint" id="apiKeyHint">
                 يُحفظ مشفرًا على الخادم. للخدمة المحلية التي لا تتطلب مفتاحًا،
                 أدخل القيمة البديلة التي يوصي بها مزوّدها.
@@ -88,6 +93,15 @@
               <a class="btn" href="connections.html">إلغاء</a>
             </div>
           </form>
+          <aside class="card next-steps" aria-labelledby="nextTitle">
+            <h2 id="nextTitle">ماذا بعد الحفظ؟</h2>
+            <ol>
+              <li><span class="step-number" aria-hidden="true">١</span>احفظ الاتصال.</li>
+              <li><span class="step-number" aria-hidden="true">٢</span>اختبره من قائمة الاتصالات.</li>
+              <li><span class="step-number" aria-hidden="true">٣</span>يظهر في «تقييم جديد» بعد أن يجتاز الوصول.</li>
+            </ol>
+          </aside>
+          </div>
         </div>
       </main>
       <footer class="app-footer" data-shell-footer></footer>

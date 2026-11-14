@@ -7,13 +7,12 @@ import sys
 from functools import partial
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
-from pyrit.prompt_target import PromptTarget
 from pyrit.setup import SQLITE, initialize_pyrit_async
 
 from harass.application.evaluation.runner import RunEvaluation
 from harass.bootstrap.evaluation import build_evaluation
-from harass.infrastructure.pyrit.target_builder import close_target
 from harass.infrastructure.reporting.json_report_exporter import (
     JsonReportExporter,
 )
@@ -28,7 +27,9 @@ ENVIRONMENT_FILE = Path(".env")
 
 
 def _use_case_factory(
-    settings: Settings, resources: list[PromptTarget], command: EvaluateCommand
+    settings: Settings,
+    resources: list[httpx.AsyncClient],
+    command: EvaluateCommand,
 ) -> RunEvaluation:
     """Build CLI evaluation dependencies from the selected input files."""
     evaluation, judge = build_evaluation(
@@ -56,7 +57,7 @@ async def _main_async(argv: list[str]) -> int:
         silent=True,
         seed=command.arguments.sampling_seed,
     )
-    resources: list[PromptTarget] = []
+    resources: list[httpx.AsyncClient] = []
     try:
         return await run_evaluate_command(
             command,
@@ -66,8 +67,8 @@ async def _main_async(argv: list[str]) -> int:
             sys.stdout,
         )
     finally:
-        for target in resources:
-            await close_target(target)
+        for client in resources:
+            await client.aclose()
 
 
 def main() -> None:

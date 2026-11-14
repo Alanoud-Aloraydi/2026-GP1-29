@@ -20,12 +20,12 @@ jobs:
           POSTGRES_USER: harass_test
           POSTGRES_PASSWORD: isolated-test-password
         ports:
-          - 5433:5432
+          - 55433:5432
         options: >-
           --health-cmd "pg_isready -U harass_test -d harass_test"
           --health-interval 5s --health-timeout 5s --health-retries 12
     env:
-      HARASS_TEST_DATABASE_URL: postgresql+psycopg://harass_test:isolated-test-password@localhost:5433/harass_test
+      HARASS_TEST_DATABASE_URL: postgresql+psycopg://harass_test:isolated-test-password@localhost:55433/harass_test
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6

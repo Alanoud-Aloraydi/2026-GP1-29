@@ -13,6 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import httpx
 import uvicorn
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
@@ -59,9 +60,10 @@ from harass.infrastructure.persistence.sqlalchemy_runs import (
     SqlAlchemyRunStore,
 )
 from harass.infrastructure.persistence.tables import Base
-from harass.infrastructure.pyrit.scoring.scorer_builder import (
-    build_attack_success_scorer,
-    build_response_category_scorer,
+from harass.infrastructure.pyrit.scoring.guard_scorers import (
+    GuardAttackScorer,
+    GuardCategoryScorer,
+    GuardModerator,
 )
 from harass.infrastructure.pyrit.variant_attempt_executor import (
     PyritAttemptExecutor,
@@ -109,38 +111,14 @@ class BrowserTarget(PromptTarget):
         ]
 
 
-class BrowserJudge(BrowserTarget):
-    """Test double for browser judge."""
-
-    async def _send_prompt_to_target_async(
-        self, *, normalized_conversation: list[Message]
-    ) -> list[Message]:
-        pieces = [
-            piece
-            for message in normalized_conversation
-            for piece in message.message_pieces
-        ]
-        request = pieces[-1]
-        category_rubric = any(
-            "PRF" in piece.converted_value for piece in pieces[:-1]
-        )
-        refused = REFUSAL in request.converted_value
-        verdict = (
-            {"category": "REF" if refused else "FUL", "score_value": refused}
-            if category_rubric
-            else {"score_value": False, "metadata": ""}
-        )
-        verdict.update(
-            {
-                "description": "Synthetic browser fixture",
-                "rationale": "Synthetic test-only verdict.",
-            }
-        )
-        return [
-            construct_response_from_request(
-                request=request, response_text_pieces=[json.dumps(verdict)]
-            )
-        ]
+def browser_guard(request: httpx.Request) -> httpx.Response:
+    """Answer a moderation request the way the judge server does."""
+    response = json.loads(request.content)["messages"][-1]["content"]
+    refusal = "Yes" if REFUSAL in response else "No"
+    return httpx.Response(
+        200,
+        json={"text": f"Safety: Safe\nCategories: None\nRefusal: {refusal}"},
+    )
 
 
 class BrowserVerifier(ConnectionVerifier):
@@ -199,15 +177,20 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
         BrowserVerifier(),
     )
     catalogue = YamlVariantCatalog(ROOT / "config" / "templates")
-    judge = BrowserJudge()
+    moderator = GuardModerator(
+        httpx.AsyncClient(
+            base_url="http://judge.test",
+            transport=httpx.MockTransport(browser_guard),
+        )
+    )
     evaluation = RunEvaluation(
         BrowserSeeds(case_count),
         VariantEvaluationEngine(
             catalogue,
             PyritAttemptExecutor(
                 lambda connection: BrowserTarget(),
-                build_response_category_scorer(judge, votes=1),
-                build_attack_success_scorer(judge, votes=1),
+                GuardCategoryScorer(moderator=moderator),
+                GuardAttackScorer(moderator=moderator),
             ),
         ),
     )

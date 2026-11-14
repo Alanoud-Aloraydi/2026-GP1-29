@@ -3,7 +3,11 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from harass.domain.authentication import AuthenticationSession, User
+from harass.domain.authentication import (
+    AuthenticationSession,
+    User,
+    UserRole,
+)
 
 
 class AuthenticationStore(ABC):
@@ -20,6 +24,18 @@ class AuthenticationStore(ABC):
     @abstractmethod
     def get_user(self, user_id: str) -> User | None:
         """Find an account by its immutable identifier."""
+
+    @abstractmethod
+    def set_role(self, user_id: str, role: UserRole) -> bool:
+        """Change an account's role; false when the account is missing."""
+
+    @abstractmethod
+    def rename_user(self, user_id: str, full_name: str) -> bool:
+        """Change an account's display name; false when it is missing."""
+
+    @abstractmethod
+    def set_password(self, user_id: str, new_hash: str) -> bool:
+        """Replace the password and end every session of the account."""
 
     @abstractmethod
     def add_session(
@@ -54,12 +70,6 @@ class AuthenticationStore(ABC):
         self, user_id: str, session_id: str | None = None
     ) -> None:
         """Revoke one session or all sessions owned by the account."""
-
-    @abstractmethod
-    def change_password(
-        self, user: User, new_hash: str, session: AuthenticationSession
-    ) -> bool:
-        """Replace the expected password and all sessions atomically."""
 
 
 class AuthenticationSecurity(ABC):

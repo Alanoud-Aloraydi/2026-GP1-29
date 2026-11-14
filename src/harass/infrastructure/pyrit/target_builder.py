@@ -1,50 +1,10 @@
-"""Build PyRIT targets for evaluated models and the judge."""
+"""Build PyRIT targets for the evaluated models."""
 
 from pyrit.prompt_target import OpenAIChatTarget, PromptTarget
-from pyrit.prompt_target.common.target_capabilities import (
-    CapabilityHandlingPolicy,
-    CapabilityName,
-    TargetCapabilities,
-    UnsupportedCapabilityBehavior,
-)
-from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 from harass.domain.target_connection import TargetConnection
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
-from harass.infrastructure.pyrit.judge_request_audit import (
-    audited_client,
-)
-from harass.infrastructure.settings import (
-    JudgeSettings,
-    TargetGenerationSettings,
-)
-
-
-def _judge_configuration(
-    *, supports_system_prompt: bool, supports_json_output: bool = False
-) -> TargetConfiguration:
-    """Configure judge instructions and system-prompt support.
-
-    Earlier DeepSeek-R1 distilled models advise against system prompts, while
-    DeepSeek-R1-0528 supports them, so the capability follows the configured
-    judge model.
-    """
-    adapt = UnsupportedCapabilityBehavior.ADAPT
-    return TargetConfiguration(
-        capabilities=TargetCapabilities(
-            supports_multi_turn=True,
-            supports_editable_history=True,
-            supports_system_prompt=supports_system_prompt,
-            supports_json_output=supports_json_output,
-        ),
-        policy=CapabilityHandlingPolicy(
-            behaviors={
-                CapabilityName.MULTI_TURN: UnsupportedCapabilityBehavior.RAISE,
-                CapabilityName.SYSTEM_PROMPT: adapt,
-                CapabilityName.JSON_SCHEMA: adapt,
-            }
-        ),
-    )
+from harass.infrastructure.settings import TargetGenerationSettings
 
 
 def build_target(
@@ -67,34 +27,6 @@ def build_target(
         if endpoint_policy
         else None,
     )
-
-
-def build_judge(settings: JudgeSettings) -> OpenAIChatTarget:
-    """Build the configured judge chat target."""
-    extra: dict[str, object] = {}
-    if settings.token_limit_parameter == "max_tokens":
-        extra["max_tokens"] = settings.max_completion_tokens
-    if settings.keep_alive is not None:
-        extra["extra_body"] = {"keep_alive": settings.keep_alive}
-    target = OpenAIChatTarget(
-        endpoint=settings.base_url,
-        model_name=settings.model_name,
-        api_key=settings.api_key,
-        temperature=settings.temperature,
-        # Ollama's OpenAI compatibility layer accepts max_tokens, not
-        # max_completion_tokens.
-        # https://docs.ollama.com/api/openai-compatibility
-        max_completion_tokens=settings.max_completion_tokens
-        if settings.token_limit_parameter == "max_completion_tokens"
-        else None,
-        extra_body_parameters=extra or None,
-        httpx_client_kwargs={"http_client": audited_client()},
-        custom_configuration=_judge_configuration(
-            supports_system_prompt=settings.supports_system_prompt,
-            supports_json_output=settings.supports_json_output,
-        ),
-    )
-    return target
 
 
 async def close_target(target: PromptTarget) -> None:

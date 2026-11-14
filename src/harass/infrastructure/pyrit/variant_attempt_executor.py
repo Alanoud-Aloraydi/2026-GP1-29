@@ -139,7 +139,7 @@ class PyritAttemptExecutor(AttemptExecutor):
                 transcript=_recover_response(
                     context.conversation_id, variant.sent_prompt
                 ),
-                technical_error=_technical_error(error),
+                technical_error=technical_error(error),
             )
         finally:
             if objective_target is not None:
@@ -174,7 +174,7 @@ def _recover_response(
         return None
 
 
-def _technical_error(error: BaseException) -> str:
+def technical_error(error: BaseException) -> str:
     """Classify technical failures without exposing provider details."""
     if isinstance(error, TimeoutError):
         return "timeout"

@@ -2,26 +2,31 @@
 (() => {
   'use strict';
   const { escape, date, link, status, table, tableRow } = window.HARASS;
+  const runActions = { completed: 'فتح التقرير', running: 'متابعة التقدم' };
   function runTable (runs, caption = 'تقييمات حسابك') {
-    return table(
-      caption,
-      ['النموذج', 'تاريخ الإنشاء', 'الحالة', 'التقرير'],
-      runs.map((run) =>
-        tableRow(run.target_model, [
-          escape(date(run.created_at)),
-          status(run.status),
-          link(
-            'evaluation-run.html?run_id=' + encodeURIComponent(run.run_id),
-            run.status === 'completed' ? 'فتح التقرير' : 'عرض التقييم'
-          )
-        ])
-      )
+    return (
+      '<section class="card">' +
+      table(
+        caption,
+        ['النموذج', 'تاريخ الإنشاء', 'الحالة', 'التقرير'],
+        runs.map((run) =>
+          tableRow(run.target_model, [
+            escape(date(run.created_at)),
+            status(run.status),
+            link(
+              'evaluation-run.html?run_id=' + encodeURIComponent(run.run_id),
+              runActions[run.status] || 'عرض التفاصيل'
+            )
+          ])
+        )
+      ) +
+      '</section>'
     );
   }
 
   function runHeading (run) {
     return (
-      '<div class="report-heading"><div><h2><bdi>' +
+      '<div class="report-heading card"><div><h2><bdi>' +
       escape(run.target_model) +
       '</bdi></h2>' +
       runTimes(run) +
@@ -94,16 +99,6 @@
     );
   }
 
-  function rate (metric) {
-    return metric?.rate == null
-      ? 'لا توجد نتائج محسومة'
-      : (metric.rate * 100).toFixed(1) +
-          '% · ' +
-          metric.count +
-          ' من ' +
-          metric.total;
-  }
-
   function runProgress (run) {
     const total = Math.max(0, Number(run.total_cases) || 0);
     const completed = Math.min(
@@ -112,7 +107,7 @@
     );
     const percent = total ? Math.floor((completed / total) * 100) : 0;
     return (
-      '<div class="run-progress-row"><label for="evaluationProgress">' +
+      '<div class="run-progress-row card"><label for="evaluationProgress">' +
       (total
         ? 'الحالات المكتملة: ' + completed + ' من ' + total
         : run.status === 'running'
@@ -179,7 +174,6 @@
     runTable,
     runHeading,
     runProgress,
-    rate,
     runTimes,
     updateRunProgress
   });

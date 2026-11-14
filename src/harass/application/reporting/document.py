@@ -1,5 +1,6 @@
 """Serialize evaluation reports into JSON-compatible documents."""
 
+from collections import Counter, defaultdict
 from dataclasses import asdict, fields
 from typing import Any
 
@@ -44,6 +45,11 @@ def report_document(
             [o for o in report.outcomes if o.variant_name != "baseline"]
         )
     )
+    primary_outcomes = [
+        outcome
+        for outcome in report.outcomes
+        if (outcome.variant_name == "baseline") == baseline_only
+    ]
     return {
         "format_version": REPORT_FORMAT_VERSION,
         "run_identifier": report.run_identifier,
@@ -88,13 +94,8 @@ def report_document(
         "metric_labels": METRIC_LABELS,
         "metrics": _metrics_document(metrics),
         "outcomes_count": len(report.outcomes),
-        "coverage": _coverage(
-            [
-                o
-                for o in report.outcomes
-                if (o.variant_name == "baseline") == baseline_only
-            ]
-        ),
+        "coverage": _coverage(primary_outcomes),
+        "response_categories": _response_categories(primary_outcomes),
         "coverage_count_scope": "recorded_logical_attempts",
         "outcomes": [
             outcome_document(outcome)
@@ -150,6 +151,19 @@ def _coverage(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
             and outcome.response_category.value == "UNC"
         )
     return result
+
+
+def _response_categories(
+    outcomes: list[CaseOutcome],
+) -> dict[str, dict[str, int]]:
+    """Count scored responses by category for each safety axis."""
+    counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for outcome in outcomes:
+        if outcome.is_scored and outcome.response_category is not None:
+            counts[outcome.case.axis.value][
+                outcome.response_category.value
+            ] += 1
+    return {axis: dict(categories) for axis, categories in counts.items()}
 
 
 def _proportion(proportion: Proportion) -> dict[str, Any]:

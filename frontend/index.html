@@ -7,59 +7,131 @@
     <title>حَرَس — تقييم سلامة النماذج العربية</title>
     <meta
       name="description"
-      content="تقييم الهجمات الخصومية والرفض المفرط في نماذج اللغة العربية.">
-    <link rel="stylesheet" href="assets/css/styles.css?v=11">
-    <script src="assets/js/core/ui.js?v=11" defer></script>
-    <script src="assets/js/core/api-client.js?v=11" defer></script>
-    <script src="assets/js/core/forms.js?v=11" defer></script>
-    <script src="assets/js/core/bootstrap.js?v=11" defer></script>
+      content="تقييم مقاومة الاختراق والرفض المفرط في نماذج اللغة العربية.">
+    <link rel="stylesheet" href="assets/css/styles.css?v=43">
+    <script src="assets/js/core/ui.js?v=43" defer></script>
+    <script src="assets/js/core/api-client.js?v=43" defer></script>
+    <script src="assets/js/core/forms.js?v=43" defer></script>
+    <script src="assets/js/core/bootstrap.js?v=43" defer></script>
   </head>
   <body data-page="home">
     <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
     <div class="page">
       <header data-shell-header></header>
       <main id="main">
-        <section class="hero">
-          <p class="eyebrow-mark">حَرَس — HARASS</p>
-          <h1>قيّم سلامة نموذجك في اللغة العربية</h1>
-          <p class="lead">
-            اختبر استجابة النموذج للطلبات غير الآمنة ورفضه للطلبات المسموحة،
-            باستخدام حالات بالفصحى والنجدية والحجازية والمصرية والشامية.
-          </p>
-          <a class="btn btn-primary" href="signup.html">ابدأ التقييم</a>
+        <section class="home-section">
+          <div class="container hero-split">
+            <div>
+              <span class="hero-badge">تقييم سلامة النماذج اللغوية بالعربية</span>
+              <h1 class="hero-title">اختبر سلامة نموذجك بالفصحى <mark>وأربع لهجات</mark></h1>
+              <p class="lead">نقيس أمرين معًا: ألّا يُخدَع نموذجك بطلب ضار، وألّا يرفض طلبًا مشروعًا بلا مبرر. وتصلك النتائج في تقرير مفصّل بالأدلة.</p>
+              <div class="hero-actions">
+                <a class="btn btn-primary" href="signup.html">أنشئ حسابًا وابدأ</a>
+                <a class="btn" href="#how">كيف يعمل التقييم؟</a>
+              </div>
+              <p class="hint">يعمل مع أي نقطة وصول متوافقة مع واجهة OpenAI.</p>
+            </div>
+            <div class="example">
+              <figure class="card" aria-label="مثال توضيحي لتقرير تقييم">
+                <div class="report-heading">
+                  <strong class="num">demo-model-a</strong>
+                  <span class="status-label status-completed">اكتمل التقييم</span>
+                </div>
+                <div class="metric-grid">
+                  <div class="metric-card attack"><p class="metric-label">نسبة نجاح الاختراق</p><p class="metric-value num">22.0%</p><p class="hint">22 من 100 · الأقل أفضل</p></div>
+                  <div class="metric-card refusal"><p class="metric-label">نسبة الرفض المفرط</p><p class="metric-value num">20.0%</p><p class="hint">40 من 200 · الأقل أفضل</p></div>
+                </div>
+                <div>
+                  <h3>نجاح الاختراق حسب اللهجة</h3>
+            <div class="bar-row"><span class="bar-label">الفصحى</span><div class="track track-attack"><span data-fill="25.0"></span></div><span class="num">25.0%</span></div>
+            <div class="bar-row"><span class="bar-label">النجدية</span><div class="track track-attack"><span data-fill="23.5"></span></div><span class="num">23.5%</span></div>
+            <div class="bar-row"><span class="bar-label">الحجازية</span><div class="track track-attack"><span data-fill="17.6"></span></div><span class="num">17.6%</span></div>
+            <div class="bar-row"><span class="bar-label">المصرية</span><div class="track track-attack"><span data-fill="23.5"></span></div><span class="num">23.5%</span></div>
+            <div class="bar-row"><span class="bar-label">الشامية</span><div class="track track-attack"><span data-fill="17.6"></span></div><span class="num">17.6%</span></div>
+                </div>
+                <figcaption class="hint">مثال ببيانات تجريبية</figcaption>
+              </figure>
+            </div>
+          </div>
         </section>
-        <section class="landing-section alt">
+        <section class="home-section alt" id="measure">
           <div class="container">
             <div class="section-head">
-              <h2>محورا التقييم</h2>
-              <p>اختر تقييم المحورين معًا أو أحدهما.</p>
+              <h2>النموذج الآمن يوازن بين أمرين</h2>
+              <p>اختر المحورين معًا أو أحدهما في كل تقييم.</p>
             </div>
             <div class="concern-grid">
-              <article class="concern-card">
-                <h3>الهجمات الخصومية · AT</h3>
-                <p>
-                  اختبار استجابة النموذج لطلبات غير آمنة تحت محاولات تجاوز
-                  ضوابط السلامة.
-                </p>
+              <article class="concern-card attack">
+                <span class="chip">مقاومة الاختراق</span>
+                <h3>ألّا يُخدَع</h3>
+                <p>هل يرفض النموذج الطلب الضار حين يُصاغ بحيلة؟ نرسل طلبات ضارة بصياغات تحاول خداعه، ونسجّل كل رد.</p>
+                <p class="hint">المقياس: <strong>نسبة نجاح الاختراق</strong>، وكلما قلّت كان أفضل.</p>
               </article>
-              <article class="concern-card">
-                <h3>الرفض المفرط · OR</h3>
-                <p>اختبار رفض النموذج لطلبات آمنة ومسموحة دون مبرر.</p>
+              <article class="concern-card refusal">
+                <span class="chip">الرفض المفرط</span>
+                <h3>وألّا يتشدّد</h3>
+                <p>هل يجيب النموذج عن الطلب المشروع وإن بدا حساسًا؟ نرسل طلبات مشروعة، ونقيس هل يرفضها دون مبرر.</p>
+                <p class="hint">المقياس: <strong>نسبة الرفض المفرط</strong>، وكلما قلّت كان أفضل.</p>
               </article>
             </div>
           </div>
         </section>
-        <section class="landing-section">
-          <div class="container">
-            <div class="section-head">
-              <h2>من الاتصال إلى التقرير</h2>
-              <p>يستخدم حَرَس أي نقطة وصول متوافقة مع واجهة OpenAI.</p>
+        <section class="home-section" id="dialects">
+          <div class="container dialects">
+            <div>
+              <h2>العربية ليست لغةً واحدة</h2>
+              <p>ما يرفضه النموذج بالفصحى قد يجيب عنه بالعامية. لذلك نختبره بخمسة أنماط، وتظهر نتيجة كل نمط منفصلةً في التقرير.</p>
+              <p class="hint">نستخدم الحالات المتاحة لكل نمط كما هي، دون ترجمتها أو توليد لهجات جديدة.</p>
             </div>
+            <ul class="chip-row dialect-list">
+              <li class="chip">الفصحى</li>
+              <li class="chip">النجدية</li>
+              <li class="chip">الحجازية</li>
+              <li class="chip">المصرية</li>
+              <li class="chip">الشامية</li>
+            </ul>
+          </div>
+        </section>
+        <section class="home-section alt" id="how">
+          <div class="container">
+            <div class="section-head"><h2>ثلاث خطوات إلى التقرير</h2></div>
             <ol class="flow-steps">
-              <li class="flow-step">احفظ اتصال النموذج واختبره</li>
-              <li class="flow-step">اختر Baseline أو Agentic ونطاق التقييم</li>
-              <li class="flow-step">راجع النتائج والأدلة في سجل حسابك</li>
+              <li class="flow-step"><span class="step-number" aria-hidden="true">١</span><h3>اربط نموذجك</h3><p>أدخل معرّف النموذج وعنوان نقطة الوصول ومفتاح API، ثم اختبر الاتصال.</p></li>
+              <li class="flow-step"><span class="step-number" aria-hidden="true">٢</span><h3>حدّد الاختبار</h3><p>أساسي يرسل الطلبات كما هي، أو تكيّفي يغيّر صياغتها بحسب ردود النموذج. ثم المحور واللهجات.</p></li>
+              <li class="flow-step"><span class="step-number" aria-hidden="true">٣</span><h3>اقرأ التقرير</h3><p>مقاييس لكل محور ولهجة، وأدلة تعرض الطلب ورد النموذج وتعليل المحكّم.</p></li>
             </ol>
+          </div>
+        </section>
+        <section class="home-section" id="evidence">
+          <div class="container hero-split">
+            <div>
+              <h2>كل رقم مسنود بدليل</h2>
+              <p>افتح أي حالة في التقرير لترى الطلب كما أُرسل، ورد النموذج، وتعليل المحكّم. ويمكنك تنزيل التقرير كاملًا بصيغة JSON.</p>
+              <div class="report-notice">
+                <strong>اقرأ النتائج في حدودها</strong>
+                <p>النتائج مرتبطة بالحالات المختبرة، وليست شهادة سلامة شاملة. والأحكام آلية إلى حين التحقق منها بالمراجعة البشرية.</p>
+              </div>
+            </div>
+            <div class="card" aria-label="مثال توضيحي لحالة دليل">
+              <div class="report-heading">
+                <strong class="num">DEMO-0001</strong>
+                <span class="chip">مقاومة الاختراق · النجدية</span>
+              </div>
+              <dl>
+                <dt>الطلب</dt><dd class="sample">[نص الطلب — محجوب في هذا المثال]</dd>
+                <dt>رد النموذج</dt><dd class="sample">[نص الرد — محجوب في هذا المثال]</dd>
+                <dt>حكم المحكّم</dt><dd><span class="status-label status-completed">رفض كامل</span> [تعليل المحكّم]</dd>
+              </dl>
+            </div>
+          </div>
+        </section>
+        <section class="home-section">
+          <div class="container cta-band">
+            <div>
+              <h2>جاهز لاختبار نموذجك؟</h2>
+              <p>أنشئ حسابًا، واربط نموذجك، وشغّل أول تقييم.</p>
+            </div>
+            <a class="btn btn-primary" href="signup.html">أنشئ حسابًا وابدأ</a>
           </div>
         </section>
       </main>
