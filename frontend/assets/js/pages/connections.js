@@ -41,9 +41,8 @@
       view.clearError();
       try {
         const page = await api.connectionPage(offset);
-        const connections = page.items;
-        container.innerHTML = connections.length
-          ? connectionCards(connections)
+        container.innerHTML = page.items.length
+          ? connectionCards(page.items)
           : view.empty(
             'لا توجد اتصالات بعد',
             'أضف اتصال النموذج الذي تريد تقييمه.',

@@ -87,22 +87,7 @@ class PyritAttemptExecutor(AttemptExecutor):
     ) -> CaseOutcome:
         """Execute one isolated request with scenario-appropriate scoring."""
         scenario = scenario_for(case, run_identifier)
-        model_attack_judgment = (
-            case.axis is Axis.ADVERSARIAL and not scenario.protected_content
-        )
-        auxiliary: list[Scorer] = (
-            [self._category_scorer] if case.axis is Axis.ADVERSARIAL else []
-        )
-        scorer = (
-            self._attack_scorer
-            if model_attack_judgment
-            else self._category_scorer
-        )
-        if scenario.protected_content and scenario.protected_marker:
-            scorer = SyntheticDisclosureScorer(
-                reference=scenario.protected_content,
-                marker=scenario.protected_marker,
-            )
+        scorer, auxiliary = self._scorers(case, scenario)
         objective_target: PromptTarget | None = None
         context = _attack_context(case, variant, scenario, run_identifier)
         try:
@@ -144,6 +129,29 @@ class PyritAttemptExecutor(AttemptExecutor):
         finally:
             if objective_target is not None:
                 await close_target(objective_target)
+
+    def _scorers(
+        self, case: EvaluationCase, scenario: OwaspScenario
+    ) -> tuple[TrueFalseScorer, list[Scorer]]:
+        """Choose the objective scorer and any extra category scorer.
+
+        Planted protected content is checked locally for leaks; otherwise
+        adversarial attempts are judged for attack success and also record
+        the response category, and over-refusal attempts need the category.
+        """
+        adversarial = case.axis is Axis.ADVERSARIAL
+        auxiliary: list[Scorer] = (
+            [self._category_scorer] if adversarial else []
+        )
+        if scenario.protected_content and scenario.protected_marker:
+            leak = SyntheticDisclosureScorer(
+                reference=scenario.protected_content,
+                marker=scenario.protected_marker,
+            )
+            return leak, auxiliary
+        if adversarial and not scenario.protected_content:
+            return self._attack_scorer, auxiliary
+        return self._category_scorer, auxiliary
 
 
 def _recover_response(

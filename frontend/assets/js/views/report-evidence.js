@@ -94,7 +94,7 @@
 
   function failureReason (outcome) {
     if (outcome.submission_uncertain) { return 'انقطع التنفيذ قبل تثبيت النتيجة؛ حالة الإرسال غير مؤكدة.'; }
-    if (outcome.error?.includes('no majority')) { return 'لم تتفق أغلبية أصوات المحكّم.'; }
+    if (outcome.error?.includes('abstained')) { return 'امتنع المحكّم عن الحكم لأن الرد ملتبس.'; }
     if (
       outcome.technical_error === 'timeout' ||
       outcome.error?.includes('configured execution timeout')

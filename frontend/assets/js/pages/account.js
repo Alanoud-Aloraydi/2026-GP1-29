@@ -5,6 +5,17 @@
   const view = window.HARASS;
   const element = (id) => document.getElementById(id);
 
+  // Runs a button's action; the button is re-enabled only when it fails.
+  async function act (button, action) {
+    view.busy(button, true);
+    try {
+      await action();
+    } catch (error) {
+      view.showError(error.message);
+      view.busy(button, false);
+    }
+  }
+
   async function sessionList () {
     const container = element('sessions');
     async function loadSessions () {
@@ -28,26 +39,17 @@
     container.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-revoke]');
       if (!button) return;
-      view.busy(button, true);
-      try {
+      act(button, async () => {
         await api.revokeSession(button.dataset.revoke);
         await loadSessions();
-      } catch (error) {
-        view.showError(error.message);
-        view.busy(button, false);
-      }
+      });
     });
-    element('logoutAll').addEventListener('click', async (event) => {
-      const button = event.currentTarget;
-      view.busy(button, true);
-      try {
+    element('logoutAll').addEventListener('click', (event) =>
+      act(event.currentTarget, async () => {
         await api.logoutAll();
         location.href = 'login.html';
-      } catch (error) {
-        view.showError(error.message);
-        view.busy(button, false);
-      }
-    });
+      })
+    );
     await loadSessions();
   }
 
@@ -76,17 +78,12 @@
   function verification (user, verifiable) {
     const button = element('sendVerification');
     button.hidden = !verifiable || user.email_verified;
-    button.addEventListener('click', async () => {
-      view.busy(button, true);
-      try {
+    button.addEventListener('click', () =>
+      act(button, async () => {
         await api.requestVerification();
         button.textContent = 'أُرسل رابط التحقق إلى بريدك';
-        button.disabled = true;
-      } catch (error) {
-        view.showError(error.message);
-        view.busy(button, false);
-      }
-    });
+      })
+    );
   }
 
   async function identity () {

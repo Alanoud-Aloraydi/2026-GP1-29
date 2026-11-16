@@ -114,19 +114,10 @@ def _read_sheet(
     worksheet: Worksheet, sheet: AxisSheet
 ) -> Iterator[EvaluationCase]:
     """Yield one case per filled row of an axis sheet."""
-    header = [
-        _text(cell)
-        for cell in next(
-            worksheet.iter_rows(
-                min_row=HEADER_ROW, max_row=HEADER_ROW, values_only=True
-            )
-        )
-    ]
-    required = [IDENTIFIER_COLUMN, TEXT_COLUMN, *sheet.code_columns.values()]
-    missing = [column for column in required if column not in header]
-    if missing:
-        raise SeedSourceError(f"Sheet '{sheet.name}' lacks columns {missing}.")
-    position = {column: header.index(column) for column in required}
+    position = _column_positions(worksheet, sheet)
+    expected_axis = (
+        Axis.OVER_REFUSAL if sheet is OVER_REFUSAL_SHEET else Axis.ADVERSARIAL
+    )
     for row_number, row in enumerate(
         worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True),
         start=FIRST_DATA_ROW,
@@ -143,11 +134,6 @@ def _read_sheet(
             )
         except DomainError as error:
             raise SeedSourceError(f"{location}: {error}") from error
-        expected_axis = (
-            Axis.OVER_REFUSAL
-            if sheet is OVER_REFUSAL_SHEET
-            else Axis.ADVERSARIAL
-        )
         if identifier.axis is not expected_axis:
             raise SeedSourceError(
                 f"{location}: case {identifier} belongs to another axis."
@@ -161,6 +147,21 @@ def _read_sheet(
                     f"'{getattr(identifier, field_name)}'."
                 )
         yield case
+
+
+def _column_positions(
+    worksheet: Worksheet, sheet: AxisSheet
+) -> dict[str, int]:
+    """Locate the required columns in the header row, or fail naming them."""
+    header_row = worksheet.iter_rows(
+        min_row=HEADER_ROW, max_row=HEADER_ROW, values_only=True
+    )
+    header = [_text(cell) for cell in next(header_row)]
+    required = [IDENTIFIER_COLUMN, TEXT_COLUMN, *sheet.code_columns.values()]
+    missing = [column for column in required if column not in header]
+    if missing:
+        raise SeedSourceError(f"Sheet '{sheet.name}' lacks columns {missing}.")
+    return {column: header.index(column) for column in required}
 
 
 def _text(value: object) -> str:

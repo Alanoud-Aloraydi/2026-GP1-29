@@ -323,24 +323,6 @@
 
   function coverageTable (report) {
     const counts = report.coverage || {};
-    if (!report.coverage) {
-      const baseline = report.run_type === 'baseline';
-      for (const outcome of report.outcomes) {
-        if ((outcome.variant_name === 'baseline') !== baseline) continue;
-        const row = (counts[outcome.axis] ||= {
-          submitted: 0,
-          unscored: 0,
-          unclear: 0
-        });
-        row.submitted++;
-        row.unscored += Boolean(
-          outcome.error ||
-            !outcome.response_category ||
-            (outcome.axis === 'AT' && outcome.attack_succeeded == null)
-        );
-        row.unclear += !outcome.error && outcome.response_category === 'UNC';
-      }
-    }
     return (
       '<section class="card">' +
       table(

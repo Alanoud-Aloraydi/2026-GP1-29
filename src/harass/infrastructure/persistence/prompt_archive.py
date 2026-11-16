@@ -23,19 +23,7 @@ def archive_findings(
     for outcome in document["outcomes"]:
         if not _is_generated_defect(outcome):
             continue
-        text = outcome["transcript"]["sent_prompt"]
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        session.execute(
-            insert_for(session, GeneratedPromptRow)
-            .values(content_sha256=digest, text=text, created_at=now)
-            .on_conflict_do_nothing(index_elements=["content_sha256"])
-        )
-        stored = session.get(GeneratedPromptRow, digest)
-        if stored is None or stored.text != text:
-            raise ValueError(
-                "Generated prompt hash does not identify the "
-                "exact stored text."
-            )
+        digest = _store_prompt(session, outcome["transcript"]["sent_prompt"])
         session.execute(
             insert_for(session, PromptFindingRow)
             .values(
@@ -63,6 +51,22 @@ def archive_findings(
                 ]
             )
         )
+
+
+def _store_prompt(session: Session, text: str) -> str:
+    """Store prompt text once by its hash and return that hash."""
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    session.execute(
+        insert_for(session, GeneratedPromptRow)
+        .values(content_sha256=digest, text=text, created_at=datetime.now(UTC))
+        .on_conflict_do_nothing(index_elements=["content_sha256"])
+    )
+    stored = session.get(GeneratedPromptRow, digest)
+    if stored is None or stored.text != text:
+        raise ValueError(
+            "Generated prompt hash does not identify the exact stored text."
+        )
+    return digest
 
 
 def _is_generated_defect(outcome: dict[str, Any]) -> bool:

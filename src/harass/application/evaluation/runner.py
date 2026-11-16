@@ -57,15 +57,10 @@ class RunEvaluation:
             len(cases),
             request.adaptive_settings.mode.value,
         )
-        outcomes = (
-            await self._engine.evaluate(
-                plan, request.target, run_identifier, journal=journal
-            )
-            if journal is not None
-            else await self._engine.evaluate(
-                plan, request.target, run_identifier
-            )
+        outcomes = await self._engine.evaluate(
+            plan, request.target, run_identifier, journal=journal
         )
+        # Journaled runs can be large, so their metrics leave the event loop.
         metrics = (
             await asyncio.to_thread(compute_metrics, outcomes)
             if journal

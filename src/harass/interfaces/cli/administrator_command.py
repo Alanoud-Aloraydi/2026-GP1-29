@@ -22,11 +22,8 @@ def run_administrator_command(
     """
     parser = argparse.ArgumentParser(prog="harass-admin")
     commands = parser.add_subparsers(dest="action", required=True)
-    for action in ("grant", "revoke"):
+    for action in ("grant", "revoke", "reset-password"):
         commands.add_parser(action).add_argument("--email", required=True)
-    commands.add_parser("reset-password").add_argument(
-        "--email", required=True
-    )
     arguments = parser.parse_args(argv)
     try:
         if arguments.action == "grant":

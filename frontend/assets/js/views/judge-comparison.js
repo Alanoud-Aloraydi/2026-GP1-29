@@ -73,6 +73,14 @@
       : number(score?.kappa);
   }
 
+  function count (value) {
+    return '<span class="number">' + escape(value ?? '—') + '</span>';
+  }
+
+  function perHour (value) {
+    return typeof value === 'number' ? count(Math.round(value)) : '—';
+  }
+
   function percent (value) {
     return typeof value === 'number'
       ? '<span class="number">' + (value * 100).toFixed(0) + '%</span>'
@@ -120,17 +128,12 @@
             escape(catalogue[report.judge_model]?.license || '—'),
             '<strong>' +
               escape(splitLabel(report.split)) +
-              '</strong> <span class="number">' +
-              escape(report.cases) +
-              ' × ' +
-              escape(report.trials) +
-              '</span>',
+              '</strong> ' +
+              count(report.cases + ' × ' + report.trials),
             number(report.category_kappa?.OR),
             number(report.category_kappa?.AT),
             number(report.attack_recall),
-            typeof report.cases_per_hour === 'number'
-              ? '<span class="number">' + Math.round(report.cases_per_hour) + '</span>'
-              : '—',
+            perHour(report.cases_per_hour),
             verdictLabel(report.passes_gate),
             '<button class="btn btn-sm btn-secondary" type="button" data-report="' +
               escape(report.report_id) +
@@ -165,10 +168,8 @@
       ],
       [
         'الحالات في الساعة',
-        typeof report.cost?.cases_per_hour === 'number'
-          ? '<span class="number">' + Math.round(report.cost.cases_per_hour) + '</span>'
-          : '—',
-        '≥ <span class="number">' + escape(gate.throughput_floor_per_hour ?? '—') + '</span>',
+        perHour(report.cost?.cases_per_hour),
+        '≥ ' + count(gate.throughput_floor_per_hour),
         gate.throughput_ok
       ]
     ];
@@ -227,7 +228,7 @@
       'التغطية',
       ['البند', 'العدد'],
       rows.map(([label, value]) =>
-        tableRow(label, ['<span class="number">' + escape(value ?? '—') + '</span>'])
+        tableRow(label, [count(value)])
       )
     );
   }
@@ -238,7 +239,7 @@
     const rows = [
       ['متوسط زمن الحالة (ثانية)', number(cost.mean_seconds)],
       ['نداءات المحكّم لكل حالة', number(cost.judge_calls_per_case)],
-      ['أخطاء تقنية', '<span class="number">' + escape(cost.failures ?? '—') + '</span>'],
+      ['أخطاء تقنية', count(cost.failures)],
       ['تغيّر التصنيف بين المحاولات', percent(stability.category_flip_rate)],
       ['تغيّر حكم الاختراق بين المحاولات', percent(stability.attack_flip_rate)]
     ];

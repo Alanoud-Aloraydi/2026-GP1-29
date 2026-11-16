@@ -58,68 +58,61 @@ async def run_benchmark_command(
     output: TextIO,
 ) -> int:
     """Benchmark a judge, prepare annotation sheets or publish a report."""
-    parser = argparse.ArgumentParser(prog="harass-judge-benchmark")
-    commands = parser.add_subparsers(dest="action", required=True)
-    run_parser = commands.add_parser("run")
-    run_parser.add_argument("--gold", type=Path, required=True)
-    run_parser.add_argument("--split", choices=SPLIT_CHOICES, required=True)
-    run_parser.add_argument("--trials", type=int, default=1)
-    run_parser.add_argument("--limit-per-axis", type=int)
-    run_parser.add_argument("--quantization")
-    run_parser.add_argument(
-        "--judge", choices=JUDGE_CHOICES, default="qwenguard"
-    )
-    annotate_parser = commands.add_parser("prepare-annotation")
-    annotate_parser.add_argument("--gold", type=Path, required=True)
-    annotate_parser.add_argument("--output", type=Path, required=True)
-    annotate_parser.add_argument(
-        "--fraction", type=float, default=ANNOTATION_FRACTION
-    )
-    publish_parser = commands.add_parser("publish")
-    publish_parser.add_argument("--report", type=Path, required=True)
-    arguments = parser.parse_args(argv)
+    arguments = _parser().parse_args(argv)
     try:
         if arguments.action == "publish":
             report_id = publish(arguments.report)
-            print(
-                f"Published judge benchmark report {report_id}.", file=output
-            )
-            return 0
-        cases = load(arguments.gold)
-        if arguments.action == "run":
-            selected = _in_split(cases, arguments.split)
+            message = f"Published judge benchmark report {report_id}."
+        elif arguments.action == "run":
+            selected = _in_split(load(arguments.gold), arguments.split)
             if arguments.limit_per_axis is not None:
                 selected = _limit_per_axis(selected, arguments.limit_per_axis)
             if not selected:
-                print("Benchmark error: the split has no cases.", file=output)
-                return 1
-            report = await run(
-                selected,
-                RunOptions(
-                    arguments.trials,
-                    arguments.split,
-                    arguments.quantization,
-                    arguments.judge,
-                ),
+                raise ValueError("the split has no cases.")
+            options = RunOptions(
+                arguments.trials,
+                arguments.split,
+                arguments.quantization,
+                arguments.judge,
             )
-            print(
-                json.dumps(report, ensure_ascii=False, indent=2), file=output
-            )
+            report = await run(selected, options)
+            message = json.dumps(report, ensure_ascii=False, indent=2)
         else:
+            cases = load(arguments.gold)
             chosen = set(annotation_families(cases, arguments.fraction))
-            write_annotation(
-                [case for case in cases if case.family in chosen],
-                arguments.output,
-            )
-            print(
-                f"Blind annotation sheet created for {len(chosen)} families; "
-                "all labels are blank.",
-                file=output,
+            sheet = [case for case in cases if case.family in chosen]
+            write_annotation(sheet, arguments.output)
+            message = (
+                f"Blind annotation sheet created for {len(chosen)} "
+                "families; all labels are blank."
             )
     except (OSError, ApplicationError, DomainError, ValueError) as error:
         print(f"Benchmark error: {error}", file=output)
         return 1
+    print(message, file=output)
     return 0
+
+
+def _parser() -> argparse.ArgumentParser:
+    """Describe the run, prepare-annotation and publish subcommands."""
+    parser = argparse.ArgumentParser(prog="harass-judge-benchmark")
+    commands = parser.add_subparsers(dest="action", required=True)
+    run = commands.add_parser("run")
+    run.add_argument("--gold", type=Path, required=True)
+    run.add_argument("--split", choices=SPLIT_CHOICES, required=True)
+    run.add_argument("--trials", type=int, default=1)
+    run.add_argument("--limit-per-axis", type=int)
+    run.add_argument("--quantization")
+    run.add_argument("--judge", choices=JUDGE_CHOICES, default="qwenguard")
+    annotate = commands.add_parser("prepare-annotation")
+    annotate.add_argument("--gold", type=Path, required=True)
+    annotate.add_argument("--output", type=Path, required=True)
+    annotate.add_argument(
+        "--fraction", type=float, default=ANNOTATION_FRACTION
+    )
+    publish = commands.add_parser("publish")
+    publish.add_argument("--report", type=Path, required=True)
+    return parser
 
 
 def _limit_per_axis(cases: Sequence[GoldCase], limit: int) -> list[GoldCase]:

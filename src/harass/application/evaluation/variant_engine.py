@@ -57,90 +57,85 @@ class VariantEvaluationEngine(EvaluationEngine):
     ) -> list[CaseOutcome]:
         """Evaluate case recipes and recover uncertain submissions."""
         selection = plan.variant_selection or VariantSelection((), ())
-        if not plan.include_baseline:
-            for case in plan.cases:
-                if not self._catalog.variants(case, selection):
-                    raise EvaluationEngineError(
-                        "A selected case has no eligible variants or baseline."
-                    )
-        state = (
-            await asyncio.to_thread(
-                journal.initialize, _fingerprint(plan, target), len(plan.cases)
-            )
-            if journal
-            else {}
-        )
-        state = {
-            "case_index": 0,
-            "baseline_done": False,
-            "used_variants": [],
-            **state,
-        }
+        self._require_recipes(plan, selection)
+        state = await _initial_state(plan, target, journal)
         controller = ThompsonController(plan.adaptive_settings.random_seed)
         if state.get("controller"):
             controller.restore(state["controller"])
         outcomes: list[CaseOutcome] = []
         committed = 0
         cached_index = -1
-        variants: list[PromptVariant] | tuple[PromptVariant, ...] = []
+        variants: list[PromptVariant] = []
         while state["case_index"] < len(plan.cases):
             case = plan.cases[state["case_index"]]
             if cached_index != state["case_index"]:
                 variants = self._catalog.variants(case, selection)
                 cached_index = state["case_index"]
-            if state.get("pending"):
+            recovered = bool(state.get("pending"))
+            if recovered:
                 outcome = read_outcome(state["pending"])
-                outcome, state = _complete(
-                    outcome, state, variants, plan, controller
+            else:
+                used = state["used_variants"]
+                remaining = [v for v in variants if v.variant_id not in used]
+                baseline = plan.include_baseline and not state["baseline_done"]
+                if not baseline and not remaining:
+                    state = _next_case(state, controller)
+                    if journal:
+                        await asyncio.to_thread(journal.reserve, state)
+                    continue
+                reservation = _choose_attempt(
+                    plan, case, remaining, baseline, state, controller
                 )
-                if journal:
-                    await asyncio.to_thread(journal.commit, outcome, state)
-                else:
-                    outcomes.append(outcome)
-                continue
-            remaining = [
-                v
-                for v in variants
-                if v.variant_id not in state["used_variants"]
-            ]
-            baseline = plan.include_baseline and not state["baseline_done"]
-            if not baseline and not remaining:
-                state = _next_case(state, controller)
-                if journal:
-                    await asyncio.to_thread(journal.reserve, state)
-                continue
-            reservation = _choose_attempt(
-                plan, case, remaining, baseline, state, controller
-            )
-            outcome, state = await self._submit(
-                reservation, target, run_identifier, state, controller, journal
-            )
+                outcome, state = await self._submit(
+                    reservation,
+                    target,
+                    run_identifier,
+                    state,
+                    controller,
+                    journal,
+                )
             outcome, state = _complete(
                 outcome, state, variants, plan, controller
             )
-            if journal:
-                await asyncio.to_thread(journal.commit, outcome, state)
-                committed += 1
-                if state.get("technical_failures", 0) >= 3:
-                    raise EvaluationSuspendedError(
-                        "Target or judge repeatedly unavailable; saved "
-                        "progress can be resumed."
-                    )
-                if committed >= self._quantum_attempts and state[
-                    "case_index"
-                ] < len(plan.cases):
-                    raise EvaluationYieldedError(
-                        "Committed work yielded the judge slot."
-                    )
-            else:
+            if journal is None:
                 outcomes.append(outcome)
-        return (
-            await asyncio.to_thread(
-                lambda: list(journal.outcomes(lightweight=True))
-            )
-            if journal
-            else outcomes
+                continue
+            await asyncio.to_thread(journal.commit, outcome, state)
+            if not recovered:
+                committed += 1
+                self._pause_if_needed(state, committed, len(plan.cases))
+        if journal is None:
+            return outcomes
+        return await asyncio.to_thread(
+            lambda: list(journal.outcomes(lightweight=True))
         )
+
+    def _require_recipes(
+        self, plan: EvaluationPlan, selection: VariantSelection
+    ) -> None:
+        """Reject a plan in which some case would have nothing to send."""
+        if plan.include_baseline:
+            return
+        for case in plan.cases:
+            if not self._catalog.variants(case, selection):
+                raise EvaluationEngineError(
+                    "A selected case has no eligible variants or baseline."
+                )
+
+    def _pause_if_needed(
+        self, state: dict[str, Any], committed: int, case_count: int
+    ) -> None:
+        """Suspend on repeated failures or yield after a full quantum."""
+        if state.get("technical_failures", 0) >= 3:
+            raise EvaluationSuspendedError(
+                "Target or judge repeatedly unavailable; saved "
+                "progress can be resumed."
+            )
+        unfinished = state["case_index"] < case_count
+        if committed >= self._quantum_attempts and unfinished:
+            raise EvaluationYieldedError(
+                "Committed work yielded the judge slot."
+            )
 
     async def _submit(
         self,
@@ -243,28 +238,51 @@ def _complete(
         )
     defect = _defect(outcome)
     controller.observe(context, outcome.variant.arm_id, defect)
-    adaptive = plan.adaptive_settings.mode is EvaluationMode.ADAPTIVE
-    budget = (
-        plan.adaptive_settings.attempt_budget if adaptive else len(variants)
-    )
     exhausted = len(state["used_variants"]) >= len(variants)
-    reason = (
-        "first_defect"
-        if adaptive and defect
-        else "budget_exhausted"
-        if adaptive and outcome.attempt_number >= budget
-        else "variants_exhausted"
-        if adaptive and exhausted
-        else "enumerated"
-        if exhausted
-        else None
-    )
+    reason = _stop_reason(plan, outcome.attempt_number, defect, exhausted)
     state["controller"] = controller.snapshot()
     if reason:
         return replace(outcome, stop_reason=reason), _next_case(
             state, controller
         )
     return outcome, state
+
+
+def _stop_reason(
+    plan: EvaluationPlan,
+    attempt_number: int,
+    defect: bool | None,
+    exhausted: bool,
+) -> str | None:
+    """Name why a case stops after this attempt, or None to continue."""
+    if plan.adaptive_settings.mode is not EvaluationMode.ADAPTIVE:
+        return "enumerated" if exhausted else None
+    if defect:
+        return "first_defect"
+    if attempt_number >= plan.adaptive_settings.attempt_budget:
+        return "budget_exhausted"
+    return "variants_exhausted" if exhausted else None
+
+
+async def _initial_state(
+    plan: EvaluationPlan,
+    target: TargetConnection,
+    journal: EvaluationJournal | None,
+) -> dict[str, Any]:
+    """Resume the journal checkpoint or start at the first case."""
+    saved = (
+        await asyncio.to_thread(
+            journal.initialize, _fingerprint(plan, target), len(plan.cases)
+        )
+        if journal
+        else {}
+    )
+    return {
+        "case_index": 0,
+        "baseline_done": False,
+        "used_variants": [],
+        **saved,
+    }
 
 
 def _next_case(

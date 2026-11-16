@@ -140,7 +140,6 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
         expires_at: datetime,
     ) -> AuthenticationSession | None:
         """Rotate by compare-and-swap; known replay revokes the session."""
-        result = None
         with self._sessions() as database, database.begin():
             row = database.get(
                 AuthenticationSessionRow, session_id, with_for_update=True
@@ -148,42 +147,31 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
             session = _session(row)
             if row is None or session is None:
                 return None
-            expired = (
-                session.refresh_expires_at is None
-                or session.refresh_expires_at <= datetime.now(UTC)
-            )
-            replay = any(
-                hmac.compare_digest(digest, old)
-                for old in session.used_refresh_hashes
-            )
-            if expired or replay or len(session.used_refresh_hashes) >= 64:
+            if _must_revoke(session, digest):
                 database.delete(row)
-            elif row.refresh_hash and hmac.compare_digest(
-                row.refresh_hash, digest
-            ):
-                changed = database.scalar(
-                    update(AuthenticationSessionRow)
-                    .where(
-                        AuthenticationSessionRow.session_id == session_id,
-                        AuthenticationSessionRow.refresh_hash == digest,
-                    )
-                    .values(
-                        refresh_hash=replacement,
-                        expires_at=min(
-                            expires_at,
-                            session.refresh_expires_at or expires_at,
-                        ),
-                        used_refresh_hashes=[
-                            *session.used_refresh_hashes,
-                            digest,
-                        ],
-                    )
-                    .returning(AuthenticationSessionRow.session_id)
+                return None
+            current = row.refresh_hash
+            if not current or not hmac.compare_digest(current, digest):
+                return None
+            changed = database.scalar(
+                update(AuthenticationSessionRow)
+                .where(
+                    AuthenticationSessionRow.session_id == session_id,
+                    AuthenticationSessionRow.refresh_hash == digest,
                 )
-                if changed:
-                    database.refresh(row)
-                    result = _session(row)
-        return result
+                .values(
+                    refresh_hash=replacement,
+                    expires_at=min(
+                        expires_at, session.refresh_expires_at or expires_at
+                    ),
+                    used_refresh_hashes=[*session.used_refresh_hashes, digest],
+                )
+                .returning(AuthenticationSessionRow.session_id)
+            )
+            if not changed:
+                return None
+            database.refresh(row)
+            return _session(row)
 
     def list_sessions(self, user_id: str) -> list[AuthenticationSession]:
         """List unexpired account sessions in creation order."""
@@ -237,6 +225,20 @@ def _user(row: UserRow | None) -> User | None:
         if row
         else None
     )
+
+
+def _must_revoke(session: AuthenticationSession, digest: str) -> bool:
+    """Tell whether a refresh attempt ends the session instead.
+
+    Reusing an old refresh token signals theft, so the whole session ends;
+    the history cap bounds the stored hashes.
+    """
+    expires = session.refresh_expires_at
+    if expires is None or expires <= datetime.now(UTC):
+        return True
+    used = session.used_refresh_hashes
+    replay = any(hmac.compare_digest(digest, old) for old in used)
+    return replay or len(used) >= 64
 
 
 def _session_row(session: AuthenticationSession) -> AuthenticationSessionRow:

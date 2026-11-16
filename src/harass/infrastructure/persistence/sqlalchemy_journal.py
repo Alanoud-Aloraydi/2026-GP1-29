@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, update
+from sqlalchemy.orm import Session
 
 from harass.application.errors import EvaluationEngineError
 from harass.application.evaluation.outcome_codec import read_outcome
@@ -24,6 +25,15 @@ from harass.infrastructure.persistence.tables import (
     RunRow,
 )
 from harass.infrastructure.persistence.upsert import insert_for
+
+# Metric reads never need request or response text, so it stays out of them.
+TEXT_FREE_FIELDS = {
+    "original_prompt": "Stored request",
+    "objective": "Stored request",
+    "variant": None,
+    "transcript": None,
+    "judge_requests": (),
+}
 
 
 class SqlAlchemyEvaluationJournal(EvaluationJournal):
@@ -68,7 +78,7 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
     def _save(
         self, checkpoint: dict[str, Any], outcome: CaseOutcome | None = None
     ) -> None:
-        """Commit checkpoint revisions and optional evidence under a live."""
+        """Commit a checkpoint and optional evidence under the lease."""
         if self._revision is None:
             raise EvaluationEngineError(
                 "The journal must be initialized before writes."
@@ -98,44 +108,36 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
                 raise LeaseLostError("The run no longer exists.")
             run.completed_cases = checkpoint["case_index"]
             if outcome is not None:
-                document = outcome_document(outcome)
-                metric = {
-                    **document,
-                    "original_prompt": "Stored request",
-                    "objective": "Stored request",
-                    "variant": None,
-                    "transcript": None,
-                    "judge_requests": (),
-                }
-                session.execute(
-                    insert_for(session, RunOutcomeRow)
-                    .values(
-                        run_id=row.run_id,
-                        case_index=self._case_index,
-                        attempt_number=outcome.attempt_number,
-                        document=document,
-                        metric_document=metric,
-                    )
-                    .on_conflict_do_nothing(
-                        index_elements=[
-                            "run_id",
-                            "case_index",
-                            "attempt_number",
-                        ]
-                    )
-                )
-                run.completed_attempts += 1
-                archive_findings(
-                    session,
-                    run,
-                    {
-                        "outcomes": [document],
-                        "target_model": run.target_model,
-                        "target_endpoint": self._job.target_endpoint,
-                    },
-                )
+                self._record(session, run, outcome)
         self._revision += 1
         self._case_index = checkpoint["case_index"]
+
+    def _record(
+        self, session: Session, run: RunRow, outcome: CaseOutcome
+    ) -> None:
+        """Store one attempt once, with a text-free copy for metrics."""
+        document = outcome_document(outcome)
+        metric = {**document, **TEXT_FREE_FIELDS}
+        session.execute(
+            insert_for(session, RunOutcomeRow)
+            .values(
+                run_id=run.run_id,
+                case_index=self._case_index,
+                attempt_number=outcome.attempt_number,
+                document=document,
+                metric_document=metric,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["run_id", "case_index", "attempt_number"]
+            )
+        )
+        run.completed_attempts += 1
+        findings = {
+            "outcomes": [document],
+            "target_model": run.target_model,
+            "target_endpoint": self._job.target_endpoint,
+        }
+        archive_findings(session, run, findings)
 
     def outcomes(self, *, lightweight: bool = False) -> Iterator[CaseOutcome]:
         """Read at most 100 stored attempt documents into memory at a time."""

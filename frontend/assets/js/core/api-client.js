@@ -14,6 +14,13 @@
     429: 'تجاوزت عدد المحاولات المسموح. انتظر قليلًا ثم أعد المحاولة.'
   };
 
+  // Messages for specific failures the API names in its body.
+  const codes = {
+    password_rejected: 'اختر كلمة مرور أقل شيوعًا؛ يمكنك استخدام عبارة طويلة.',
+    account_link_invalid: 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطًا جديدًا.',
+    active_run: 'لديك تقييم لم ينتهِ. أكمله أو ألغِه قبل بدء تقييم آخر.'
+  };
+
   let renewal;
 
   async function fetchBounded (path, options) {
@@ -103,14 +110,8 @@
       errors[response.status] || 'حدث خطأ في الخدمة. أعد المحاولة لاحقًا.'
     );
     error.status = response.status;
-    if (payload?.code === 'password_rejected') { error.message = 'اختر كلمة مرور أقل شيوعًا؛ يمكنك استخدام عبارة طويلة.'; }
-    if (payload?.code === 'account_link_invalid') {
-      error.message = 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطًا جديدًا.';
-    }
-    if (payload?.code === 'active_run') {
-      error.message = 'لديك تقييم لم ينتهِ. أكمله أو ألغِه قبل بدء تقييم آخر.';
-      error.activeRunId = payload.active_run_id;
-    }
+    if (codes[payload?.code]) error.message = codes[payload.code];
+    if (payload?.code === 'active_run') error.activeRunId = payload.active_run_id;
     if (
       response.status === 401 &&
       path !== '/auth/login' &&
@@ -124,6 +125,8 @@
 
   const connectionPath = (id) => '/connections/' + encodeURIComponent(id);
   const runPath = (id) => '/runs/' + encodeURIComponent(id);
+  const connectionPage = (offset = 0) =>
+    request('GET', '/connections?limit=50&offset=' + offset, undefined, true);
   window.HARASS_API = Object.freeze({
     options: () => request('GET', '/evaluation-options'),
     features: () => request('GET', '/auth/features'),
@@ -142,30 +145,15 @@
     updateProfile: (body) => request('PATCH', '/auth/me', body),
     listConnections: async () => {
       const items = [];
-      let offset = 0;
-      let total;
+      let page;
       do {
-        const page = await request(
-          'GET',
-          '/connections?limit=50&offset=' + offset,
-          undefined,
-          true
-        );
+        page = await connectionPage(items.length);
         items.push(...page.items);
-        total = page.total;
-        offset += 50;
-        if (!page.items.length) break;
-      } while (offset < total);
+      } while (page.items.length && items.length < page.total);
       return items;
     },
     getConnection: (id) => request('GET', connectionPath(id)),
-    connectionPage: (offset = 0) =>
-      request(
-        'GET',
-        '/connections?limit=50&offset=' + offset,
-        undefined,
-        true
-      ),
+    connectionPage,
     addConnection: (body) => request('POST', '/connections', body),
     updateConnection: (id, body) => request('PUT', connectionPath(id), body),
     verifyConnection: (id) => request('POST', connectionPath(id) + '/verify'),

@@ -55,17 +55,7 @@ class OpenAIConnectionVerifier(ConnectionVerifier):
                 response = await client.post(
                     endpoint + "/chat/completions",
                     headers=headers,
-                    json={
-                        "model": target.model_name,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": "Reply with the word Hello.",
-                            }
-                        ],
-                        "max_completion_tokens": 900,
-                        "temperature": 0,
-                    },
+                    json=_greeting_request(target.model_name),
                 )
                 if failure := _http_failure(response):
                     return failure
@@ -79,8 +69,20 @@ class OpenAIConnectionVerifier(ConnectionVerifier):
         return None
 
 
+def _greeting_request(model_name: str) -> dict[str, object]:
+    """Build a neutral, bounded generation request for the check."""
+    return {
+        "model": model_name,
+        "messages": [
+            {"role": "user", "content": "Reply with the word Hello."}
+        ],
+        "max_completion_tokens": 900,
+        "temperature": 0,
+    }
+
+
 def _http_failure(response: httpx.Response) -> str | None:
-    """Classify HTTP failures without returning provider bodies or."""
+    """Classify HTTP failures without returning provider bodies."""
     if response.status_code == 401:
         return "401 Unauthorized: the API key was rejected."
     if response.status_code >= 400:

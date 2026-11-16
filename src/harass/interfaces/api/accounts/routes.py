@@ -105,7 +105,7 @@ def install_auth(
         try:
             user = await run_in_threadpool(
                 authentication.rename,
-                request.cookies.get(COOKIE_NAME, ""),
+                _access_token(request),
                 body.full_name,
             )
         except RegistrationError as error:
@@ -133,7 +133,7 @@ def install_auth(
     @app.get("/auth/sessions", response_model=list[SessionResponse])
     async def sessions(request: Request) -> list[SessionResponse]:
         """List only the authenticated account's active sessions."""
-        token = request.cookies.get(COOKIE_NAME, "")
+        token = _access_token(request)
         user = await authenticated_user(request)
         current = authentication.session_identifier(token)
         rows = await run_in_threadpool(authentication.sessions, token)
@@ -154,7 +154,7 @@ def install_auth(
         await authenticated_user(request)
         await run_in_threadpool(
             authentication.revoke_sessions,
-            request.cookies.get(COOKIE_NAME, ""),
+            _access_token(request),
             session_id,
         )
         return Response(status_code=204)
@@ -165,12 +165,17 @@ def install_auth(
         await authenticated_user(request)
         await run_in_threadpool(
             authentication.revoke_sessions,
-            request.cookies.get(COOKIE_NAME, ""),
+            _access_token(request),
         )
         return cookies.clear()
 
 
+def _access_token(request: Request) -> str:
+    """Return the access cookie, or empty text when the browser sent none."""
+    return request.cookies.get(COOKIE_NAME, "")
+
+
 def _logout(authentication: ManageAuthentication, request: Request) -> None:
     """Revoke both cookies' credentials even when the access token expired."""
-    authentication.logout(request.cookies.get(COOKIE_NAME, ""))
+    authentication.logout(_access_token(request))
     authentication.logout_refresh(request.cookies.get(REFRESH_COOKIE_NAME, ""))

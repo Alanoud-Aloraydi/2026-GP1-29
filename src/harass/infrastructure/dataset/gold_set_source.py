@@ -58,9 +58,10 @@ def _read_sheet(
     missing = [column for column in required if column not in header]
     if missing:
         raise GoldSetError(f"Sheet '{sheet_name}' lacks columns {missing}.")
+    position = {column: header.index(column) for column in required}
     for number, row in enumerate(rows, start=2):
         values = {
-            column: _text(row[header.index(column)]) for column in required
+            column: _text(row[index]) for column, index in position.items()
         }
         if not values["Master_Dataset_Code"]:
             continue

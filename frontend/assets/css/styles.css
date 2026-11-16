@@ -165,7 +165,6 @@ legend { padding: 0; font-size: 1.1rem; font-weight: 700; }
 .name-form > * { margin: 0; }
 .profile-email { direction: ltr; text-align: right; }
 .avatar-large { width: 72px; height: 72px; font-size: 2rem; }
-.field-row { display: grid; gap: 16px; grid-template-columns: repeat(2, 1fr); }
 .btn-danger { color: var(--error); border-color: var(--error-border); }
 .setup-form { display: flex; flex-direction: column; gap: 24px; }
 .step-title { display: flex; align-items: center; gap: 12px; margin-block-end: 16px; padding: 0; font-size: 1.5rem; font-weight: 700; }
@@ -262,7 +261,6 @@ thead th { border-block-start: 0; border-block-end: 1px solid var(--border); col
 .status-pending, .status-not_tested { background: #eef2f4; color: var(--muted); }
 .coverage-warning { color: var(--error); }
 .number { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
-.block { display: block; }
 .judge-detail { display: grid; gap: 24px; margin-block-start: 24px; }
 .judge-columns { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .matrix-cell { text-align: center; }
@@ -350,7 +348,7 @@ mark { background: var(--butter); border-radius: 12px; padding-inline: 10px; col
   .app-header .container { flex-wrap: wrap; gap: 8px; }
   .main-nav { order: 3; flex-basis: 100%; margin: 0; overflow-x: auto; white-space: nowrap; }
   .main-nav a { flex-shrink: 0; }
-  .hero-split, .dialects, .concern-grid, .flow-steps, .setup-layout, .choice-grid, .field-row { grid-template-columns: 1fr; }
+  .hero-split, .dialects, .concern-grid, .flow-steps, .setup-layout, .choice-grid { grid-template-columns: 1fr; }
   .hero-title { font-size: 2.4rem; }
 }
 @media (max-width: 520px) {

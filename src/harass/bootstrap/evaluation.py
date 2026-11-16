@@ -30,6 +30,8 @@ def build_evaluation(
     The returned client talks to the judge server and belongs to the caller,
     which closes it when the process ends.
     """
+    # PyRIT loads slowly; importing it here keeps it out of the API process,
+    # which reads this module's paths but never runs attempts.
     from harass.application.evaluation.variant_engine import (
         VariantEvaluationEngine,
     )
