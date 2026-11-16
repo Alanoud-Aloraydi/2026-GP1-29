@@ -5,13 +5,20 @@ const vm = require('node:vm');
 const header = {}, footer = {};
 const context = vm.createContext({
   window: {},
-  document: {querySelector: (selector) => selector === '[data-shell-header]' ? header : footer}
+  // Enough of the browser for ui.js to install its bar-width observer.
+  MutationObserver: class { observe () {} },
+  document: {
+    documentElement: {},
+    body: {dataset: {page: 'home'}},
+    addEventListener () {},
+    querySelector: (selector) => selector === '[data-shell-header]' ? header : footer
+  }
 });
 for (const file of ['core/ui.js', 'views/run.js', 'views/report-evidence.js', 'views/report.js']) {
   vm.runInContext(fs.readFileSync(require('node:path').join(process.argv[2], file), 'utf8'), context);
 }
 const view = context.window.HARASS;
-view.configureLabels({axes: {AT: "AT", OR: "OR"}, labels: {}, dialects: {}});
+view.configureLabels({axes: {AT: "AT", OR: "OR"}, labels: {}, dialects: {}, owasp_categories: []});
 view.mountShell(false);
 const accountHeader = header.innerHTML;
 assert(accountHeader.includes('data-logout'));
