@@ -11,10 +11,12 @@ JUDGE_REQUESTS: ContextVar[list[dict[str, Any]] | None] = ContextVar(
 )
 
 
-def audited_client() -> httpx.AsyncClient:
+def audited_client(base_url: str, timeout_seconds: float) -> httpx.AsyncClient:
     """Create an owned HTTP client with public request and response hooks."""
     return httpx.AsyncClient(
-        event_hooks={"request": [_request], "response": [_response]}
+        base_url=base_url,
+        timeout=timeout_seconds,
+        event_hooks={"request": [_request], "response": [_response]},
     )
 
 

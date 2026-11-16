@@ -26,7 +26,6 @@ from harass.infrastructure.persistence.sqlalchemy_connections import (
 from harass.infrastructure.persistence.sqlalchemy_jobs import (
     SqlAlchemyRunQueue,
 )
-from harass.infrastructure.pyrit.target_builder import close_target
 from harass.infrastructure.security.fernet_secret_cipher import (
     FernetSecretCipher,
 )
@@ -49,7 +48,7 @@ async def _serve() -> None:
             factory,
             execution_profile(settings),
             hashlib.sha256(
-                settings.judge.base_url.encode("utf-8")
+                settings.judge_server_url.encode("utf-8")
             ).hexdigest(),
         )
         connections = ManageConnections(
@@ -64,7 +63,7 @@ async def _serve() -> None:
         await ProcessRuns(queue, connections, evaluation).serve()
     finally:
         if judge is not None:
-            await close_target(judge)
+            await judge.aclose()
         engine.dispose()
 
 

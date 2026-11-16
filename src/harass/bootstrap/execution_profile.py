@@ -20,10 +20,8 @@ def execution_profile(settings: Settings) -> str:
         *sorted((package / "application/reporting").glob("*.py")),
         *sorted((package / "domain").glob("*.py")),
         *sorted((package / "infrastructure/pyrit").rglob("*.py")),
-        *sorted(
-            (package / "infrastructure/pyrit/scoring/rubrics").glob("*.yaml")
-        ),
         *sorted((package / "infrastructure/dataset").glob("*.py")),
+        package / "infrastructure/http/qwenguard_moderation.py",
         package / "infrastructure/settings.py",
         package / "infrastructure/http/endpoint_policy.py",
     ]

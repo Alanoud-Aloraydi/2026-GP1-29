@@ -53,12 +53,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="harass",
         description=(
-            "Evaluate an OpenAI-compatible model on the "
-            "adversarial and over-refusal axes. The API "
-            "key is read from "
-        )
-        + TARGET_API_KEY_VARIABLE
-        + ".",
+            "Evaluate an OpenAI-compatible model on the adversarial and "
+            f"over-refusal axes. The API key is read from "
+            f"{TARGET_API_KEY_VARIABLE}."
+        ),
     )
     target = parser.add_argument_group("model under evaluation")
     target.add_argument(
@@ -192,16 +190,8 @@ def build_request(
         max_base_cases_per_axis=arguments.max_base_cases_per_axis,
         sampling_seed=arguments.sampling_seed,
         variant_selection=VariantSelection(
-            ()
-            if arguments.baseline_only
-            else tuple(arguments.template)
-            if arguments.template
-            else None,
-            ()
-            if arguments.baseline_only
-            else tuple(arguments.transform)
-            if arguments.transform
-            else None,
+            _library_names(arguments.template, arguments.baseline_only),
+            _library_names(arguments.transform, arguments.baseline_only),
         ),
         adaptive_settings=AdaptiveSettings(
             EvaluationMode(arguments.mode),
@@ -248,13 +238,8 @@ def present_report(
             )
     for variant_name, gap in metrics.discrimination_gap_by_variant.items():
         lines.append(f"  Discrimination gap [{variant_name}]: {gap:+.3f}")
-    for (
-        risk_category,
-        gap,
-    ) in metrics.discrimination_gap_by_risk_category.items():
-        lines.append(
-            f"  Discrimination gap [risk {risk_category}]: {gap:+.3f}"
-        )
+    for risk, gap in metrics.discrimination_gap_by_risk_category.items():
+        lines.append(f"  Discrimination gap [risk {risk}]: {gap:+.3f}")
     lines.append(f"  Unscored outcomes: {metrics.unscored_outcomes}")
     lines.append(f"Report written to {destination}")
     print("\n".join(lines), file=output)
@@ -269,6 +254,15 @@ def _format(proportion: Proportion) -> str:
         f"{proportion.count}/{proportion.total} = {proportion.rate:.3f} "
         f"(95% CI {interval[0]:.3f}-{interval[1]:.3f})"
     )
+
+
+def _library_names(
+    requested: list[str] | None, baseline_only: bool
+) -> tuple[str, ...] | None:
+    """Return requested library names; None means every eligible entry."""
+    if baseline_only:
+        return ()
+    return tuple(requested) if requested else None
 
 
 def _codes(

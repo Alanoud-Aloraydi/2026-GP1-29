@@ -17,6 +17,7 @@ from harass.application.ports.run_queue import (
     StorageUnavailableError,
 )
 from harass.application.reporting.document import report_document
+from harass.domain.target_connection import TargetConnection
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +35,11 @@ class ProcessRuns:
         poll_seconds: float = 2,
     ) -> None:
         """Inject execution ports and bounded worker scheduling intervals."""
-        self._queue, self._connections, self._evaluation = (
-            queue,
-            connections,
-            evaluation,
-        )
-        self._heartbeat_seconds, self._poll_seconds = (
-            heartbeat_seconds,
-            poll_seconds,
-        )
+        self._queue = queue
+        self._connections = connections
+        self._evaluation = evaluation
+        self._heartbeat_seconds = heartbeat_seconds
+        self._poll_seconds = poll_seconds
 
     async def once(self) -> bool:
         """Process one claimed job when the judge slot is available."""
@@ -80,21 +77,7 @@ class ProcessRuns:
     async def _execute(self, job: RunJob) -> None:
         """Validate immutable job inputs and persist its execution outcome."""
         try:
-            target = self._connections.target_for_evaluation(
-                job.run.owner_id, job.run.connection_id
-            )
-            if (
-                target.base_url != job.target_endpoint
-                or target.model_name != job.run.target_model
-            ):
-                raise ValueError("The queued target connection changed.")
-            if (
-                job.connection_revision is not None
-                and target.connection_revision != job.connection_revision
-            ):
-                raise ValueError(
-                    "The queued target connection revision changed."
-                )
+            target = self._queued_target(job)
             parameters = read_run_parameters(job.parameters)
             report = await self._evaluation.execute(
                 EvaluationRequest(
@@ -132,6 +115,21 @@ class ProcessRuns:
                 job,
                 f"Evaluation failed: {type(error).__name__}.",
             )
+
+    def _queued_target(self, job: RunJob) -> TargetConnection:
+        """Load the run's connection and refuse it if it changed since."""
+        target = self._connections.target_for_evaluation(
+            job.run.owner_id, job.run.connection_id
+        )
+        if (
+            target.base_url != job.target_endpoint
+            or target.model_name != job.run.target_model
+        ):
+            raise ValueError("The queued target connection changed.")
+        revision = job.connection_revision
+        if revision is not None and target.connection_revision != revision:
+            raise ValueError("The queued target connection revision changed.")
+        return target
 
     async def serve(self) -> None:
         """Poll for work while preserving recoverable checkpoints."""

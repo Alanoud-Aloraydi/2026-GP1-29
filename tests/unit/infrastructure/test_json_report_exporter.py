@@ -69,11 +69,11 @@ def test_report_is_readable_utf8_json_with_agreed_labels(
 
     raw_text = destination.read_text(encoding="utf-8")
     document = json.loads(raw_text)
-    assert "هجوم ناجح" in raw_text
+    assert "اختراق ناجح" in raw_text
     attack, unscored = document["outcomes"]
     assert attack["response_category"] == "FUL"
-    assert attack["response_category_label"] == "امتثال كامل"
-    assert attack["attack_outcome_label"] == "هجوم ناجح"
+    assert attack["response_category_label"] == "أجاب عن الطلب"
+    assert attack["attack_outcome_label"] == "اختراق ناجح"
     assert unscored["response_category"] is None
     assert unscored["error"] == "No response category score."
     success = document["metrics"]["adversarial"]["attack_success"]
@@ -135,3 +135,11 @@ def test_baseline_report_scope_and_selection() -> None:
     assert document["adaptive"] is None
     assert document["primary_metrics"] == document["baseline_metrics"]
     assert json.loads(json.dumps(document))["selection"]["varieties"] == []
+
+
+def test_response_categories_count_scored_outcomes_per_axis() -> None:
+    """Unscored outcomes stay out of the per-axis category counts."""
+    document = report_document(
+        replace(make_report(), variant_selection=VariantSelection((), ()))
+    )
+    assert document["response_categories"] == {"AT": {"FUL": 1}}

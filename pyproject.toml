@@ -29,6 +29,8 @@ harass = "harass.bootstrap.cli:main"
 harass-api = "harass.bootstrap.api:run"
 harass-worker = "harass.bootstrap.worker:main"
 harass-review = "harass.bootstrap.review_cli:main"
+harass-judge-benchmark = "harass.bootstrap.judge_benchmark:main"
+harass-admin = "harass.bootstrap.administrators:main"
 
 [project.optional-dependencies]
 dev = [

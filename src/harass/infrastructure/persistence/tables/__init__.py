@@ -15,6 +15,9 @@ from harass.infrastructure.persistence.tables.evaluations import (
     WorkerPresenceRow,
     WorkerSlotRow,
 )
+from harass.infrastructure.persistence.tables.judge_benchmarks import (
+    JudgeBenchmarkReportRow,
+)
 from harass.infrastructure.persistence.tables.request_limits import (
     RequestLimitRow,
 )
@@ -30,6 +33,7 @@ __all__ = [
     "Base",
     "ConnectionRow",
     "GeneratedPromptRow",
+    "JudgeBenchmarkReportRow",
     "PromptFindingRow",
     "ReportRow",
     "RequestLimitRow",

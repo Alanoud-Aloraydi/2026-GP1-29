@@ -37,9 +37,13 @@
         view.showError(error.message);
       }
     }
+    // Waiting runs change slowly, so they are checked less often.
+    function poll (run) {
+      timer = setTimeout(load, run.status === 'pending' ? 15000 : 10000);
+    }
     function bindRunAction (buttonId, action) {
-      document.getElementById(buttonId).addEventListener('click', async () => {
-        const button = document.getElementById(buttonId);
+      const button = document.getElementById(buttonId);
+      button.addEventListener('click', async () => {
         view.busy(button, true);
         try {
           await action(identifier);
@@ -62,7 +66,7 @@
           container.querySelector('#evaluationProgress')
         ) {
           view.updateRunProgress(container, run);
-          timer = setTimeout(load, run.status === 'pending' ? 15000 : 10000);
+          poll(run);
           return;
         }
         container.dataset.status = run.status;
@@ -101,7 +105,7 @@
           if (run.resumable) bindRunAction('resumeRun', api.resumeRun);
         } else {
           container.insertAdjacentHTML('beforeend', view.runProgress(run));
-          if (run.status !== 'cancelled') { timer = setTimeout(load, run.status === 'pending' ? 15000 : 10000); }
+          if (run.status !== 'cancelled') poll(run);
         }
         if (['pending', 'running'].includes(run.status) || run.resumable) {
           container.insertAdjacentHTML(
@@ -117,7 +121,7 @@
         container.querySelectorAll('details').forEach((item, index) => {
           item.open = opened[index] || false;
         });
-        if (focused) { document.getElementById(focused)?.focus({ preventScroll: true }); }
+        if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
       } catch (error) {
         if (!active) return;
         view.showError(error.message);

@@ -17,3 +17,7 @@ class PasswordRejectedError(RegistrationError):
 
 class InvalidAccountActionError(ApplicationError):
     """An account-action token is invalid, expired or already consumed."""
+
+
+class UnknownAccountError(ApplicationError):
+    """No account has the requested email."""

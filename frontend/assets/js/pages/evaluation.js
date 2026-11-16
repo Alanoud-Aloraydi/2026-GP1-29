@@ -17,6 +17,27 @@
         (item) => new Option(item.model_name, item.connection_id)
       )
     );
+    const summary = {
+      connection: () => form.connection.selectedOptions[0].textContent,
+      run_type: () => chosenTitle('run_type'),
+      axis: () => chosenTitle('axis'),
+      variety: () =>
+        form.querySelectorAll('[name=variety]:checked').length +
+        ' من ' +
+        form.querySelectorAll('[name=variety]').length
+    };
+    const chosenTitle = (name) =>
+      form
+        .querySelector('[name=' + name + ']:checked')
+        .closest('label')
+        .querySelector('strong').textContent;
+    const updateSummary = () => {
+      document.querySelectorAll('[data-summary]').forEach((element) => {
+        element.textContent = summary[element.dataset.summary]();
+      });
+    };
+    form.addEventListener('change', updateSummary);
+    updateSummary();
     if (!connections.length) {
       view.showError(
         'لا يوجد اتصال جاهز. أضف اتصالًا واختبره من صفحة اتصالات النماذج.'

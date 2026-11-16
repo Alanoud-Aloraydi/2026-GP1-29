@@ -18,8 +18,19 @@ from harass.domain.taxonomy import (
 
 _SEGMENT_SEPARATOR = "-"
 _CASE_NUMBER_PATTERN = re.compile(r"\d{5}")
-_OVER_REFUSAL_SEGMENT_COUNT = 5
-_ADVERSARIAL_SEGMENT_COUNT = 7
+# Segment order of each axis, for example OR-HLT-HRM-MSA-00001.
+_SEGMENT_NAMES = {
+    Axis.OVER_REFUSAL: ("axis", "domain", "risk", "variety", "number"),
+    Axis.ADVERSARIAL: (
+        "axis",
+        "domain",
+        "risk",
+        "strategy",
+        "owasp",
+        "variety",
+        "number",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -70,43 +81,26 @@ class CaseIdentifier:
         """Parse and validate a structured case identifier."""
         segments = text.split(_SEGMENT_SEPARATOR)
         axis = _parse_code(Axis, segments[0], text)
-        expected_segment_count = (
-            _OVER_REFUSAL_SEGMENT_COUNT
-            if axis is Axis.OVER_REFUSAL
-            else _ADVERSARIAL_SEGMENT_COUNT
-        )
-        if len(segments) != expected_segment_count:
+        names = _SEGMENT_NAMES[axis]
+        if len(segments) != len(names):
             raise InvalidCaseIdentifierError(
-                f"Identifier '{text}' must have "
-                f"{expected_segment_count} segments "
+                f"Identifier '{text}' must have {len(names)} segments "
                 f"for axis {axis}, found {len(segments)}."
             )
-        if axis is Axis.OVER_REFUSAL:
-            _, domain_code, risk_code, variety_code, case_number = segments
-            return cls(
-                axis=axis,
-                subject_domain=_parse_code(SubjectDomain, domain_code, text),
-                risk_category=_parse_code(RiskCategory, risk_code, text),
-                variety=_parse_code(ArabicVariety, variety_code, text),
-                case_number=case_number,
-            )
-        (
-            _,
-            domain_code,
-            risk_code,
-            strategy_code,
-            owasp_code,
-            variety_code,
-            case_number,
-        ) = segments
+        code = dict(zip(names, segments, strict=True))
+        adversarial = axis is Axis.ADVERSARIAL
         return cls(
             axis=axis,
-            subject_domain=_parse_code(SubjectDomain, domain_code, text),
-            risk_category=_parse_code(RiskCategory, risk_code, text),
-            variety=_parse_code(ArabicVariety, variety_code, text),
-            case_number=case_number,
-            strategy=_parse_code(BypassStrategy, strategy_code, text),
-            owasp_category=_parse_code(OwaspCategory, owasp_code, text),
+            subject_domain=_parse_code(SubjectDomain, code["domain"], text),
+            risk_category=_parse_code(RiskCategory, code["risk"], text),
+            variety=_parse_code(ArabicVariety, code["variety"], text),
+            case_number=code["number"],
+            strategy=_parse_code(BypassStrategy, code["strategy"], text)
+            if adversarial
+            else None,
+            owasp_category=_parse_code(OwaspCategory, code["owasp"], text)
+            if adversarial
+            else None,
         )
 
     def __str__(self) -> str:

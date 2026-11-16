@@ -121,25 +121,7 @@ def calibrate_leak(observations: Sequence[LeakObservation]) -> dict[str, Any]:
     then a higher threshold. This is an explicit project choice, not an OWASP
     prescription.
     """
-    calibration = [row for row in observations if row.split == "calibration"]
-    evaluation = [row for row in observations if row.split == "evaluation"]
-    reference_splits: dict[tuple[str, str], set[str]] = {}
-    for row in observations:
-        reference_splits.setdefault(
-            (row.protected_content, row.protected_marker), set()
-        ).add(row.split)
-    if any(len(splits) > 1 for splits in reference_splits.values()):
-        raise InvalidReviewDataError(
-            "The same protected reference cannot appear in both splits."
-        )
-    for name, rows in (
-        ("calibration", calibration),
-        ("evaluation", evaluation),
-    ):
-        if {row.leaked for row in rows} != {False, True}:
-            raise InvalidReviewDataError(
-                f"The {name} split needs both leak and non-leak labels."
-            )
+    _validate_splits(observations)
     scored = [
         (row, rouge_l(row.protected_content, row.response))
         for row in observations
@@ -169,6 +151,25 @@ def calibrate_leak(observations: Sequence[LeakObservation]) -> dict[str, Any]:
         ),
         "threshold_sensitivity": sweep,
     }
+
+
+def _validate_splits(observations: Sequence[LeakObservation]) -> None:
+    """Keep each reference in one split and both labels in every split."""
+    reference_splits: dict[tuple[str, str], set[str]] = {}
+    labels: dict[str, set[bool]] = {"calibration": set(), "evaluation": set()}
+    for row in observations:
+        reference = (row.protected_content, row.protected_marker)
+        reference_splits.setdefault(reference, set()).add(row.split)
+        labels[row.split].add(row.leaked)
+    if any(len(splits) > 1 for splits in reference_splits.values()):
+        raise InvalidReviewDataError(
+            "The same protected reference cannot appear in both splits."
+        )
+    for name, seen in labels.items():
+        if seen != {False, True}:
+            raise InvalidReviewDataError(
+                f"The {name} split needs both leak and non-leak labels."
+            )
 
 
 def _leak_metrics(

@@ -155,8 +155,10 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   │   └── yaml_variant_catalog.py                         # Compose bounded prompt variants from authored YAML recipes.
 │       │   ├── http/
 │       │   │   ├── __init__.py                                     # HTTP adapters.
-│       │   │   ├── endpoint_policy.py                              # Pin approved outbound addresses while retaining TLS checks.
-│       │   │   └── openai_connection_verifier.py                   # Verify model availability and generation on compatible endpoints.
+│       │   │   ├── endpoint_policy.py                                      # Pin approved outbound addresses while retaining TLS checks.
+│       │   │   ├── openai_connection_verifier.py                           # Verify model availability and generation on compatible endpoints.
+│       │   │   ├── qwenguard_moderation.py                                 # One moderation request to the Qwen3Guard server, read into its labels.
+│       │   │   └── rubrics.py                                              # The rubric wording and fingerprint shown to the decision-model judges.
 │       │   ├── mail/
 │       │   │   ├── __init__.py                                     # Optional account-mail configuration and SMTP delivery adapters.
 │       │   │   ├── settings.py                                     # Validate SMTP configuration only when account email is enabled.
@@ -197,23 +199,14 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   │   └── upsert.py                                       # Build atomic inserts for PostgreSQL and SQLite.
 │       │   ├── pyrit/
 │       │   │   ├── scoring/
-│       │   │   │   ├── rubrics/
-│       │   │   │   │   ├── attack_success_question.yaml            # Attack success criteria following HarmBench (Mazeika et al., 2024, Appendix B.1).
-│       │   │   │   │   ├── attack_success_system_prompt.yaml       # Applies the attack criterion with a concise auditable verdict.
-│       │   │   │   │   ├── response_categories.yaml                # Response categories following XSTest (Röttger et al., 2024, Section 4.2), with an unclear
-│       │   │   │   │   └── response_category_system_prompt.yaml    # Instructions
-│       │   │   │   ├── __init__.py                                 # Judge-model scorers built on PyRIT.
-│       │   │   │   ├── majority_vote.py                            # Majority vote over repeated judge verdicts on the same response.
-│       │   │   │   ├── reasoning_response_handler.py               # Separate judge reasoning traces from structured verdicts.
-│       │   │   │   ├── request_aware_category_scorer.py            # Category scorer that shows the judge the request alongside the response.
-│       │   │   │   ├── scorer_builder.py                           # Assembly of the judge-model scorers from their rubric files.
-│       │   │   │   ├── synthetic_disclosure_scorer.py              # Deterministic synthetic disclosure judging without another model request.
-│       │   │   │   └── voting_true_false_scorer.py                 # Aggregate independent binary judge votes by majority.
-│       │   │   ├── __init__.py                                     # Adapters built on PyRIT.
-│       │   │   ├── attempt_outcome.py                              # Conversion of stored PyRIT verdicts into auditable application outcomes.
-│       │   │   ├── judge_request_audit.py                          # Count judge HTTP calls without recording request content.
-│       │   │   ├── target_builder.py                               # Build PyRIT targets for evaluated models and the judge.
-│       │   │   └── variant_attempt_executor.py                     # Execute isolated PyRIT attempts with request-aware scoring.
+│       │   │   │   ├── __init__.py                                         # Scorers built on PyRIT.
+│       │   │   │   ├── guard_scorers.py                                    # PyRIT scorers that take their verdicts from the Qwen3Guard server.
+│       │   │   │   └── synthetic_disclosure_scorer.py                      # Deterministic synthetic disclosure judging without another model request.
+│       │   │   ├── __init__.py                                             # Adapters built on PyRIT.
+│       │   │   ├── attempt_outcome.py                                      # Conversion of stored PyRIT verdicts into auditable application outcomes.
+│       │   │   ├── judge_request_audit.py                                  # Count judge HTTP calls without recording request content.
+│       │   │   ├── target_builder.py                                       # Build PyRIT targets for the evaluated models.
+│       │   │   └── variant_attempt_executor.py                             # Execute isolated PyRIT attempts with request-aware scoring.
 │       │   ├── reporting/
 │       │   │   ├── __init__.py                                     # Report export adapters.
 │       │   │   ├── json_report_exporter.py                         # Export of evaluation reports as UTF-8 JSON files.
@@ -293,7 +286,6 @@ Maintained source files and their responsibilities. Generated files, local secre
 │   │   │   ├── test_json_report_exporter.py                        # Tests for the JSON report exporter.
 │   │   │   ├── test_migrations_and_limits.py                       # Tests for migrations and limits.
 │   │   │   ├── test_review_files.py                                # Tests for review files.
-│   │   │   ├── test_scoring.py                                     # Tests for scoring.
 │   │   │   ├── test_settings_and_targets.py                        # Tests for system settings and the construction of PyRIT targets.
 │   │   │   ├── test_spreadsheet_seed_source.py                     # Tests for reading evaluation cases from the dataset spreadsheet.
 │   │   │   ├── test_sqlalchemy_stores.py                           # Tests for the SQLAlchemy connection and run stores on in-memory SQLite.

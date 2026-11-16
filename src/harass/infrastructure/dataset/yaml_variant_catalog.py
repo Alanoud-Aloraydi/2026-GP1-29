@@ -90,76 +90,59 @@ class YamlVariantCatalog(VariantCatalog):
         )
         variants: dict[str, PromptVariant] = {}
         for template in templates:
-            for sequence in sequences:
-                if not compatible_sequence(sequence):
-                    continue
-                text = case.prompt_text
-                applicable = True
-                for transform in sequence:
-                    if transform.needs_arabic and not has_arabic(text):
-                        applicable = False
-                        break
-                    text = apply_transform(transform.name, text)
-                    if (
-                        transform.removes_arabic
-                        and not transform.is_template
-                        and has_arabic(text)
-                    ):
-                        applicable = False
-                        break
-                if not applicable:
-                    continue
-                if template:
+            for sequence in filter(compatible_sequence, sequences):
+                text = _transformed(case.prompt_text, sequence)
+                if text is not None and template:
                     text = template.text.replace("{seed}", text)
-                if text == case.prompt_text:
+                if text is None or text == case.prompt_text:
                     continue
-                names = tuple(t.name for t in sequence)
-                recipe = "+".join(
-                    (template.name if template else "seed", *names)
-                )
-                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                variants.setdefault(
-                    digest,
-                    PromptVariant(
-                        variant_id=recipe,
-                        arm_id=template.name
-                        if template
-                        else f"transform:{names[0]}",
-                        sent_prompt=text,
-                        template_name=template.name if template else None,
-                        template_revision=template.revision
-                        if template
-                        else None,
-                        transform_names=names,
-                        effective_strategies=tuple(
-                            dict.fromkeys(
-                                (
-                                    [case.identifier.strategy]
-                                    if case.identifier.strategy
-                                    else []
-                                )
-                                + (
-                                    [BypassStrategy.OBFUSCATION]
-                                    if names and case.axis is Axis.ADVERSARIAL
-                                    else []
-                                )
-                            )
-                        ),
-                        content_sha256=digest,
-                        review_status="requires_language_review"
-                        if "arabizi" in names
-                        else template.review_status
-                        if template
-                        else "rule_based",
-                        source_urls=tuple(
-                            dict.fromkeys(
-                                ([template.source] if template else [])
-                                + [t.source for t in sequence]
-                            )
-                        ),
-                    ),
-                )
+                variant = _variant(case, template, sequence, text)
+                variants.setdefault(variant.content_sha256, variant)
         return list(variants.values())
+
+
+def _transformed(
+    text: str, sequence: tuple[TransformDefinition, ...]
+) -> str | None:
+    """Apply transforms in order, or return None when one cannot apply."""
+    for transform in sequence:
+        if transform.needs_arabic and not has_arabic(text):
+            return None
+        text = apply_transform(transform.name, text)
+        leaked = transform.removes_arabic and not transform.is_template
+        if leaked and has_arabic(text):
+            return None
+    return text
+
+
+def _variant(
+    case: EvaluationCase,
+    template: PromptTemplate | None,
+    sequence: tuple[TransformDefinition, ...],
+    text: str,
+) -> PromptVariant:
+    """Describe one composed recipe and the request text it produced."""
+    names = tuple(transform.name for transform in sequence)
+    strategies = [case.identifier.strategy] if case.identifier.strategy else []
+    if names and case.axis is Axis.ADVERSARIAL:
+        strategies.append(BypassStrategy.OBFUSCATION)
+    sources = [template.source] if template else []
+    sources += [transform.source for transform in sequence]
+    review_status = template.review_status if template else "rule_based"
+    if "arabizi" in names:
+        review_status = "requires_language_review"
+    return PromptVariant(
+        variant_id="+".join((template.name if template else "seed", *names)),
+        arm_id=template.name if template else f"transform:{names[0]}",
+        sent_prompt=text,
+        template_name=template.name if template else None,
+        template_revision=template.revision if template else None,
+        transform_names=names,
+        effective_strategies=tuple(dict.fromkeys(strategies)),
+        content_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        review_status=review_status,
+        source_urls=tuple(dict.fromkeys(sources)),
+    )
 
 
 def _resolve_names(

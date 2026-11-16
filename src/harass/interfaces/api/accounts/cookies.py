@@ -6,6 +6,7 @@ from fastapi import Response
 from fastapi.responses import JSONResponse
 
 from harass.domain.authentication import AuthenticatedLogin
+from harass.interfaces.api.accounts.schemas import public_user
 
 COOKIE_NAME = "harass_session"
 REFRESH_COOKIE_NAME = "harass_refresh"
@@ -21,12 +22,7 @@ class SessionCookies:
     def response(self, login: AuthenticatedLogin) -> JSONResponse:
         """Return public account fields and set credential cookies."""
         response = JSONResponse(
-            content={
-                "user_id": login.user.user_id,
-                "full_name": login.user.full_name,
-                "email": login.user.email,
-                "email_verified": login.user.email_verified,
-            }
+            content=public_user(login.user).model_dump(mode="json")
         )
         self._set(
             response, COOKIE_NAME, login.token, self._access_seconds, "/"

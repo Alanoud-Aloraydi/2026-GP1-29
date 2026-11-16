@@ -84,6 +84,8 @@ def signup(client: TestClient, email: str = "first@example.test") -> str:
         "full_name",
         "email",
         "email_verified",
+        "role",
+        "created_at",
     }
     cookie = response.headers["set-cookie"]
     assert "HttpOnly" in cookie and "SameSite=strict" in cookie
@@ -370,44 +372,44 @@ def test_forged_refresh_cannot_revoke_a_known_session(
     assert client.get("/auth/me").status_code == 200
 
 
-def test_password_change_revokes_previous_access_and_refresh(
+def test_account_reports_its_creation_time_and_can_be_renamed(
     client: TestClient,
 ) -> None:
-    """Password replacement revokes every previous credential."""
-    old_access = signup(client)
-    old_refresh = client.cookies.get("harass_refresh")
-    response = client.post(
-        "/auth/password",
-        headers=MUTATION,
-        json={
-            "current_password": PASSWORD,
-            "new_password": "replacement-long-test-password-2026",
-        },
+    """The profile shows when the account began and keeps a new name."""
+    signup(client)
+    assert client.get("/auth/me").json()["created_at"] is not None
+
+    response = client.patch(
+        "/auth/me", headers=MUTATION, json={"full_name": "  اسم جديد  "}
     )
+
     assert response.status_code == 200
-    assert client.get("/auth/me").status_code == 200
-    assert len(client.get("/auth/sessions").json()) == 1
-    client.cookies.clear()
-    client.cookies.set("harass_session", old_access)
-    assert client.get("/auth/me").status_code == 401
-    assert (
-        client.post(
-            "/auth/refresh",
-            headers={
-                **MUTATION,
-                "Cookie": "harass_refresh=" + str(old_refresh),
-            },
-        ).status_code
-        == 401
+    assert response.json()["full_name"] == "اسم جديد"
+    assert client.get("/auth/me").json()["full_name"] == "اسم جديد"
+
+
+@pytest.mark.parametrize("name", ["x", "a" * 101, "اسم\u0007جديد"])
+def test_a_rejected_name_leaves_the_account_unchanged(
+    client: TestClient, name: str
+) -> None:
+    """Names outside 2-100 printable characters are refused."""
+    signup(client)
+
+    response = client.patch(
+        "/auth/me", headers=MUTATION, json={"full_name": name}
     )
-    assert (
-        client.post(
-            "/auth/login",
-            headers=MUTATION,
-            json={"email": "first@example.test", "password": PASSWORD},
-        ).status_code
-        == 401
+
+    assert response.status_code in {400, 422}
+    assert client.get("/auth/me").json()["full_name"] == "مستخدم اختبار"
+
+
+def test_renaming_requires_a_session(client: TestClient) -> None:
+    """An anonymous request cannot rename anything."""
+    response = client.patch(
+        "/auth/me", headers=MUTATION, json={"full_name": "اسم جديد"}
     )
+
+    assert response.status_code == 401
 
 
 def test_sessions_are_owner_scoped_and_logout_all_revokes_refresh(

@@ -3,6 +3,8 @@
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
+
 
 class RequestBodyLimit:
     """Bound request bodies, including chunked uploads."""
@@ -11,17 +13,14 @@ class RequestBodyLimit:
         """Bind the downstream application and a positive byte limit."""
         if max_bytes < 1:
             raise ValueError("Request body limit must be positive.")
-        self.app, self.max_bytes = app, max_bytes
+        self.app = app
+        self.max_bytes = max_bytes
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Reject oversized bodies before application handlers run."""
-        if scope["type"] != "http" or scope["method"] not in {
-            "POST",
-            "PUT",
-            "PATCH",
-        }:
+        if scope["type"] != "http" or scope["method"] not in BODY_METHODS:
             await self.app(scope, receive, send)
             return
         chunks: list[bytes] = []

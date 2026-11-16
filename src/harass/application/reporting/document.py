@@ -1,5 +1,6 @@
 """Serialize evaluation reports into JSON-compatible documents."""
 
+from collections import Counter, defaultdict
 from dataclasses import asdict, fields
 from typing import Any
 
@@ -28,22 +29,26 @@ def report_document(
     report: EvaluationReport, *, include_outcomes: bool = True
 ) -> dict[str, Any]:
     """Return the JSON-compatible representation of a report."""
-    metrics = report.metrics
-    baseline_only = (
-        report.variant_selection is not None
-        and report.variant_selection.template_names == ()
-        and report.variant_selection.transform_names == ()
+    selection = report.variant_selection
+    baseline_only = selection is not None and (
+        selection.template_names == selection.transform_names == ()
     )
-    baseline = compute_metrics(
-        [o for o in report.outcomes if o.variant_name == "baseline"]
-    )
-    primary = (
-        baseline
-        if baseline_only
-        else compute_metrics(
-            [o for o in report.outcomes if o.variant_name != "baseline"]
+    adaptive = report.adaptive_settings.mode is EvaluationMode.ADAPTIVE
+    baseline_outcomes: list[CaseOutcome] = []
+    generated_outcomes: list[CaseOutcome] = []
+    for outcome in report.outcomes:
+        is_baseline = outcome.variant_name == "baseline"
+        (baseline_outcomes if is_baseline else generated_outcomes).append(
+            outcome
         )
+    baseline = compute_metrics(baseline_outcomes)
+    primary_outcomes = (
+        baseline_outcomes if baseline_only else generated_outcomes
     )
+    primary = baseline if baseline_only else compute_metrics(primary_outcomes)
+    run_type = "baseline" if baseline_only else "static"
+    if adaptive and not baseline_only:
+        run_type = "agentic"
     return {
         "format_version": REPORT_FORMAT_VERSION,
         "run_identifier": report.run_identifier,
@@ -51,12 +56,7 @@ def report_document(
         "variants": list(report.variant_names),
         "include_baseline": report.include_baseline,
         "evaluation_mode": report.adaptive_settings.mode.value,
-        "run_type": "baseline"
-        if baseline_only
-        else "agentic"
-        if not baseline_only
-        and report.adaptive_settings.mode is EvaluationMode.ADAPTIVE
-        else "static",
+        "run_type": run_type,
         "selection": {
             "axis": report.selection.axis.value
             if report.selection.axis
@@ -77,39 +77,34 @@ def report_document(
         "strategy_breakdown_scope": (
             "original_seed_strategy_not_isolated_effect"
         ),
-        "variant_selection": asdict(report.variant_selection)
-        if report.variant_selection
-        else None,
+        "variant_selection": asdict(selection) if selection else None,
         "adaptive": adaptive_summary(
             report.outcomes, report.adaptive_settings.attempt_budget
         )
-        if report.adaptive_settings.mode is EvaluationMode.ADAPTIVE
+        if adaptive
         else None,
         "metric_labels": METRIC_LABELS,
-        "metrics": _metrics_document(metrics),
+        "metrics": _metrics_document(report.metrics),
         "outcomes_count": len(report.outcomes),
-        "coverage": _coverage(
-            [
-                o
-                for o in report.outcomes
-                if (o.variant_name == "baseline") == baseline_only
-            ]
-        ),
+        "coverage": _coverage(primary_outcomes),
+        "response_categories": _response_categories(primary_outcomes),
         "coverage_count_scope": "recorded_logical_attempts",
         "outcomes": [
             outcome_document(outcome)
-            for outcome in sorted(
-                report.outcomes,
-                key=lambda outcome: (
-                    str(outcome.case.identifier),
-                    outcome.attempt_number,
-                    outcome.variant_name,
-                ),
-            )
+            for outcome in sorted(report.outcomes, key=_outcome_order)
         ]
         if include_outcomes
         else [],
     }
+
+
+def _outcome_order(outcome: CaseOutcome) -> tuple[str, int, str]:
+    """Order outcomes by case, then attempt, then recipe."""
+    return (
+        str(outcome.case.identifier),
+        outcome.attempt_number,
+        outcome.variant_name,
+    )
 
 
 def _metrics_document(metrics: EvaluationMetrics) -> dict[str, Any]:
@@ -150,6 +145,19 @@ def _coverage(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
             and outcome.response_category.value == "UNC"
         )
     return result
+
+
+def _response_categories(
+    outcomes: list[CaseOutcome],
+) -> dict[str, dict[str, int]]:
+    """Count scored responses by category for each safety axis."""
+    counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for outcome in outcomes:
+        if outcome.is_scored and outcome.response_category is not None:
+            counts[outcome.case.axis.value][
+                outcome.response_category.value
+            ] += 1
+    return {axis: dict(categories) for axis, categories in counts.items()}
 
 
 def _proportion(proportion: Proportion) -> dict[str, Any]:

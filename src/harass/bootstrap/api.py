@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from harass.application.connections import ManageConnections
 from harass.application.evaluation.run_service import ManageRuns
+from harass.application.judge_benchmark_reports import JudgeBenchmarkReports
 from harass.bootstrap.accounts import build_accounts
 from harass.bootstrap.evaluation import TEMPLATES_DIR
 from harass.bootstrap.execution_profile import execution_profile
@@ -30,6 +31,9 @@ from harass.infrastructure.persistence.sqlalchemy_connections import (
 )
 from harass.infrastructure.persistence.sqlalchemy_jobs import (
     SqlAlchemyRunQueue,
+)
+from harass.infrastructure.persistence.sqlalchemy_judge_benchmarks import (
+    SqlAlchemyJudgeBenchmarkStore,
 )
 from harass.infrastructure.persistence.sqlalchemy_request_limiter import (
     SqlAlchemyRequestLimiter,
@@ -51,7 +55,7 @@ DEFAULT_PORT = 8000
 def build_api() -> FastAPI:
     """Load settings, wire the HTTP adapters and return the app."""
     load_dotenv(Path(".env"))
-    settings = Settings.for_admission(os.environ)
+    settings = Settings.from_environment(os.environ)
     backend = BackendSettings.from_environment(os.environ)
 
     engine = create_engine(
@@ -79,7 +83,7 @@ def build_api() -> FastAPI:
     queue = SqlAlchemyRunQueue(
         session_factory,
         execution_profile(settings),
-        hashlib.sha256(settings.judge.base_url.encode("utf-8")).hexdigest(),
+        hashlib.sha256(settings.judge_server_url.encode("utf-8")).hexdigest(),
     )
     runs = ManageRuns(
         SqlAlchemyRunStore(session_factory), connections, queue=queue
@@ -99,6 +103,9 @@ def build_api() -> FastAPI:
         allowed_hosts=os.environ.get(
             "HARASS_ALLOWED_HOSTS", "localhost,127.0.0.1"
         ).split(","),
+        judge_benchmarks=JudgeBenchmarkReports(
+            SqlAlchemyJudgeBenchmarkStore(session_factory)
+        ),
     )
 
     @asynccontextmanager

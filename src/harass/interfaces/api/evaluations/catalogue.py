@@ -9,6 +9,7 @@ from harass.application.ports.variant_catalog import VariantCatalog
 from harass.domain.taxonomy import (
     ArabicVariety,
     BypassStrategy,
+    OwaspCategory,
     RiskCategory,
     SubjectDomain,
 )
@@ -34,6 +35,7 @@ def install_catalogue_routes(
             "subject_domains": [member.value for member in SubjectDomain],
             "risk_categories": [member.value for member in RiskCategory],
             "strategies": [member.value for member in BypassStrategy],
+            "owasp_categories": [member.value for member in OwaspCategory],
             "templates": [asdict(template) for template in catalog.templates()]
             if catalog
             else [],

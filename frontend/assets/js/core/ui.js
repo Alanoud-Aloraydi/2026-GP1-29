@@ -3,6 +3,7 @@
   'use strict';
   const dialects = {};
   const axes = {};
+  const owaspCategories = [];
   const statuses = {
     pending: 'قيد الانتظار',
     running: 'جارٍ التقييم',
@@ -41,17 +42,24 @@
   function mountShell (publicPage) {
     const header = document.querySelector('[data-shell-header]');
     if (!header) return;
-    const navigation = [
-      ['dashboard.html', 'نظرة عامة'],
-      ['connections.html', 'اتصالات النماذج'],
-      ['evaluation-setup.html', 'تقييم جديد'],
-      ['history.html', 'سجل التقييمات']
-    ];
+    const navigation = publicPage
+      ? [
+          ['#measure', 'ماذا نقيس'],
+          ['#dialects', 'اللهجات'],
+          ['#how', 'كيف يعمل'],
+          ['#evidence', 'التقرير']
+        ]
+      : [
+          ['dashboard.html', 'نظرة عامة'],
+          ['connections.html', 'اتصالات النماذج'],
+          ['evaluation-setup.html', 'تقييم جديد'],
+          ['history.html', 'سجل التقييمات']
+        ];
     const brand =
       '<a class="brand" href="' +
       (publicPage ? 'index.html' : 'dashboard.html') +
-      '"><img src="assets/images/harass-logo.png" alt=""><span>HARASS</span></a>';
-    const menu = publicPage
+      '"><img src="assets/images/harass-logo.png" alt="HARASS"></a>';
+    const menu = publicPage && document.body.dataset.page !== 'home'
       ? ''
       : '<nav class="main-nav" aria-label="التنقل الرئيسي">' +
         navigation
@@ -59,8 +67,10 @@
           .join('') +
         '</nav>';
     const actions = publicPage
-      ? link('login.html', 'تسجيل الدخول') + link('signup.html', 'إنشاء حساب')
-      : '<a href="account.html" data-user-name aria-label="أمان الحساب"></a>' +
+      ? link('login.html', 'تسجيل الدخول') + link('signup.html', 'إنشاء حساب', true)
+      : '<a class="user-link" href="account.html" aria-label="أمان الحساب">' +
+        '<span class="avatar" data-user-initial aria-hidden="true"></span>' +
+        '<span data-user-name></span></a>' +
         '<button class="btn btn-sm" data-logout type="button">تسجيل الخروج</button>';
     header.className = publicPage ? 'public-header' : 'app-header';
     header.innerHTML =
@@ -75,6 +85,32 @@
       '<div class="container"><p>حَرَس · تقييم سلامة النماذج العربية</p>' +
       '<p>© 2026 HARASS</p></div>';
   }
+
+  // The server enforces the role; this only decides whether to offer the link.
+  function showAdminNavigation (user) {
+    const navigation = document.querySelector('.main-nav');
+    if (user.role !== 'admin' || !navigation) return;
+    const current = document.body.dataset.page === 'judges';
+    navigation.insertAdjacentHTML(
+      'beforeend',
+      '<a href="judges.html"' +
+        (current ? ' aria-current="page"' : '') +
+        '>مقارنة المحكّمين</a>'
+    );
+  }
+
+  // The page policy forbids inline style attributes, so bar widths travel as
+  // data-fill and are applied through the style object.
+  function fillBars () {
+    document.querySelectorAll('[data-fill]').forEach((bar) => {
+      bar.style.width = bar.dataset.fill + '%';
+    });
+  }
+  new MutationObserver(fillBars).observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+  document.addEventListener('DOMContentLoaded', fillBars);
 
   function busy (button, loading) {
     button.disabled = loading;
@@ -105,7 +141,8 @@
       'model-configuration.html',
       'evaluation-setup.html',
       'evaluation-run.html',
-      'history.html'
+      'history.html',
+      'judges.html'
     ];
     return destination &&
       !destination.includes('#') &&
@@ -114,9 +151,11 @@
       : 'dashboard.html';
   }
 
-  function link (path, label) {
+  function link (path, label, primary = false) {
     return (
-      '<a class="btn btn-sm" href="' +
+      '<a class="btn btn-sm' +
+      (primary ? ' btn-primary' : '') +
+      '" href="' +
       escape(path) +
       '">' +
       escape(label) +
@@ -161,9 +200,16 @@
   }
 
   // Rows contain markup produced here; escape all API values before inserting them.
+  // A column given as [label, definition] shows its definition on hover.
   function table (caption, columns, rows) {
-    const headings = columns.map(
-      (column) => '<th scope="col">' + escape(column) + '</th>'
+    const headings = columns.map((column) =>
+      Array.isArray(column)
+        ? '<th scope="col"><span class="has-definition" title="' +
+          escape(column[1]) +
+          '">' +
+          escape(column[0]) +
+          '</span></th>'
+        : '<th scope="col">' + escape(column) + '</th>'
     );
     return (
       '<div class="table-region" role="region" tabindex="0" aria-label="' +
@@ -203,13 +249,16 @@
     Object.assign(dialects, metadata.dialects);
     Object.assign(axes, metadata.axes);
     Object.assign(labels, metadata.labels);
+    owaspCategories.push(...metadata.owasp_categories);
   }
 
   window.HARASS = Object.freeze({
     configureLabels,
+    owaspCategories,
     pageControls,
     escape,
     mountShell,
+    showAdminNavigation,
     date,
     busy,
     showError,

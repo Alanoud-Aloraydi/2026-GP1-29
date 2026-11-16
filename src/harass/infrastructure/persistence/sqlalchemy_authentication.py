@@ -7,7 +7,11 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from harass.application.ports.authentication import AuthenticationStore
-from harass.domain.authentication import AuthenticationSession, User
+from harass.domain.authentication import (
+    AuthenticationSession,
+    User,
+    UserRole,
+)
 from harass.infrastructure.persistence.row_mapping import utc_timestamp
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import (
@@ -54,6 +58,46 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
         with self._sessions() as database:
             return _user(database.get(UserRow, user_id))
 
+    def set_role(self, user_id: str, role: UserRole) -> bool:
+        """Change an account's role, reporting whether the account exists."""
+        with self._sessions() as database, database.begin():
+            changed = database.scalar(
+                update(UserRow)
+                .where(UserRow.user_id == user_id)
+                .values(role=role.value)
+                .returning(UserRow.user_id)
+            )
+        return changed is not None
+
+    def rename_user(self, user_id: str, full_name: str) -> bool:
+        """Change an account's display name; false when it is missing."""
+        with self._sessions() as database, database.begin():
+            changed = database.scalar(
+                update(UserRow)
+                .where(UserRow.user_id == user_id)
+                .values(full_name=full_name)
+                .returning(UserRow.user_id)
+            )
+        return changed is not None
+
+    def set_password(self, user_id: str, new_hash: str) -> bool:
+        """Replace a password and revoke every session of the account."""
+        with self._sessions() as database, database.begin():
+            changed = database.scalar(
+                update(UserRow)
+                .where(UserRow.user_id == user_id)
+                .values(password_hash=new_hash)
+                .returning(UserRow.user_id)
+            )
+            if changed is None:
+                return False
+            database.execute(
+                delete(AuthenticationSessionRow).where(
+                    AuthenticationSessionRow.user_id == user_id
+                )
+            )
+        return True
+
     def add_session(
         self, session: AuthenticationSession, password_hash: str
     ) -> bool:
@@ -96,7 +140,6 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
         expires_at: datetime,
     ) -> AuthenticationSession | None:
         """Rotate by compare-and-swap; known replay revokes the session."""
-        result = None
         with self._sessions() as database, database.begin():
             row = database.get(
                 AuthenticationSessionRow, session_id, with_for_update=True
@@ -104,42 +147,31 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
             session = _session(row)
             if row is None or session is None:
                 return None
-            expired = (
-                session.refresh_expires_at is None
-                or session.refresh_expires_at <= datetime.now(UTC)
-            )
-            replay = any(
-                hmac.compare_digest(digest, old)
-                for old in session.used_refresh_hashes
-            )
-            if expired or replay or len(session.used_refresh_hashes) >= 64:
+            if _must_revoke(session, digest):
                 database.delete(row)
-            elif row.refresh_hash and hmac.compare_digest(
-                row.refresh_hash, digest
-            ):
-                changed = database.scalar(
-                    update(AuthenticationSessionRow)
-                    .where(
-                        AuthenticationSessionRow.session_id == session_id,
-                        AuthenticationSessionRow.refresh_hash == digest,
-                    )
-                    .values(
-                        refresh_hash=replacement,
-                        expires_at=min(
-                            expires_at,
-                            session.refresh_expires_at or expires_at,
-                        ),
-                        used_refresh_hashes=[
-                            *session.used_refresh_hashes,
-                            digest,
-                        ],
-                    )
-                    .returning(AuthenticationSessionRow.session_id)
+                return None
+            current = row.refresh_hash
+            if not current or not hmac.compare_digest(current, digest):
+                return None
+            changed = database.scalar(
+                update(AuthenticationSessionRow)
+                .where(
+                    AuthenticationSessionRow.session_id == session_id,
+                    AuthenticationSessionRow.refresh_hash == digest,
                 )
-                if changed:
-                    database.refresh(row)
-                    result = _session(row)
-        return result
+                .values(
+                    refresh_hash=replacement,
+                    expires_at=min(
+                        expires_at, session.refresh_expires_at or expires_at
+                    ),
+                    used_refresh_hashes=[*session.used_refresh_hashes, digest],
+                )
+                .returning(AuthenticationSessionRow.session_id)
+            )
+            if not changed:
+                return None
+            database.refresh(row)
+            return _session(row)
 
     def list_sessions(self, user_id: str) -> list[AuthenticationSession]:
         """List unexpired account sessions in creation order."""
@@ -177,30 +209,6 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
                 )
             database.execute(statement)
 
-    def change_password(
-        self, user: User, new_hash: str, session: AuthenticationSession
-    ) -> bool:
-        """Replace an expected password and revoke every previous session."""
-        with self._sessions() as database, database.begin():
-            changed = database.scalar(
-                update(UserRow)
-                .where(
-                    UserRow.user_id == user.user_id,
-                    UserRow.password_hash == user.password_hash,
-                )
-                .values(password_hash=new_hash)
-                .returning(UserRow.user_id)
-            )
-            if changed is None:
-                return False
-            database.execute(
-                delete(AuthenticationSessionRow).where(
-                    AuthenticationSessionRow.user_id == user.user_id
-                )
-            )
-            database.add(_session_row(session))
-        return True
-
 
 def _user(row: UserRow | None) -> User | None:
     """Reconstruct account identity without exposing password hashes."""
@@ -211,10 +219,26 @@ def _user(row: UserRow | None) -> User | None:
             row.email,
             row.password_hash,
             row.email_verified,
+            UserRole(row.role),
+            utc_timestamp(row.created_at),
         )
         if row
         else None
     )
+
+
+def _must_revoke(session: AuthenticationSession, digest: str) -> bool:
+    """Tell whether a refresh attempt ends the session instead.
+
+    Reusing an old refresh token signals theft, so the whole session ends;
+    the history cap bounds the stored hashes.
+    """
+    expires = session.refresh_expires_at
+    if expires is None or expires <= datetime.now(UTC):
+        return True
+    used = session.used_refresh_hashes
+    replay = any(hmac.compare_digest(digest, old) for old in used)
+    return replay or len(used) >= 64
 
 
 def _session_row(session: AuthenticationSession) -> AuthenticationSessionRow:

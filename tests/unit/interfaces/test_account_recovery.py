@@ -203,8 +203,11 @@ def test_expiry_reissue_and_password_change_invalidate_links(
     services.now[0] = datetime.now(UTC)
     services.recovery.request_reset(services.login.user.email)
     third = services.mailbox.token()
-    services.accounts.change_password(
-        services.login.token, PASSWORD, "updated-current-password-2026"
+    services.store.set_password(
+        services.login.user.user_id,
+        JwtAuthenticationSecurity(KEY).hash_password(
+            "updated-current-password-2026"
+        ),
     )
     with pytest.raises(InvalidAccountActionError):
         services.recovery.reset(third, "changed-fixture-password-2026")

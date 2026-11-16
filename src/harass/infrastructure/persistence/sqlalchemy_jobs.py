@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.orm import Session
 
 from harass.application.errors import (
     ActiveRunError,
@@ -159,11 +160,7 @@ class SqlAlchemyRunQueue(RunQueue):
                 .with_for_update(of=RunJobRow, skip_locked=True)
             )
             if row is None:
-                session.execute(
-                    delete(WorkerSlotRow).where(
-                        WorkerSlotRow.slot_key == self._slot
-                    )
-                )
+                self._free_slot(session)
                 return None
             run = session.get(RunRow, row.run_id)
             if run is None:
@@ -174,11 +171,7 @@ class SqlAlchemyRunQueue(RunQueue):
                     "Execution configuration changed; create a new run."
                 )
                 run.finished_at = now
-                session.execute(
-                    delete(WorkerSlotRow).where(
-                        WorkerSlotRow.slot_key == self._slot
-                    )
-                )
+                self._free_slot(session)
                 return None
             row.worker_id, row.lease_until = worker_id, until
             run.status = RunStatus.RUNNING.value
@@ -236,12 +229,7 @@ class SqlAlchemyRunQueue(RunQueue):
                     )
                     .values(status=RunStatus.PENDING.value)
                 )
-            session.execute(
-                delete(WorkerSlotRow).where(
-                    WorkerSlotRow.slot_key == self._slot,
-                    WorkerSlotRow.worker_id == job.worker_id,
-                )
-            )
+            self._free_slot(session, job.worker_id)
 
     def finish(self, job: RunJob, document: dict[str, Any]) -> None:
         """Complete the owned run while retaining paged evidence."""
@@ -309,21 +297,21 @@ class SqlAlchemyRunQueue(RunQueue):
                 run.finished_at,
             )
             run.resumable = resumable
-            session.execute(
-                delete(WorkerSlotRow).where(
-                    WorkerSlotRow.slot_key == self._slot,
-                    WorkerSlotRow.worker_id == job.worker_id,
-                )
-            )
+            self._free_slot(session, job.worker_id)
+
+    def _free_slot(
+        self, session: Session, worker_id: str | None = None
+    ) -> None:
+        """Release the judge slot, only if that worker still holds it."""
+        condition = WorkerSlotRow.slot_key == self._slot
+        if worker_id is not None:
+            condition &= WorkerSlotRow.worker_id == worker_id
+        session.execute(delete(WorkerSlotRow).where(condition))
 
     def resume(self, run_id: str, owner_id: str) -> EvaluationRun:
         """Requeue suspended work without resetting its observations."""
         with job_session(self._factory) as session:
-            run = session.scalar(
-                select(RunRow).where(RunRow.run_id == run_id).with_for_update()
-            )
-            if run is None or run.owner_id != owner_id:
-                raise UnknownRunError(run_id)
+            run = _owned_run(session, run_id, owner_id, lock=True)
             job = session.get(RunJobRow, run_id)
             if (
                 run.status != RunStatus.FAILED.value
@@ -353,11 +341,7 @@ class SqlAlchemyRunQueue(RunQueue):
     def cancel(self, run_id: str, owner_id: str) -> EvaluationRun:
         """Fence worker writes while preserving durable attempt state."""
         with job_session(self._factory) as session:
-            run = session.scalar(
-                select(RunRow).where(RunRow.run_id == run_id).with_for_update()
-            )
-            if run is None or run.owner_id != owner_id:
-                raise UnknownRunError(run_id)
+            run = _owned_run(session, run_id, owner_id, lock=True)
             if (
                 run.status
                 not in {RunStatus.PENDING.value, RunStatus.RUNNING.value}
@@ -386,9 +370,7 @@ class SqlAlchemyRunQueue(RunQueue):
                 "Evidence pages require offset >= 0 and limit 1-100."
             )
         with job_session(self._factory) as session:
-            run = session.get(RunRow, run_id)
-            if run is None or run.owner_id != owner_id:
-                raise UnknownRunError(run_id)
+            _owned_run(session, run_id, owner_id)
             total = (
                 session.scalar(
                     select(func.count())
@@ -420,10 +402,19 @@ class SqlAlchemyRunQueue(RunQueue):
     ) -> Iterator[dict[str, Any]]:
         """Stream committed evidence after validating ownership."""
         with job_session(self._factory) as session:
-            run = session.get(RunRow, run_id)
-            if run is None or run.owner_id != owner_id:
-                raise UnknownRunError(run_id)
+            _owned_run(session, run_id, owner_id)
         yield from stored_documents(self._factory, run_id)
+
+
+def _owned_run(
+    session: Session, run_id: str, owner_id: str, *, lock: bool = False
+) -> RunRow:
+    """Load a run of this owner, hiding other owners' runs as unknown."""
+    query = select(RunRow).where(RunRow.run_id == run_id)
+    run = session.scalar(query.with_for_update() if lock else query)
+    if run is None or run.owner_id != owner_id:
+        raise UnknownRunError(run_id)
+    return run
 
 
 def _event(run: RunRow, name: str, timestamp: datetime) -> None:

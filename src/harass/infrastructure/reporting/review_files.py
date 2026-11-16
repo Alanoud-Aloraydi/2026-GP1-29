@@ -18,33 +18,40 @@ from harass.domain.review import (
 )
 from harass.domain.taxonomy import ResponseCategory
 
+REVIEW_COLUMNS = (
+    "case_id",
+    "variant_name",
+    "original_prompt",
+    "sent_prompt",
+    "response",
+    "human_category",
+)
+LEAK_COLUMNS = (
+    "case_id",
+    "variant_name",
+    "protected_content",
+    "protected_marker",
+    "response",
+    "leak_label",
+    "split",
+    "label_source",
+)
+
 
 def prepare_review(report_path: Path, destination: Path) -> None:
     """Write a blind review CSV, leaving every human category empty."""
-    rows = _read_report(report_path)
-    with destination.open("x", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(
-            [
-                "case_id",
-                "variant_name",
-                "original_prompt",
-                "sent_prompt",
-                "response",
-                "human_category",
-            ]
-        )
-        for row in rows:
-            writer.writerow(
-                [
-                    row.case_id,
-                    row.variant_name,
-                    row.original_prompt,
-                    row.sent_prompt,
-                    row.response,
-                    "",
-                ]
-            )
+    rows = [
+        [
+            case.case_id,
+            case.variant_name,
+            case.original_prompt,
+            case.sent_prompt,
+            case.response,
+            "",
+        ]
+        for case in _read_report(report_path)
+    ]
+    _write_csv(destination, REVIEW_COLUMNS, rows)
 
 
 def score_review(report_path: Path, label_path: Path) -> dict[str, Any]:
@@ -107,33 +114,12 @@ def prepare_leak_review(report_path: Path, destination: Path) -> None:
         raise InvalidReviewDataError(
             "No responded LLM02/LLM08 outcomes are available for leak review."
         )
-    with destination.open("x", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(
-            [
-                "case_id",
-                "variant_name",
-                "protected_content",
-                "protected_marker",
-                "response",
-                "leak_label",
-                "split",
-                "label_source",
-            ]
-        )
-        writer.writerows(rows)
+    _write_csv(destination, LEAK_COLUMNS, rows)
 
 
 def score_leak_calibration(label_path: Path) -> dict[str, Any]:
     """Evaluate labelled evidence on calibration and held-out splits."""
-    required = {
-        "protected_content",
-        "protected_marker",
-        "response",
-        "leak_label",
-        "split",
-        "label_source",
-    }
+    required = set(LEAK_COLUMNS) - {"case_id", "variant_name"}
     observations = []
     for number, row in enumerate(_read_csv(label_path, required), start=2):
         label = row["leak_label"].strip().lower()
@@ -153,6 +139,16 @@ def score_leak_calibration(label_path: Path) -> dict[str, Any]:
             )
         )
     return calibrate_leak(observations)
+
+
+def _write_csv(
+    destination: Path, columns: tuple[str, ...], rows: list[list[str]]
+) -> None:
+    """Write a new CSV that spreadsheet tools open as UTF-8."""
+    with destination.open("x", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(columns)
+        writer.writerows(rows)
 
 
 def _read_csv(path: Path, required: set[str]) -> list[dict[str, str]]:
@@ -188,7 +184,7 @@ def _read_report(path: Path) -> list[ReviewCase]:
         for outcome in document["outcomes"]:
             category = outcome.get("response_category")
             transcript = outcome.get("transcript") or {}
-            variant_name = outcome.get("variant_name", outcome.get("chain"))
+            variant_name = outcome.get("variant_name")
             if not isinstance(outcome["case_id"], str) or not isinstance(
                 variant_name, str
             ):

@@ -31,7 +31,7 @@ def healthy(service: str) -> bool:
                     ),
                     {
                         "slot": hashlib.sha256(
-                            os.environ["HARASS_JUDGE_BASE_URL"].encode()
+                            os.environ["HARASS_JUDGE_SERVER_URL"].encode()
                         ).hexdigest()
                     },
                 )

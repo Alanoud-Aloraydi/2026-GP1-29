@@ -4,24 +4,33 @@
   const api = window.HARASS_API;
   const view = window.HARASS;
   const { bindSubmit, formError, bindPages } = window.HARASS_FORMS;
-  function connectionRows (connections) {
-    return connections.map((connection) =>
-      view.tableRow(connection.model_name, [
-        '<bdi>' + view.escape(connection.base_url) + '</bdi>',
-        view.status(connection.status, 'connection') +
-          (connection.status === 'failed'
-            ? '<p class="hint">راجع العنوان والمفتاح ثم أعد الاختبار.</p>'
-            : ''),
-        '<div class="row-actions"><button class="btn btn-sm" data-verify="' +
-          view.escape(connection.connection_id) +
-          '">اختبار الاتصال</button>' +
-          view.link(
-            'model-configuration.html?id=' +
-              encodeURIComponent(connection.connection_id),
-            'تعديل'
-          ) +
-          '</div>'
-      ])
+  function connectionCards (connections) {
+    return (
+      '<ul class="connection-list">' +
+      connections
+        .map(
+          (connection) =>
+            '<li class="card connection-card"><div class="connection-main"><strong><bdi>' +
+            view.escape(connection.model_name) +
+            '</bdi></strong><span class="hint"><bdi>' +
+            view.escape(connection.base_url) +
+            '</bdi></span></div><div>' +
+            view.status(connection.status, 'connection') +
+            (connection.status === 'failed'
+              ? '<p class="hint">راجع العنوان والمفتاح ثم أعد الاختبار.</p>'
+              : '') +
+            '</div><div class="row-actions"><button class="btn btn-sm" data-verify="' +
+            view.escape(connection.connection_id) +
+            '">اختبار الاتصال</button>' +
+            view.link(
+              'model-configuration.html?id=' +
+                encodeURIComponent(connection.connection_id),
+              'تعديل'
+            ) +
+            '</div></li>'
+        )
+        .join('') +
+      '</ul>'
     );
   }
 
@@ -32,13 +41,8 @@
       view.clearError();
       try {
         const page = await api.connectionPage(offset);
-        const connections = page.items;
-        container.innerHTML = connections.length
-          ? view.table(
-            'الاتصالات المحفوظة',
-            ['النموذج', 'نقطة الوصول', 'الحالة', 'الإجراءات'],
-            connectionRows(connections)
-          )
+        container.innerHTML = page.items.length
+          ? connectionCards(page.items)
           : view.empty(
             'لا توجد اتصالات بعد',
             'أضف اتصال النموذج الذي تريد تقييمه.',

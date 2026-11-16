@@ -22,30 +22,8 @@ def read_outcome(
         "Stored request" if lightweight else document["original_prompt"],
         "Stored request" if lightweight else document["objective"],
     )
-    recipe = document.get("variant")
-    variant = None
-    if recipe and not lightweight:
-        variant = PromptVariant(
-            **{
-                **recipe,
-                "transform_names": tuple(recipe["transform_names"]),
-                "source_urls": tuple(recipe["source_urls"]),
-                "effective_strategies": tuple(
-                    map(BypassStrategy, recipe["effective_strategies"])
-                ),
-            }
-        )
-    transcript = document.get("transcript")
-    recorded = None
-    if transcript and not lightweight:
-        recorded = AttemptTranscript(
-            transcript["sent_prompt"],
-            transcript["response"],
-            transcript.get("category_rationale"),
-            transcript.get("attack_rationale"),
-            _trace(transcript.get("category_judge")),
-            _trace(transcript.get("attack_judge")),
-        )
+    recipe = None if lightweight else document.get("variant")
+    transcript = None if lightweight else document.get("transcript")
     return CaseOutcome(
         case=case,
         variant_name=document["variant_name"],
@@ -54,8 +32,8 @@ def read_outcome(
         else None,
         attack_succeeded=document.get("attack_succeeded"),
         error=document.get("error"),
-        transcript=recorded,
-        variant=variant,
+        transcript=_transcript(transcript) if transcript else None,
+        variant=_variant(recipe) if recipe else None,
         attempt_number=document["attempt_number"],
         stop_reason=document.get("stop_reason"),
         posterior_before=tuple(document["posterior_before"])
@@ -68,6 +46,32 @@ def read_outcome(
         technical_error=document.get("technical_error"),
         judge_requests=tuple(document.get("judge_requests", ())),
         elapsed_seconds=document.get("elapsed_seconds"),
+    )
+
+
+def _variant(recipe: dict[str, Any]) -> PromptVariant:
+    """Rebuild a stored recipe, restoring tuples that JSON made lists."""
+    return PromptVariant(
+        **{
+            **recipe,
+            "transform_names": tuple(recipe["transform_names"]),
+            "source_urls": tuple(recipe["source_urls"]),
+            "effective_strategies": tuple(
+                map(BypassStrategy, recipe["effective_strategies"])
+            ),
+        }
+    )
+
+
+def _transcript(transcript: dict[str, Any]) -> AttemptTranscript:
+    """Rebuild the stored request, response and judge rationales."""
+    return AttemptTranscript(
+        transcript["sent_prompt"],
+        transcript["response"],
+        transcript.get("category_rationale"),
+        transcript.get("attack_rationale"),
+        _trace(transcript.get("category_judge")),
+        _trace(transcript.get("attack_judge")),
     )
 
 

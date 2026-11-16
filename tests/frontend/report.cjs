@@ -2,12 +2,19 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const context = vm.createContext({window: {}, URLSearchParams, location: {search: ''}});
+const context = vm.createContext({
+  window: {},
+  URLSearchParams,
+  location: {search: ''},
+  // Enough of the browser for ui.js to install its bar-width observer.
+  MutationObserver: class { observe () {} },
+  document: {documentElement: {}, addEventListener () {}}
+});
 for (const file of ['core/ui.js', 'views/run.js', 'views/report-evidence.js', 'views/report.js']) {
   vm.runInContext(fs.readFileSync(require('node:path').join(process.argv[2], file), 'utf8'), context);
 }
 const view = context.window.HARASS;
-view.configureLabels({axes: {AT: "AT", OR: "OR"}, labels: {}, dialects: {}});
+view.configureLabels({axes: {AT: "AT", OR: "OR"}, labels: {}, dialects: {}, owasp_categories: []});
 const progress = view.runProgress({total_cases: 10, completed_cases: 3, completed_attempts: 17});
 assert(progress.includes('max="10" value="3"'));
 assert(progress.includes('المحاولات المحفوظة: 17'));

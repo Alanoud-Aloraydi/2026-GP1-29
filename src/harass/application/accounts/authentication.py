@@ -57,14 +57,8 @@ class ManageAuthentication:
         self, full_name: str, email: str, password: str
     ) -> AuthenticatedLogin:
         """Register validated details and begin a session."""
-        name = full_name.strip()
+        name = valid_name(full_name)
         canonical_email = email.strip().lower()
-        if not 2 <= len(name) <= 100 or any(
-            ord(character) < 32 for character in name
-        ):
-            raise RegistrationError(
-                "Full name must contain 2-100 printable characters."
-            )
         if (
             len(canonical_email) > 254
             or any(not c.isprintable() for c in canonical_email)
@@ -161,30 +155,13 @@ class ManageAuthentication:
                 raise AuthenticationError("Session is invalid.") from error
         self._store.revoke_user_sessions(user.user_id, session_id)
 
-    def change_password(
-        self, token: str, current: str, new: str
-    ) -> AuthenticatedLogin:
-        """Reauthenticate and replace the password and existing sessions."""
+    def rename(self, token: str, full_name: str) -> User:
+        """Change the display name of the account that owns the token."""
         user = self.authenticate(token)
-        if not self._security.verify_password(current, user.password_hash):
-            raise AuthenticationError("Current password is incorrect.")
-        self._passwords.validate(new)
-        if current == new:
-            raise RegistrationError("Choose a different password.")
-        updated = replace(
-            user, password_hash=self._security.hash_password(new)
-        )
-        session, refresh = self._session(updated)
-        if not self._store.change_password(
-            user, updated.password_hash, session
-        ):
-            raise AuthenticationError("Credentials changed; sign in again.")
-        return AuthenticatedLogin(
-            updated,
-            self._security.encode_session(session),
-            refresh,
-            session.refresh_expires_at,
-        )
+        name = valid_name(full_name)
+        if not self._store.rename_user(user.user_id, name):
+            raise AuthenticationError("Session is invalid or expired.")
+        return replace(user, full_name=name)
 
     def logout_refresh(self, token: str) -> None:
         """Revoke a refresh family even when its access token has expired."""
@@ -223,6 +200,16 @@ class ManageAuthentication:
             now + timedelta(seconds=self.refresh_seconds),
             hashlib.sha256(secret.encode()).hexdigest(),
         ), identifier + "." + secret
+
+
+def valid_name(full_name: str) -> str:
+    """Trim a display name and require 2-100 printable characters."""
+    name = full_name.strip()
+    if not 2 <= len(name) <= 100 or any(ord(c) < 32 for c in name):
+        raise RegistrationError(
+            "Full name must contain 2-100 printable characters."
+        )
+    return name
 
 
 def refresh_identity(token: str) -> tuple[str, str]:

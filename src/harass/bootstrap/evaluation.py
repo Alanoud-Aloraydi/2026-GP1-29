@@ -2,7 +2,8 @@
 
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+import httpx
 
 from harass.application.evaluation.runner import RunEvaluation
 from harass.infrastructure.dataset.spreadsheet_seed_source import (
@@ -14,35 +15,39 @@ from harass.infrastructure.dataset.yaml_variant_catalog import (
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
 from harass.infrastructure.settings import Settings
 
-if TYPE_CHECKING:
-    from pyrit.prompt_target import PromptTarget
-
 DATASET_FILE = Path("data/test_dataset.xlsx")
 TEMPLATES_DIR = Path("config/templates")
+JUDGE_TIMEOUT_SECONDS = 120
 
 
 def build_evaluation(
     settings: Settings,
     dataset_file: Path = DATASET_FILE,
     templates_directory: Path = TEMPLATES_DIR,
-) -> tuple[RunEvaluation, "PromptTarget"]:
-    """Build model resources for an evaluation process."""
+) -> tuple[RunEvaluation, httpx.AsyncClient]:
+    """Build model resources for an evaluation process.
+
+    The returned client talks to the judge server and belongs to the caller,
+    which closes it when the process ends.
+    """
+    # PyRIT loads slowly; importing it here keeps it out of the API process,
+    # which reads this module's paths but never runs attempts.
     from harass.application.evaluation.variant_engine import (
         VariantEvaluationEngine,
     )
-    from harass.infrastructure.pyrit.scoring.scorer_builder import (
-        build_attack_success_scorer,
-        build_response_category_scorer,
+    from harass.infrastructure.pyrit.judge_request_audit import audited_client
+    from harass.infrastructure.pyrit.scoring.guard_scorers import (
+        GuardAttackScorer,
+        GuardCategoryScorer,
+        GuardModerator,
     )
-    from harass.infrastructure.pyrit.target_builder import (
-        build_judge,
-        build_target,
-    )
+    from harass.infrastructure.pyrit.target_builder import build_target
     from harass.infrastructure.pyrit.variant_attempt_executor import (
         PyritAttemptExecutor,
     )
 
-    judge = build_judge(settings.judge)
+    judge = audited_client(settings.judge_server_url, JUDGE_TIMEOUT_SECONDS)
+    moderator = GuardModerator(judge)
     evaluation = RunEvaluation(
         SpreadsheetSeedSource(dataset_file),
         VariantEvaluationEngine(
@@ -56,16 +61,8 @@ def build_evaluation(
                         settings.target_allow_http,
                     ),
                 ),
-                build_response_category_scorer(
-                    judge,
-                    votes=settings.judge.votes,
-                    structured_output=settings.judge.supports_json_output,
-                ),
-                build_attack_success_scorer(
-                    judge,
-                    votes=settings.judge.votes,
-                    structured_output=settings.judge.supports_json_output,
-                ),
+                GuardCategoryScorer(moderator=moderator),
+                GuardAttackScorer(moderator=moderator),
                 attempt_timeout_seconds=settings.attempt_timeout_seconds,
             ),
         ),

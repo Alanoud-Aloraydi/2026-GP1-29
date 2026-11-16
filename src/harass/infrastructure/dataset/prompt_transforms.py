@@ -58,7 +58,7 @@ def has_arabic(text: str) -> bool:
 
 
 def apply_transform(name: str, text: str) -> str:
-    """Apply a registered text operation while retaining the declared."""
+    """Apply a registered text operation by its transform name."""
     try:
         operation = _OPERATIONS[name]
     except KeyError as error:
@@ -69,55 +69,7 @@ def apply_transform(name: str, text: str) -> str:
 def _arabizi(text: str) -> str:
     """Transliterate mapped Arabic letters without inferring a dialect."""
     text = unicodedata.normalize("NFKC", text)
-    alphabet = dict(
-        zip(
-            "ابتثجحخدذرزسشصضطظعغفقكلمنهوي",
-            (
-                "a",
-                "b",
-                "t",
-                "th",
-                "j",
-                "7",
-                "kh",
-                "d",
-                "dh",
-                "r",
-                "z",
-                "s",
-                "sh",
-                "s",
-                "d",
-                "6",
-                "z",
-                "3",
-                "gh",
-                "f",
-                "q",
-                "k",
-                "l",
-                "m",
-                "n",
-                "h",
-                "w",
-                "y",
-            ),
-            strict=True,
-        )
-    )
-    alphabet.update(
-        {
-            "أ": "a",
-            "إ": "i",
-            "آ": "aa",
-            "ء": "2",
-            "ؤ": "2",
-            "ئ": "2",
-            "ة": "h",
-            "ى": "a",
-        }
-    )
-    return "".join(alphabet.get(char, char) for char in text)
+    return "".join(_ARABIZI.get(char, char) for char in text)
 
 
 def _presentation_forms(text: str) -> str:
@@ -167,6 +119,20 @@ def _insert_between_letters(text: str, insertion: str) -> str:
     )
 
 
+# Letters and their Latin spellings, aligned position by position; one
+# string per alphabet keeps the 28-letter table readable at a glance.
+_LETTERS = "ابتثجحخدذرزسشصضطظعغفقكلمنهوي"
+_SPELLINGS = "a b t th j 7 kh d dh r z s sh s d 6 z 3 gh f q k l m n h w y"
+_ARABIZI = dict(zip(_LETTERS, _SPELLINGS.split(" "), strict=True)) | {
+    "أ": "a",
+    "إ": "i",
+    "آ": "aa",
+    "ء": "2",
+    "ؤ": "2",
+    "ئ": "2",
+    "ة": "h",
+    "ى": "a",
+}
 _PRESENTATION_FORMS = {
     unicodedata.normalize("NFKC", chr(number)): chr(number)
     for number in range(0xFE80, 0xFEFD)

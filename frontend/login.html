@@ -5,19 +5,20 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>تسجيل الدخول — HARASS</title>
-    <link rel="stylesheet" href="assets/css/styles.css?v=11">
-    <script src="assets/js/core/ui.js?v=11" defer></script>
-    <script src="assets/js/core/api-client.js?v=11" defer></script>
-    <script src="assets/js/core/forms.js?v=11" defer></script>
-    <script src="assets/js/pages/auth.js?v=11" defer></script>
-    <script src="assets/js/core/bootstrap.js?v=11" defer></script>
+    <link rel="stylesheet" href="assets/css/styles.css?v=47">
+    <script src="assets/js/core/ui.js?v=47" defer></script>
+    <script src="assets/js/core/api-client.js?v=47" defer></script>
+    <script src="assets/js/core/forms.js?v=47" defer></script>
+    <script src="assets/js/pages/auth.js?v=47" defer></script>
+    <script src="assets/js/core/bootstrap.js?v=47" defer></script>
   </head>
   <body data-page="login">
     <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
     <div class="page">
       <header data-shell-header></header>
       <main class="main" id="main">
-        <div class="container form-container">
+        <div class="container auth-split">
+          <div class="auth-form">
           <div class="page-head">
             <h1>تسجيل الدخول</h1>
             <p>افتح حسابك للوصول إلى اتصالاتك وتقاريرك.</p>
@@ -57,6 +58,19 @@
             ليس لديك حساب؟
             <a href="signup.html">إنشاء حساب</a>
           </p>
+          </div>
+        <aside class="auth-aside">
+          <div>
+            <img src="assets/images/harass-logo.png" alt="">
+            <p class="auth-lead">اختبر سلامة نموذجك بالفصحى <mark>وأربع لهجات</mark></p>
+          </div>
+          <ul class="auth-points">
+            <li><b class="point-attack" aria-hidden="true">١</b>ألّا يُخدَع نموذجك بطلب ضار مصاغ بحيلة.</li>
+            <li><b class="point-refusal" aria-hidden="true">٢</b>وألّا يرفض طلبًا مشروعًا بلا مبرر.</li>
+            <li><b class="point-evidence" aria-hidden="true">٣</b>ونتائج لكل لهجة، مسنودة بالأدلة.</li>
+          </ul>
+          <p class="hint">النتائج مرتبطة بالحالات المختبرة، وليست شهادة سلامة شاملة.</p>
+        </aside>
         </div>
       </main>
       <footer class="app-footer" data-shell-footer></footer>

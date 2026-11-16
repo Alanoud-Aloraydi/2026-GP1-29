@@ -31,13 +31,10 @@ def install_run_routes(app: FastAPI, runs: ManageRuns) -> None:
         owner: str = Depends(authenticated_owner),
     ) -> EvaluationRun:
         """Admit an evaluation using the authenticated owner's connection."""
-        parameters = run_parameters(body)
-        run = runs.start(
-            owner,
-            validated_identifier(body.connection_id, UnknownConnectionError),
-            parameters,
+        connection_id = validated_identifier(
+            body.connection_id, UnknownConnectionError
         )
-        return run
+        return runs.start(owner, connection_id, run_parameters(body))
 
     @app.get("/runs", response_model=list[RunResponse])
     def list_runs(

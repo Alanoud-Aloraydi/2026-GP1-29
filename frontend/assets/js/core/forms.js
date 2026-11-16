@@ -6,7 +6,9 @@
       event.preventDefault();
       view.clearError();
       if (!form.reportValidity()) return;
-      const button = form.querySelector('button[type=submit]');
+      // A submit button may sit outside the form and point to it by id.
+      const button =
+        event.submitter || form.querySelector('button[type=submit]');
       view.busy(button, true);
       try {
         await action();
@@ -43,6 +45,17 @@
       .getElementById(prefix + 'Next')
       ?.addEventListener('click', () => load(offset + 50));
   }
+
+  // A button marked data-reveal toggles the password field before it.
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-reveal]');
+    if (!button) return;
+    const field = button.previousElementSibling;
+    const hidden = field.type === 'password';
+    field.type = hidden ? 'text' : 'password';
+    button.textContent = hidden ? 'إخفاء' : 'إظهار';
+    button.setAttribute('aria-pressed', String(hidden));
+  });
 
   window.HARASS_FORMS = { bindSubmit, formError, bindPages };
 })();
