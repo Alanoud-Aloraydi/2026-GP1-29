@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from harass.domain.comprehension import ComprehensionSignal
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.prompt_variant import PromptVariant
 from harass.domain.taxonomy import Axis, ResponseCategory
@@ -36,6 +37,8 @@ class CaseOutcome:
 
     ``variant_name`` is ``BASELINE_VARIANT_NAME`` when the prompt was sent
     without conversion. ``attack_succeeded`` applies to adversarial cases only.
+    ``comprehension_signal`` is a rule suspicion of an unclear response kept
+    beside the judge's ``response_category``, never merged into it.
     """
 
     case: EvaluationCase
@@ -55,6 +58,7 @@ class CaseOutcome:
     technical_error: str | None = None
     judge_requests: tuple[dict[str, object], ...] = ()
     elapsed_seconds: float | None = None
+    comprehension_signal: ComprehensionSignal | None = None
 
     @property
     def is_scored(self) -> bool:

@@ -8,6 +8,7 @@ from harass.domain.case_outcome import (
     CaseOutcome,
     JudgeTrace,
 )
+from harass.domain.comprehension import ComprehensionSignal
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.prompt_variant import PromptVariant
 from harass.domain.taxonomy import BypassStrategy, ResponseCategory
@@ -46,6 +47,11 @@ def read_outcome(
         technical_error=document.get("technical_error"),
         judge_requests=tuple(document.get("judge_requests", ())),
         elapsed_seconds=document.get("elapsed_seconds"),
+        comprehension_signal=ComprehensionSignal(
+            document["comprehension_signal"]
+        )
+        if document.get("comprehension_signal")
+        else None,
     )
 
 

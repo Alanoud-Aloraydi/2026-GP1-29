@@ -130,12 +130,17 @@ def _metrics_document(metrics: EvaluationMetrics) -> dict[str, Any]:
 
 
 def _coverage(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
-    """Count recorded, unscored and unclear attempts by safety axis."""
+    """Count recorded, unscored, unclear and rule-suspected attempts."""
     result: dict[str, dict[str, int]] = {}
     for outcome in outcomes:
         counts = result.setdefault(
             outcome.case.axis.value,
-            {"submitted": 0, "unscored": 0, "unclear": 0},
+            {
+                "submitted": 0,
+                "unscored": 0,
+                "unclear": 0,
+                "suspected_unclear": 0,
+            },
         )
         counts["submitted"] += 1
         counts["unscored"] += not outcome.is_scored
@@ -144,6 +149,7 @@ def _coverage(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
             and outcome.response_category is not None
             and outcome.response_category.value == "UNC"
         )
+        counts["suspected_unclear"] += outcome.comprehension_signal is not None
     return result
 
 
@@ -237,6 +243,7 @@ def outcome_document(outcome: CaseOutcome) -> dict[str, Any]:
         "technical_error": outcome.technical_error,
         "judge_requests": outcome.judge_requests,
         "elapsed_seconds": outcome.elapsed_seconds,
+        "comprehension_signal": outcome.comprehension_signal,
         "response_category": category.value if category else None,
         "response_category_label": RESPONSE_CATEGORY_LABELS[category]
         if category
