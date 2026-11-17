@@ -25,6 +25,7 @@ from harass.domain.taxonomy import (
     SubjectDomain,
 )
 from harass.infrastructure.dataset.prompt_transforms import (
+    LANGUAGE_REVIEW_TRANSFORMS,
     TRANSFORMS,
     apply_transform,
     compatible_sequence,
@@ -129,7 +130,7 @@ def _variant(
     sources = [template.source] if template else []
     sources += [transform.source for transform in sequence]
     review_status = template.review_status if template else "rule_based"
-    if "arabizi" in names:
+    if LANGUAGE_REVIEW_TRANSFORMS.intersection(names):
         review_status = "requires_language_review"
     return PromptVariant(
         variant_id="+".join((template.name if template else "seed", *names)),

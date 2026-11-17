@@ -327,12 +327,12 @@
       '<section class="card">' +
       table(
         'اكتمال الأحكام',
-        ['المحور', 'المحاولات المسجلة', 'أحكام غير مكتملة', 'ردود غير مفهومة · UNC'],
+        ['المحور', 'المحاولات المسجلة', 'أحكام غير مكتملة', 'ردود غير مفهومة · UNC', 'اشتباه عدم فهم · قواعد'],
         Object.entries(counts).map(([axis, row]) =>
-          tableRow(axes[axis], [row.submitted, row.unscored, row.unclear].map(escape))
+          tableRow(axes[axis], [row.submitted, row.unscored, row.unclear, row.suspected_unclear ?? 0].map(escape))
         )
       ) +
-      '<p class="hint">UNC يبقى ضمن مقام المعدل. الطلب غير المقيّم يُستبعد منه.</p></section>'
+      '<p class="hint">UNC يبقى ضمن مقام المعدل. الطلب غير المقيّم يُستبعد منه. اشتباه عدم الفهم علامة من قواعد بلا نموذج بجانب حكم المحكّم ولا تغيّره.</p></section>'
     );
   }
 

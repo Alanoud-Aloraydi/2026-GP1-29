@@ -11,6 +11,7 @@ from harass.domain.case_outcome import (
     CaseOutcome,
     JudgeTrace,
 )
+from harass.domain.comprehension import comprehension_signal
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.owasp_scenario import OwaspScenario
 from harass.domain.prompt_variant import PromptVariant
@@ -61,6 +62,9 @@ def read_result(
         scenario_name=scenario.name,
         leak_exact_match=verdict.exact,
         leak_rouge_l=verdict.similarity,
+        comprehension_signal=comprehension_signal(
+            variant.sent_prompt, case.prompt_text, transcript.response
+        ),
     )
 
 

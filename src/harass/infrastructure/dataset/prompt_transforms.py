@@ -13,8 +13,14 @@ from collections.abc import Callable
 from functools import partial
 
 from harass.domain.prompt_variant import TransformDefinition
+from harass.infrastructure.dataset.number_rebus import (
+    ARABIC_NUMBER_WORDS,
+    ENGLISH_NUMBER_SOUNDS,
+    rebus_writer,
+)
 
 SOURCE = "https://reference.garak.ai/en/stable/index_buffs.html"
+REBUS_SOURCE = "https://en.wikipedia.org/wiki/Rebus"
 TRANSFORMS = (
     TransformDefinition(
         "arabizi",
@@ -41,11 +47,34 @@ TRANSFORMS = (
         SOURCE,
     ),
     TransformDefinition(
+        "english_number_sounds",
+        "أرقام تُقرأ بنطقها الإنجليزي داخل الكلمات — يحتاج مراجعة لغوية",
+        True,
+        False,
+        False,
+        False,
+        REBUS_SOURCE,
+    ),
+    TransformDefinition(
+        "arabic_number_words",
+        "أرقام تُقرأ بنطقها العربي داخل الكلمات — يحتاج مراجعة لغوية",
+        True,
+        False,
+        False,
+        False,
+        REBUS_SOURCE,
+    ),
+    TransformDefinition(
         "base64", "ترميز Base64", False, True, True, True, SOURCE
     ),
     TransformDefinition(
         "unicode_escape", "ترميز Unicode", False, True, True, True, SOURCE
     ),
+)
+
+# Rewrites whose readability must be confirmed by an Arabic speaker.
+LANGUAGE_REVIEW_TRANSFORMS = frozenset(
+    {"arabizi", "english_number_sounds", "arabic_number_words"}
 )
 
 
@@ -144,6 +173,8 @@ _OPERATIONS: dict[str, Callable[[str], str]] = {
     "tatweel": partial(_insert_between_letters, insertion="ـ"),
     "zero_width": partial(_insert_between_letters, insertion="\u200b"),
     "presentation_forms": _presentation_forms,
+    "english_number_sounds": rebus_writer(ENGLISH_NUMBER_SOUNDS),
+    "arabic_number_words": rebus_writer(ARABIC_NUMBER_WORDS),
     "base64": _base64,
     "unicode_escape": _unicode_escape,
 }
