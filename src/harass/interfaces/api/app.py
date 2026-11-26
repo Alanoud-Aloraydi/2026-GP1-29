@@ -4,9 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from harass.application.accounts.authentication import (
-    ManageAuthentication,
-)
+from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.accounts.recovery import AccountRecovery
 from harass.application.connections import ManageConnections
 from harass.application.errors import (
@@ -19,29 +17,20 @@ from harass.application.errors import (
     UnknownRunError,
 )
 from harass.application.evaluation.run_service import ManageRuns
-from harass.application.judge_benchmark_reports import JudgeBenchmarkReports
-from harass.application.ports.request_limiter import RequestLimiter
-from harass.application.ports.run_queue import StorageUnavailableError
-from harass.application.ports.variant_catalog import VariantCatalog
+from harass.application.judge_reports import JudgeReports
+from harass.application.ports.accounts import RequestLimiter
+from harass.application.ports.evaluation import VariantCatalog
+from harass.application.ports.runs import StorageUnavailableError
 from harass.domain.errors import DomainError
 from harass.interfaces.api.accounts.cookies import SessionCookies
-from harass.interfaces.api.accounts.dependencies import authenticated_owner
-from harass.interfaces.api.accounts.recovery_routes import (
-    install_recovery_routes,
-)
+from harass.interfaces.api.accounts.recovery_routes import install_recovery_routes
 from harass.interfaces.api.accounts.routes import install_auth
-from harass.interfaces.api.admin.routes import install_admin_routes
+from harass.interfaces.api.admin.routes import admin_router
 from harass.interfaces.api.connections.routes import install_connection_routes
-from harass.interfaces.api.evaluations.catalogue import (
-    install_catalogue_routes,
-)
+from harass.interfaces.api.evaluations.catalogue import install_catalogue_routes
 from harass.interfaces.api.evaluations.routes import install_run_routes
 from harass.interfaces.api.middleware.body_limit import RequestBodyLimit
-from harass.interfaces.api.middleware.security_headers import (
-    install_security_headers,
-)
-
-owner_id = authenticated_owner
+from harass.interfaces.api.middleware.security_headers import install_security_headers
 
 
 def create_app(
@@ -55,7 +44,7 @@ def create_app(
     session_seconds: int = 900,
     request_limiter: RequestLimiter | None = None,
     allowed_hosts: list[str] | None = None,
-    judge_benchmarks: JudgeBenchmarkReports | None = None,
+    judge_reports: JudgeReports | None = None,
 ) -> FastAPI:
     """Build the API, wiring routes to the injected use cases."""
     app = FastAPI(title="HARASS API")
@@ -70,14 +59,12 @@ def create_app(
             request_limiter=request_limiter,
         )
 
-    install_recovery_routes(
-        app, recovery, SessionCookies(secure_cookie, session_seconds)
-    )
+    install_recovery_routes(app, recovery, SessionCookies(secure_cookie, session_seconds))
     install_catalogue_routes(app, catalog)
     install_connection_routes(app, connections)
     install_run_routes(app, runs)
-    if judge_benchmarks is not None:
-        install_admin_routes(app, judge_benchmarks)
+    if judge_reports is not None:
+        app.include_router(admin_router(judge_reports))
     install_security_headers(app, secure_cookie)
     app.add_middleware(RequestBodyLimit)
     if allowed_hosts is not None:
@@ -92,16 +79,13 @@ def _install_error_handlers(app: FastAPI) -> None:
     async def _active_run(_: object, error: ActiveRunError) -> JSONResponse:
         """Return the current owner's active run as a conflict response."""
         return JSONResponse(
-            status_code=409,
-            content={"code": "active_run", "active_run_id": error.run_id},
+            status_code=409, content={"code": "active_run", "active_run_id": error.run_id}
         )
 
     @app.exception_handler(StorageUnavailableError)
     async def _unavailable(_: object, error: Exception) -> JSONResponse:
         """Represent unavailable durable storage without provider details."""
-        return JSONResponse(
-            status_code=503, content={"detail": "Run storage is unavailable."}
-        )
+        return JSONResponse(status_code=503, content={"detail": "Run storage is unavailable."})
 
     @app.exception_handler(UnknownBenchmarkReportError)
     @app.exception_handler(UnknownConnectionError)

@@ -8,9 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from harass.application.connections import ManageConnections
-from harass.application.evaluation.parameters import RunParameters
-from harass.application.ports.run_admission import RunAdmission
-from harass.application.ports.run_store import RunStore
+from harass.application.evaluation.contracts import RunParameters
+from harass.application.ports.runs import RunAdmission, RunStore
 from harass.domain.evaluation_run import EvaluationRun, RunStatus
 
 
@@ -35,16 +34,22 @@ class ManageRuns:
         """Resume suspended work from its durable checkpoint."""
         return self._queue.resume(run_id, owner_id)
 
-    def outcome_page(
-        self, owner_id: str, run_id: str, offset: int, limit: int
-    ) -> dict[str, Any]:
+    def outcome_page(self, owner_id: str, run_id: str, offset: int, limit: int) -> dict[str, Any]:
         """Read a bounded page of owner-scoped attempt evidence."""
         return self._queue.outcome_page(run_id, owner_id, offset, limit)
 
     def export_report(self, owner_id: str, run_id: str) -> Iterator[str]:
-        """Stream a complete report without loading all evidence."""
+        """Stream a complete report without loading all evidence.
+
+        The report is read before streaming starts, so a missing or foreign run
+        fails as an error response rather than halfway through a download.
+        """
         document = {**self.get_report(owner_id, run_id)}
         document.pop("outcomes", None)
+        return self._report_chunks(document, owner_id, run_id)
+
+    def _report_chunks(self, document: dict[str, Any], owner_id: str, run_id: str) -> Iterator[str]:
+        """Yield the summary, then the stored evidence one attempt at a time."""
         yield json.dumps(document, ensure_ascii=False)[:-1] + ', "outcomes": ['
         separator = ""
         for record in self._queue.outcome_documents(run_id, owner_id):
@@ -68,19 +73,11 @@ class ManageRuns:
             **self._run_store.get_report(run_id, owner_id),
             "lifecycle": {
                 "created_at": run.created_at.isoformat(),
-                "started_at": run.started_at.isoformat()
-                if run.started_at
-                else None,
-                "finished_at": run.finished_at.isoformat()
-                if run.finished_at
-                else None,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
                 "events": run.lifecycle_events,
             },
         }
-
-    def list_for_owner(self, owner_id: str) -> list[EvaluationRun]:
-        """Return the owner's runs, most recent first."""
-        return self._run_store.list_for_owner(owner_id)
 
     def page_for_owner(
         self, owner_id: str, offset: int, limit: int
@@ -90,17 +87,13 @@ class ManageRuns:
             owner_id, offset, limit
         ), self._run_store.counts_for_owner(owner_id)
 
-    def start(
-        self, owner_id: str, connection_id: str, parameters: RunParameters
-    ) -> EvaluationRun:
+    def start(self, owner_id: str, connection_id: str, parameters: RunParameters) -> EvaluationRun:
         """Create a pending run for a connection that passed its test.
 
         Raises: ConnectionNotReadyError: If the connection is untested or
         failed. UnknownConnectionError: If the owner has no such connection.
         """
-        target = self._connections.target_for_evaluation(
-            owner_id, connection_id
-        )
+        target = self._connections.target_for_evaluation(owner_id, connection_id)
         run = EvaluationRun(
             run_id=str(uuid.uuid4()),
             owner_id=owner_id,
@@ -111,10 +104,7 @@ class ManageRuns:
         )
         self._queue.enqueue(
             run,
-            {
-                **parameters.document(),
-                "connection_revision": target.connection_revision,
-            },
+            {**parameters.document(), "connection_revision": target.connection_revision},
             target.base_url,
         )
         return run

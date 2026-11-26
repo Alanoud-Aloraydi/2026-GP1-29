@@ -14,22 +14,19 @@ from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.accounts.password_policy import PasswordPolicy
 from harass.application.connections import ManageConnections
 from harass.application.evaluation.run_service import ManageRuns
-from harass.application.judge_benchmark_reports import JudgeBenchmarkReports
+from harass.application.judge_reports import JudgeReports
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.persistence.sqlalchemy_judge_benchmarks import (
-    SqlAlchemyJudgeBenchmarkStore,
-)
-from harass.infrastructure.security.jwt_authentication import (
-    JwtAuthenticationSecurity,
-)
+from harass.infrastructure.persistence.sqlalchemy_judge_reports import SqlAlchemyJudgeReportStore
+from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
 from harass.interfaces.api.app import create_app
 
 SIGNING_KEY = "isolated-admin-test-signing-key-at-least-48-bytes-long"
 PASSWORD = "test-only-long-password-2026"
 MUTATION = {"X-Harass-Request": "1"}
 LIST_URL = "/admin/judge-benchmarks"
+PROTECTED = [LIST_URL, f"{LIST_URL}/{uuid4()}"]
 
 
 class Site:
@@ -39,20 +36,16 @@ class Site:
         """Wire the API to an isolated database."""
         self.accounts = SqlAlchemyAuthenticationStore(factory)
         self.administrators = ManageAdministrators(
-            self.accounts,
-            JwtAuthenticationSecurity(SIGNING_KEY),
-            PasswordPolicy(),
+            self.accounts, JwtAuthenticationSecurity(SIGNING_KEY), PasswordPolicy()
         )
-        self.reports = JudgeBenchmarkReports(
-            SqlAlchemyJudgeBenchmarkStore(factory)
-        )
+        self.reports = JudgeReports(SqlAlchemyJudgeReportStore(factory))
         self.app = create_app(
             cast(ManageConnections, Mock()),
             cast(ManageRuns, Mock()),
             authentication=ManageAuthentication(
                 self.accounts, JwtAuthenticationSecurity(SIGNING_KEY)
             ),
-            judge_benchmarks=self.reports,
+            judge_reports=self.reports,
         )
 
     def member(self, email: str) -> TestClient:
@@ -61,11 +54,7 @@ class Site:
         response = client.post(
             "/auth/signup",
             headers=MUTATION,
-            json={
-                "full_name": "مستخدم اختبار",
-                "email": email,
-                "password": PASSWORD,
-            },
+            json={"full_name": "مستخدم اختبار", "email": email, "password": PASSWORD},
         )
         assert response.status_code == 201
         return client
@@ -93,13 +82,13 @@ def document() -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize("path", [LIST_URL, f"{LIST_URL}/{uuid4()}"])
+@pytest.mark.parametrize("path", PROTECTED)
 def test_anonymous_visitors_are_turned_away(site: Site, path: str) -> None:
     """Without a session there is no access, not even to know it exists."""
     assert TestClient(site.app).get(path).status_code == 401
 
 
-@pytest.mark.parametrize("path", [LIST_URL, f"{LIST_URL}/{uuid4()}"])
+@pytest.mark.parametrize("path", PROTECTED)
 def test_plain_users_are_forbidden(site: Site, path: str) -> None:
     """A signed-in user without the role cannot read benchmark data."""
     member = site.member("member@example.test")
@@ -122,9 +111,7 @@ def test_administrators_list_and_read_reports(site: Site) -> None:
 
 
 @pytest.mark.parametrize("identifier", [str(uuid4()), "not-a-uuid"])
-def test_unknown_or_malformed_report_ids_are_not_found(
-    site: Site, identifier: str
-) -> None:
+def test_unknown_or_malformed_report_ids_are_not_found(site: Site, identifier: str) -> None:
     """Bad identifiers get a not-found, never a server error."""
     admin = site.administrator("admin@example.test")
 

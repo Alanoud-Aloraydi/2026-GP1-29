@@ -23,13 +23,9 @@ class EvaluationCase:
     def __post_init__(self) -> None:
         """Reject cases without usable text."""
         if not self.prompt_text.strip():
-            raise InvalidEvaluationCaseError(
-                f"Case {self.identifier} has an empty prompt."
-            )
+            raise InvalidEvaluationCaseError(f"Case {self.identifier} has an empty prompt.")
         if not self.objective.strip():
-            raise InvalidEvaluationCaseError(
-                f"Case {self.identifier} has an empty objective."
-            )
+            raise InvalidEvaluationCaseError(f"Case {self.identifier} has an empty objective.")
 
     @property
     def axis(self) -> Axis:

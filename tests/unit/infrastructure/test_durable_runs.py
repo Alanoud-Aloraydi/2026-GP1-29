@@ -18,21 +18,14 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 
 from harass.application.connections import ManageConnections
 from harass.application.errors import EvaluationEngineError, UnknownRunError
-from harass.application.evaluation.parameters import RunParameters
+from harass.application.evaluation.contracts import RunParameters
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.evaluation.variant_engine import (
-    VariantEvaluationEngine,
-)
+from harass.application.evaluation.variant_engine import VariantEvaluationEngine
 from harass.application.evaluation.worker import ProcessRuns
-from harass.application.ports.attempt_executor import AttemptExecutor
-from harass.application.ports.connection_verifier import ConnectionVerifier
-from harass.application.ports.evaluation_journal import EvaluationJournal
-from harass.application.ports.run_queue import (
-    EvaluationYieldedError,
-    LeaseLostError,
-)
-from harass.application.ports.seed_source import SeedSource
+from harass.application.ports.connections import ConnectionVerifier
+from harass.application.ports.evaluation import AttemptExecutor, EvaluationJournal, SeedSource
+from harass.application.ports.runs import EvaluationYieldedError, LeaseLostError
 from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.case_outcome import AttemptTranscript, CaseOutcome
 from harass.domain.case_selection import CaseSelection
@@ -47,34 +40,17 @@ from harass.domain.prompt_variant import (
 )
 from harass.domain.target_connection import TargetConnection
 from harass.domain.taxonomy import ResponseCategory
-from harass.infrastructure.dataset.yaml_variant_catalog import (
-    YamlVariantCatalog,
-)
-from harass.infrastructure.persistence.sqlalchemy_connections import (
-    SqlAlchemyConnectionStore,
-)
-from harass.infrastructure.persistence.sqlalchemy_jobs import (
-    SqlAlchemyRunQueue,
-)
-from harass.infrastructure.persistence.sqlalchemy_runs import (
-    SqlAlchemyRunStore,
-)
-from harass.infrastructure.persistence.tables import (
-    Base,
-    ConnectionRow,
-    RunOutcomeRow,
-    UserRow,
-)
-from harass.infrastructure.security.fernet_secret_cipher import (
-    FernetSecretCipher,
-)
-from harass.interfaces.api.app import create_app, owner_id
+from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
+from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
+from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
+from harass.infrastructure.persistence.tables import Base, ConnectionRow, RunOutcomeRow, UserRow
+from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
+from harass.interfaces.api.accounts.dependencies import authenticated_owner
+from harass.interfaces.api.app import create_app
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGET = TargetConnection("http://target.invalid/v1", "target", "test-only")
-DIALECTS = ["sqlite"] + (
-    ["postgresql"] if os.environ.get("HARASS_TEST_DATABASE_URL") else []
-)
 
 
 @dataclass
@@ -95,10 +71,8 @@ class Storage:
     clock: Clock
 
 
-@pytest.fixture(params=DIALECTS)
-def storage(
-    request: pytest.FixtureRequest, tmp_path: Path
-) -> Iterator[Storage]:
+@pytest.fixture
+def storage(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Storage]:
     """Provide isolated storage."""
     admin = None
     schema = "harass_test_" + uuid.uuid4().hex
@@ -108,11 +82,7 @@ def storage(
         with admin.begin() as connection:
             connection.execute(CreateSchema(schema))
         engine = create_engine(
-            url,
-            connect_args={
-                "options": "-c search_path=" + schema,
-                "connect_timeout": 5,
-            },
+            url, connect_args={"options": "-c search_path=" + schema, "connect_timeout": 5}
         )
     else:
         engine = create_engine(f"sqlite:///{tmp_path / 'durable.sqlite'}")
@@ -146,9 +116,7 @@ def storage(
         yield Storage(
             engine,
             factory,
-            SqlAlchemyRunQueue(
-                factory, "test-profile", "test-judge", clock=lambda: clock.now
-            ),
+            SqlAlchemyRunQueue(factory, "test-profile", "test-judge", clock=lambda: clock.now),
             SqlAlchemyRunStore(factory),
             clock,
         )
@@ -215,9 +183,7 @@ class Executor(AttemptExecutor):
             case,
             variant.variant_id,
             ResponseCategory.FULL_COMPLIANCE,
-            transcript=AttemptTranscript(
-                variant.sent_prompt, "Synthetic response"
-            ),
+            transcript=AttemptTranscript(variant.sent_prompt, "Synthetic response"),
             variant=variant,
         )
 
@@ -247,9 +213,7 @@ def connections(storage: Storage) -> ManageConnections:
     )
 
 
-async def test_api_admission_worker_quanta_and_full_streamed_export(
-    storage: Storage,
-) -> None:
+async def test_api_admission_worker_quanta_and_full_streamed_export(storage: Storage) -> None:
     """Verify api admission worker quanta and full streamed export."""
     import json
 
@@ -257,18 +221,14 @@ async def test_api_admission_worker_quanta_and_full_streamed_export(
     executor = Executor()
     manager = ManageRuns(storage.runs, resolver, queue=storage.queue)
     app = create_app(resolver, manager)
-    app.dependency_overrides[owner_id] = lambda: (
-        "20000000-0000-4000-8000-000000000001"
-    )
+    app.dependency_overrides[authenticated_owner] = lambda: "20000000-0000-4000-8000-000000000001"
     worker = ProcessRuns(
         storage.queue,
         resolver,
         RunEvaluation(
             Source(),
             VariantEvaluationEngine(
-                YamlVariantCatalog(ROOT / "config/templates"),
-                executor,
-                quantum_attempts=2,
+                YamlVariantCatalog(ROOT / "config/templates"), executor, quantum_attempts=2
             ),
         ),
     )
@@ -281,42 +241,28 @@ async def test_api_admission_worker_quanta_and_full_streamed_export(
                 "api_key": TARGET.api_key,
             },
         ).json()["connection_id"]
-        assert (
-            client.post(f"/connections/{connection}/verify").status_code == 200
-        )
-        created = client.post(
-            "/runs", json={"connection_id": connection, "run_type": "baseline"}
-        )
-        assert (
-            created.status_code == 201
-            and created.json()["status"] == "pending"
-        )
+        assert client.post(f"/connections/{connection}/verify").status_code == 200
+        created = client.post("/runs", json={"connection_id": connection, "run_type": "baseline"})
+        assert created.status_code == 201 and created.json()["status"] == "pending"
         identifier = created.json()["run_id"]
         assert executor.seen == []
         assert await worker.once()
         progress = client.get(f"/runs/{identifier}").json()
-        assert (
-            progress["status"] == "pending"
-            and progress["completed_cases"] == 2
-        )
+        assert progress["status"] == "pending" and progress["completed_cases"] == 2
         assert await worker.once()
         summary = client.get(f"/runs/{identifier}/report").json()
         assert summary["evidence_paged"] and summary["outcomes"] == []
         assert summary["outcomes_count"] == 4
-        page = client.get(
-            f"/runs/{identifier}/outcomes?limit=1&offset=1"
-        ).json()
+        page = client.get(f"/runs/{identifier}/outcomes?limit=1&offset=1").json()
         assert page["total"] == 4 and len(page["items"]) == 1
         export = client.get(f"/runs/{identifier}/report/export")
         assert len(json.loads(export.text)["outcomes"]) == 4
         assert export.headers["content-disposition"].startswith("attachment;")
-        app.dependency_overrides[owner_id] = lambda: (
+        app.dependency_overrides[authenticated_owner] = lambda: (
             "20000000-0000-4000-8000-000000000003"
         )
         assert client.get(f"/runs/{identifier}/outcomes").status_code == 404
-        assert (
-            client.get(f"/runs/{identifier}/report/export").status_code == 404
-        )
+        assert client.get(f"/runs/{identifier}/report/export").status_code == 404
 
 
 class UnavailableExecutor(Executor):
@@ -343,6 +289,7 @@ class UnavailableExecutor(Executor):
             variant.variant_id,
             error="Attempt failed: ConnectionError.",
             variant=variant,
+            technical_error="connection",
         )
 
 
@@ -352,21 +299,14 @@ async def test_repeated_failures_suspend_and_resume_without_resetting_budget(
     """Verify repeated failures suspend and resume without resetting budget."""
     resolver = connections(storage)
     connection = resolver.add(
-        "20000000-0000-4000-8000-000000000001",
-        TARGET.base_url,
-        TARGET.model_name,
-        TARGET.api_key,
+        "20000000-0000-4000-8000-000000000001", TARGET.base_url, TARGET.model_name, TARGET.api_key
     )
-    await resolver.verify(
-        "20000000-0000-4000-8000-000000000001", connection.connection_id
-    )
+    await resolver.verify("20000000-0000-4000-8000-000000000001", connection.connection_id)
     manager = ManageRuns(storage.runs, resolver, queue=storage.queue)
     run = manager.start(
         "20000000-0000-4000-8000-000000000001",
         connection.connection_id,
-        RunParameters(
-            variant_selection=VariantSelection((), ()),
-        ),
+        RunParameters(variant_selection=VariantSelection((), ())),
     )
     executor = UnavailableExecutor()
     worker = ProcessRuns(
@@ -374,9 +314,7 @@ async def test_repeated_failures_suspend_and_resume_without_resetting_budget(
         resolver,
         RunEvaluation(
             Source(),
-            VariantEvaluationEngine(
-                YamlVariantCatalog(ROOT / "config/templates"), executor
-            ),
+            VariantEvaluationEngine(YamlVariantCatalog(ROOT / "config/templates"), executor),
         ),
     )
     assert await worker.once()
@@ -393,18 +331,14 @@ async def test_repeated_failures_suspend_and_resume_without_resetting_budget(
         is RunStatus.COMPLETED
     )
     assert len(executor.seen) == 4
-    summary = manager.get_report(
-        "20000000-0000-4000-8000-000000000001", run.run_id
-    )
+    summary = manager.get_report("20000000-0000-4000-8000-000000000001", run.run_id)
     assert summary["metrics"]["unscored_outcomes"] == 3
 
 
 class InterruptedJournal(EvaluationJournal):
     """Test double for interrupted journal."""
 
-    def __init__(
-        self, inner: EvaluationJournal, *, reserve: int = 0, commit: int = 0
-    ) -> None:
+    def __init__(self, inner: EvaluationJournal, *, reserve: int = 0, commit: int = 0) -> None:
         """Choose the atomic operation after which execution is interrupted."""
         self.inner, self.reserve_at, self.commit_at = inner, reserve, commit
         self.reservations = self.commits = 0
@@ -432,9 +366,7 @@ class InterruptedJournal(EvaluationJournal):
         return self.inner.outcomes(lightweight=lightweight)
 
 
-def test_worker_leases_fence_expired_owners_and_preserve_queue_fairness(
-    storage: Storage,
-) -> None:
+def test_worker_leases_fence_expired_owners_and_preserve_queue_fairness(storage: Storage) -> None:
     """Verify worker leases fence expired owners."""
     enqueue(storage)
     enqueue(
@@ -449,25 +381,17 @@ def test_worker_leases_fence_expired_owners_and_preserve_queue_fairness(
     journal.initialize("plan", 1)
     storage.clock.now += timedelta(seconds=121)
     second = storage.queue.claim("second")
-    assert (
-        second is not None
-        and second.run.run_id == "10000000-0000-4000-8000-000000000001"
-    )
+    assert second is not None and second.run.run_id == "10000000-0000-4000-8000-000000000001"
     with pytest.raises(LeaseLostError):
         journal.reserve({"case_index": 0})
     storage.queue.release(first)
     assert storage.queue.claim("third") is None
     storage.queue.release(second)
     recovered = storage.queue.claim("third")
-    assert (
-        recovered is not None
-        and recovered.run.run_id == "10000000-0000-4000-8000-000000000002"
-    )
+    assert recovered is not None and recovered.run.run_id == "10000000-0000-4000-8000-000000000002"
 
 
-async def test_restart_preserves_random_choices_and_committed_feedback(
-    storage: Storage,
-) -> None:
+async def test_restart_preserves_random_choices_and_committed_feedback(storage: Storage) -> None:
     """Verify restart preserves random choices and committed feedback."""
     catalogue = YamlVariantCatalog(ROOT / "config/templates")
     plan = EvaluationPlan(
@@ -494,29 +418,21 @@ async def test_restart_preserves_random_choices_and_committed_feedback(
     second = storage.queue.claim("second")
     assert second is not None
     actual = await VariantEvaluationEngine(catalogue, executor).evaluate(
-        plan,
-        TARGET,
-        "10000000-0000-4000-8000-000000000001",
-        journal=storage.queue.journal(second),
+        plan, TARGET, "10000000-0000-4000-8000-000000000001", journal=storage.queue.journal(second)
     )
-    assert [
-        (o.variant_name, o.posterior_before, o.stop_reason) for o in actual
-    ] == [
+    assert [(o.variant_name, o.posterior_before, o.stop_reason) for o in actual] == [
         (o.variant_name, o.posterior_before, o.stop_reason) for o in expected
     ]
     assert len(executor.seen) == len(expected)
     assert (
         storage.runs.get(
-            "10000000-0000-4000-8000-000000000001",
-            "20000000-0000-4000-8000-000000000001",
+            "10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001"
         ).completed_cases
         == 2
     )
 
 
-async def test_ambiguous_submission_is_not_resent_or_learned(
-    storage: Storage,
-) -> None:
+async def test_ambiguous_submission_is_not_resent_or_learned(storage: Storage) -> None:
     """Verify ambiguous submission is not resent or learned."""
     plan = EvaluationPlan(
         cases(1),
@@ -524,10 +440,7 @@ async def test_ambiguous_submission_is_not_resent_or_learned(
         VariantSelection(transform_names=()),
         AdaptiveSettings(EvaluationMode.ADAPTIVE, 3, 19),
     )
-    catalogue, executor = (
-        YamlVariantCatalog(ROOT / "config/templates"),
-        Executor(),
-    )
+    catalogue, executor = (YamlVariantCatalog(ROOT / "config/templates"), Executor())
     enqueue(storage)
     first = storage.queue.claim("first")
     assert first is not None
@@ -536,18 +449,13 @@ async def test_ambiguous_submission_is_not_resent_or_learned(
             plan,
             TARGET,
             "10000000-0000-4000-8000-000000000001",
-            journal=InterruptedJournal(
-                storage.queue.journal(first), reserve=3
-            ),
+            journal=InterruptedJournal(storage.queue.journal(first), reserve=3),
         )
     storage.queue.release(first)
     second = storage.queue.claim("second")
     assert second is not None
     outcomes = await VariantEvaluationEngine(catalogue, executor).evaluate(
-        plan,
-        TARGET,
-        "10000000-0000-4000-8000-000000000001",
-        journal=storage.queue.journal(second),
+        plan, TARGET, "10000000-0000-4000-8000-000000000001", journal=storage.queue.journal(second)
     )
     uncertain = [o for o in outcomes if o.submission_uncertain]
     assert len(uncertain) == 1 and not uncertain[0].is_scored
@@ -555,9 +463,7 @@ async def test_ambiguous_submission_is_not_resent_or_learned(
     assert len(outcomes) == 4 and len(executor.seen) == 3
 
 
-def test_changed_plan_and_evidence_ownership_are_rejected(
-    storage: Storage,
-) -> None:
+def test_changed_plan_and_evidence_ownership_are_rejected(storage: Storage) -> None:
     """Verify changed plan and evidence ownership are rejected."""
     enqueue(storage)
     job = storage.queue.claim("first")
@@ -568,41 +474,29 @@ def test_changed_plan_and_evidence_ownership_are_rejected(
         journal.initialize("changed", 2)
     with pytest.raises(UnknownRunError):
         storage.queue.outcome_page(
-            "10000000-0000-4000-8000-000000000001",
-            "20000000-0000-4000-8000-000000000003",
-            0,
-            50,
+            "10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000003", 0, 50
         )
 
 
 @pytest.mark.scale
 @pytest.mark.parametrize("mode", ["baseline", "agentic"])
 async def test_ten_thousand_cases_checkpoint_and_complete_in_bounded_quanta(
-    storage: Storage,
-    mode: str,
+    storage: Storage, mode: str
 ) -> None:
     """Verify ten thousand cases checkpoint and complete in bounded quanta."""
     enqueue(storage)
-    selection = (
-        VariantSelection((), ()) if mode == "baseline" else VariantSelection()
-    )
+    selection = VariantSelection((), ()) if mode == "baseline" else VariantSelection()
     plan = EvaluationPlan(
         cases(10000),
         True,
         selection,
         AdaptiveSettings(
-            EvaluationMode.STATIC
-            if mode == "baseline"
-            else EvaluationMode.ADAPTIVE,
-            8,
-            19,
+            EvaluationMode.STATIC if mode == "baseline" else EvaluationMode.ADAPTIVE, 8, 19
         ),
     )
     executor = Executor()
     engine = VariantEvaluationEngine(
-        YamlVariantCatalog(ROOT / "config/templates"),
-        executor,
-        quantum_attempts=1000,
+        YamlVariantCatalog(ROOT / "config/templates"), executor, quantum_attempts=1000
     )
     outcomes: list[CaseOutcome] = []
     total = 10000 if mode == "baseline" else 90000
@@ -622,15 +516,11 @@ async def test_ten_thousand_cases_checkpoint_and_complete_in_bounded_quanta(
             storage.queue.release(job)
             storage.clock.now += timedelta(seconds=1)
         if (index + 1) % 10 == 0:
-            print(
-                f"Committed synthetic attempts: {len(executor.seen)}/{total}",
-                flush=True,
-            )
+            print(f"Committed synthetic attempts: {len(executor.seen)}/{total}", flush=True)
     assert len(outcomes) == len(executor.seen) == total
     assert all(outcome.transcript is None for outcome in outcomes)
     run = storage.runs.get(
-        "10000000-0000-4000-8000-000000000001",
-        "20000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001"
     )
     assert run.completed_cases == run.total_cases == 10000
     assert run.completed_attempts == total
@@ -646,15 +536,10 @@ async def test_ten_thousand_cases_checkpoint_and_complete_in_bounded_quanta(
         == 50
     )
     with storage.factory() as session:
-        assert (
-            session.scalar(select(func.count()).select_from(RunOutcomeRow))
-            == total
-        )
+        assert session.scalar(select(func.count()).select_from(RunOutcomeRow)) == total
 
 
-def test_cancellation_fences_worker_and_releases_account_budget(
-    storage: Storage,
-) -> None:
+def test_cancellation_fences_worker_and_releases_account_budget(storage: Storage) -> None:
     """Verify cancellation fences worker and releases account budget."""
     from harass.application.errors import ActiveRunError
 
@@ -665,9 +550,7 @@ def test_cancellation_fences_worker_and_releases_account_budget(
         enqueue(storage, "10000000-0000-4000-8000-000000000002")
     cancelled = storage.queue.cancel(job.run.run_id, job.run.owner_id)
     assert cancelled.status is RunStatus.CANCELLED
-    assert (
-        cancelled.started_at is not None and cancelled.finished_at is not None
-    )
+    assert cancelled.started_at is not None and cancelled.finished_at is not None
     assert cancelled.lifecycle_events[-1]["event"] == "cancelled"
     with pytest.raises(LeaseLostError):
         storage.queue.renew(job)
@@ -677,9 +560,7 @@ def test_cancellation_fences_worker_and_releases_account_budget(
     assert storage.queue.claim("new-worker") is not None
 
 
-def test_postgresql_rejects_cross_account_connection_and_invalid_progress(
-    storage: Storage,
-) -> None:
+def test_postgresql_rejects_cross_account_connection_and_invalid_progress(storage: Storage) -> None:
     """Verify postgresql rejects cross account connection."""
     from sqlalchemy import insert
     from sqlalchemy.exc import IntegrityError
@@ -705,7 +586,4 @@ def test_postgresql_rejects_cross_account_connection_and_invalid_progress(
         )
         with pytest.raises(IntegrityError), storage.engine.begin() as database:
             database.execute(insert(RunRow).values(**(values | invalid)))
-    assert (
-        storage.runs.list_for_owner("20000000-0000-4000-8000-000000000001")
-        == []
-    )
+    assert storage.runs.page_for_owner("20000000-0000-4000-8000-000000000001", 0, 50) == []

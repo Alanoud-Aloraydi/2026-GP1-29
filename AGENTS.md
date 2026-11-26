@@ -48,7 +48,9 @@
 
 ## Python style
 
-- Follow PEP 8 as enforced by `ruff`, with lines of at most 79 characters.
+- Follow PEP 8 as enforced by `ruff`, with lines of at most 100 characters.
+- Keep every function at most 79 lines; a test enforces it outside
+  migrations, which are applied history and never rewritten.
 - Use type hints everywhere; code must pass `mypy` in strict mode.
 - Use `snake_case` for functions, variables, and modules, `PascalCase` for
   classes, and `UPPER_CASE` for constants.

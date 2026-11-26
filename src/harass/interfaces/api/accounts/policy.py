@@ -8,7 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from harass.application.ports.request_limiter import RequestLimiter
+from harass.application.ports.accounts import RequestLimiter
 from harass.domain.authentication import User
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -22,11 +22,7 @@ AUTH_PATHS = frozenset(
         "/auth/email/verify",
     }
 )
-VERIFY_PREFIXES = (
-    "/auth/sessions",
-    "/auth/logout-all",
-    "/auth/email/request-verification",
-)
+VERIFY_PREFIXES = ("/auth/sessions", "/auth/logout-all", "/auth/email/request-verification")
 USER_LIMITS = {"runs": 3, "verify": 10}
 AUTH_LIMIT = 10
 NO_STORE_PREFIXES = ("/auth", "/connections", "/runs", "/evaluation-options")
@@ -41,14 +37,10 @@ def install_auth_policy(
     auth_requests: dict[str, tuple[float, int]] = {}
 
     @app.exception_handler(RequestValidationError)
-    async def hide_validation_inputs(
-        _: Request, error: RequestValidationError
-    ) -> JSONResponse:
+    async def hide_validation_inputs(_: Request, error: RequestValidationError) -> JSONResponse:
         """Retain validation locations while omitting submitted values."""
         fields = ("loc", "msg", "type")
-        detail = [
-            {key: item[key] for key in fields} for item in error.errors()
-        ]
+        detail = [{key: item[key] for key in fields} for item in error.errors()]
         return JSONResponse(status_code=422, content={"detail": detail})
 
     async def auth_wait(request: Request) -> int:
@@ -150,7 +142,7 @@ def _consume_local(requests: dict[str, tuple[float, int]], client: str) -> int:
         if now - requests[key][0] >= 60:
             del requests[key]
     start, count = requests.get(client, (now, 0))
-    if count >= 10 or (client not in requests and len(requests) >= 4096):
+    if count >= AUTH_LIMIT or (client not in requests and len(requests) >= 4096):
         return 60
     requests[client] = (start, count + 1)
     return 0

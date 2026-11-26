@@ -3,10 +3,7 @@
 import hashlib
 from collections.abc import Collection
 
-from harass.application.accounts.errors import (
-    PasswordRejectedError,
-    RegistrationError,
-)
+from harass.application.accounts.errors import PasswordRejectedError, RegistrationError
 
 
 class PasswordPolicy:

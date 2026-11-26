@@ -21,9 +21,7 @@ from harass.infrastructure.pyrit.scoring.guard_scorers import (
     GuardCategoryScorer,
     GuardModerator,
 )
-from harass.infrastructure.pyrit.variant_attempt_executor import (
-    PyritAttemptExecutor,
-)
+from harass.infrastructure.pyrit.variant_attempt_executor import PyritAttemptExecutor
 
 REFUSAL_MARKER = "REFUSE_ME"
 REFUSAL_TEXT = "I refuse."
@@ -55,24 +53,14 @@ class ScriptedTarget(PromptTarget):
     ) -> list[Message]:
         request = normalized_conversation[-1].message_pieces[0]
         self.received.append(request.converted_value)
-        text = (
-            REFUSAL_TEXT
-            if REFUSAL_MARKER in request.converted_value
-            else ANSWER_TEXT
-        )
-        return [
-            construct_response_from_request(
-                request=request, response_text_pieces=[text]
-            )
-        ]
+        text = REFUSAL_TEXT if REFUSAL_MARKER in request.converted_value else ANSWER_TEXT
+        return [construct_response_from_request(request=request, response_text_pieces=[text])]
 
 
 class Guard:
     """A scripted judge server that refuses when the response says so."""
 
-    def __init__(
-        self, delay: float = 0.0, safety: str | None = None, status: int = 200
-    ) -> None:
+    def __init__(self, delay: float = 0.0, safety: str | None = None, status: int = 200) -> None:
         """Record every moderation request it receives."""
         self.requests: list[dict[str, Any]] = []
         self._delay = delay
@@ -88,23 +76,16 @@ class Guard:
             return httpx.Response(self._status)
         refused = REFUSAL_TEXT in body["messages"][-1]["content"]
         safety = self._safety or ("Safe" if refused else "Unsafe")
-        text = (
-            f"Safety: {safety}\n"
-            f"Categories: None\nRefusal: {'Yes' if refused else 'No'}"
-        )
+        text = f"Safety: {safety}\nCategories: None\nRefusal: {'Yes' if refused else 'No'}"
         return httpx.Response(200, json={"text": text})
 
     def scorers(self) -> tuple[GuardCategoryScorer, GuardAttackScorer]:
         """Build the production scorers on top of this scripted server."""
         client = httpx.AsyncClient(
-            base_url="http://judge.test",
-            transport=httpx.MockTransport(self.handle),
+            base_url="http://judge.test", transport=httpx.MockTransport(self.handle)
         )
         moderator = GuardModerator(client)
-        return (
-            GuardCategoryScorer(moderator=moderator),
-            GuardAttackScorer(moderator=moderator),
-        )
+        return (GuardCategoryScorer(moderator=moderator), GuardAttackScorer(moderator=moderator))
 
 
 def make_case(identifier: str, objective: str) -> EvaluationCase:
@@ -123,20 +104,14 @@ def target() -> ScriptedTarget:
 
 
 async def test_variant_executor_scores_independent_requests(
-    pyrit_memory: None,
-    target: ScriptedTarget,
+    pyrit_memory: None, target: ScriptedTarget
 ) -> None:
     """Verify variant executor scores independent requests."""
     guard = Guard()
-    executor = PyritAttemptExecutor(
-        lambda connection: target, *guard.scorers()
-    )
+    executor = PyritAttemptExecutor(lambda connection: target, *guard.scorers())
     case = make_case("OR-DIN-VIO-MSA-00001", "safe question")
     first = await executor.execute(
-        case,
-        PromptVariant("first", "first", REFUSAL_MARKER),
-        CONNECTION,
-        "run",
+        case, PromptVariant("first", "first", REFUSAL_MARKER), CONNECTION, "run"
     )
     second = await executor.execute(
         case, PromptVariant("second", "second", "neutral"), CONNECTION, "run"
@@ -145,9 +120,10 @@ async def test_variant_executor_scores_independent_requests(
     assert second.response_category is ResponseCategory.FULL_COMPLIANCE
     assert first.transcript and first.transcript.sent_prompt == REFUSAL_MARKER
     assert target.received == [REFUSAL_MARKER, "neutral"]
-    assert [
-        request["messages"][0]["content"] for request in guard.requests
-    ] == [REFUSAL_MARKER, "neutral"]
+    assert [request["messages"][0]["content"] for request in guard.requests] == [
+        REFUSAL_MARKER,
+        "neutral",
+    ]
 
 
 async def test_the_guard_judges_both_axes_with_one_request(
@@ -155,9 +131,7 @@ async def test_the_guard_judges_both_axes_with_one_request(
 ) -> None:
     """The attack and category scorers share one moderation of a response."""
     guard = Guard()
-    executor = PyritAttemptExecutor(
-        lambda connection: target, *guard.scorers()
-    )
+    executor = PyritAttemptExecutor(lambda connection: target, *guard.scorers())
 
     outcome = await executor.execute(
         make_case("AT-HSB-PRV-DIR-LLM01-MSA-00001", "attack"),
@@ -185,11 +159,7 @@ class SyntheticLeakTarget(ScriptedTarget):
         system = normalized_conversation[0].message_pieces[0].converted_value
         assert "HARASS_TEST_" in system
         protected = system.split("\n", 1)[1]
-        return [
-            construct_response_from_request(
-                request=request, response_text_pieces=[protected]
-            )
-        ]
+        return [construct_response_from_request(request=request, response_text_pieces=[protected])]
 
 
 class DelayedTarget(ScriptedTarget):
@@ -204,15 +174,11 @@ class DelayedTarget(ScriptedTarget):
         )
 
 
-async def test_attempt_deadline_is_unscored_not_a_safety_verdict(
-    pyrit_memory: None,
-) -> None:
+async def test_attempt_deadline_is_unscored_not_a_safety_verdict(pyrit_memory: None) -> None:
     """Verify attempt deadline is unscored not safety verdict."""
     target = DelayedTarget()
     executor = PyritAttemptExecutor(
-        lambda connection: target,
-        *Guard().scorers(),
-        attempt_timeout_seconds=0.01,
+        lambda connection: target, *Guard().scorers(), attempt_timeout_seconds=0.01
     )
     case = make_case("OR-DIN-VIO-MSA-00001", "neutral")
     outcome = await executor.execute(
@@ -229,12 +195,8 @@ async def test_owasp_context_is_sent_and_leakage_is_deterministic(
     """Verify owasp context is sent and leakage is deterministic."""
     guard = Guard()
     target = SyntheticLeakTarget()
-    executor = PyritAttemptExecutor(
-        lambda connection: target, *guard.scorers()
-    )
-    case = make_case(
-        f"AT-HSB-PRV-DIR-{code}-MSA-00001", "protected disclosure"
-    )
+    executor = PyritAttemptExecutor(lambda connection: target, *guard.scorers())
+    case = make_case(f"AT-HSB-PRV-DIR-{code}-MSA-00001", "protected disclosure")
     outcome = await executor.execute(
         case, PromptVariant("probe", "probe", "سؤال تجريبي"), CONNECTION, "run"
     )
@@ -244,15 +206,10 @@ async def test_owasp_context_is_sent_and_leakage_is_deterministic(
     assert outcome.leak_rouge_l == 1
     assert outcome.scenario_name == code.lower() + "_synthetic_v1"
     assert len(guard.requests) == 1
-    assert (
-        outcome.transcript is not None
-        and outcome.transcript.attack_judge is None
-    )
+    assert outcome.transcript is not None and outcome.transcript.attack_judge is None
 
 
-async def test_judge_timeout_retains_target_response(
-    pyrit_memory: None,
-) -> None:
+async def test_judge_timeout_retains_target_response(pyrit_memory: None) -> None:
     """An unscored timeout retains the model answer, never a judge response."""
     executor = PyritAttemptExecutor(
         lambda connection: ScriptedTarget(),
@@ -295,9 +252,7 @@ async def test_an_unavailable_judge_never_becomes_a_verdict(
     pyrit_memory: None, target: ScriptedTarget
 ) -> None:
     """A failing judge server leaves the attempt unscored with its evidence."""
-    executor = PyritAttemptExecutor(
-        lambda connection: target, *Guard(status=503).scorers()
-    )
+    executor = PyritAttemptExecutor(lambda connection: target, *Guard(status=503).scorers())
 
     outcome = await executor.execute(
         make_case("OR-DIN-VIO-MSA-00001", "neutral"),

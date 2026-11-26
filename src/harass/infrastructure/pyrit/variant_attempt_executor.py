@@ -9,15 +9,13 @@ from time import perf_counter
 
 from pyrit.executor.attack import AttackScoringConfig, PromptSendingAttack
 from pyrit.executor.attack.core.attack_parameters import AttackParameters
-from pyrit.executor.attack.single_turn.single_turn_attack_strategy import (
-    SingleTurnAttackContext,
-)
+from pyrit.executor.attack.single_turn.single_turn_attack_strategy import SingleTurnAttackContext
 from pyrit.memory import CentralMemory
 from pyrit.models import Message
 from pyrit.prompt_target import PromptTarget
 from pyrit.score import Scorer, TrueFalseScorer
 
-from harass.application.ports.attempt_executor import AttemptExecutor
+from harass.application.ports.evaluation import AttemptExecutor
 from harass.domain.case_outcome import AttemptTranscript, CaseOutcome
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.owasp_scenario import OwaspScenario, scenario_for
@@ -64,9 +62,7 @@ class PyritAttemptExecutor(AttemptExecutor):
         token = JUDGE_REQUESTS.set(requests)
         started = perf_counter()
         try:
-            outcome = await self._execute_attempt(
-                case, variant, target, run_identifier
-            )
+            outcome = await self._execute_attempt(case, variant, target, run_identifier)
             return replace(
                 outcome,
                 elapsed_seconds=round(perf_counter() - started, 3),
@@ -104,10 +100,7 @@ class PyritAttemptExecutor(AttemptExecutor):
             )
             if result.last_response is None:
                 return CaseOutcome(
-                    case,
-                    variant.variant_id,
-                    error="The target gave no response.",
-                    variant=variant,
+                    case, variant.variant_id, error="The target gave no response.", variant=variant
                 )
             return read_result(case, variant, scenario, result)
         except Exception as error:
@@ -121,9 +114,7 @@ class PyritAttemptExecutor(AttemptExecutor):
                 else f"Attempt failed: {type(error).__name__}.",
                 variant=variant,
                 scenario_name=scenario.name,
-                transcript=_recover_response(
-                    context.conversation_id, variant.sent_prompt
-                ),
+                transcript=_recover_response(context.conversation_id, variant.sent_prompt),
                 technical_error=technical_error(error),
             )
         finally:
@@ -140,13 +131,10 @@ class PyritAttemptExecutor(AttemptExecutor):
         the response category, and over-refusal attempts need the category.
         """
         adversarial = case.axis is Axis.ADVERSARIAL
-        auxiliary: list[Scorer] = (
-            [self._category_scorer] if adversarial else []
-        )
+        auxiliary: list[Scorer] = [self._category_scorer] if adversarial else []
         if scenario.protected_content and scenario.protected_marker:
             leak = SyntheticDisclosureScorer(
-                reference=scenario.protected_content,
-                marker=scenario.protected_marker,
+                reference=scenario.protected_content, marker=scenario.protected_marker
             )
             return leak, auxiliary
         if adversarial and not scenario.protected_content:
@@ -154,31 +142,18 @@ class PyritAttemptExecutor(AttemptExecutor):
         return self._category_scorer, auxiliary
 
 
-def _recover_response(
-    conversation_id: str, sent_prompt: str
-) -> AttemptTranscript | None:
+def _recover_response(conversation_id: str, sent_prompt: str) -> AttemptTranscript | None:
     """Recover a stored target response after a scoring failure."""
     try:
-        pieces = CentralMemory.get_memory_instance().get_message_pieces(
-            role="assistant", conversation_id=conversation_id
-        )
         memory = CentralMemory.get_memory_instance()
-        for response in sorted(
-            pieces, key=lambda piece: piece.timestamp, reverse=True
-        ):
-            request = memory.get_request_from_response(
-                response=Message(message_pieces=[response])
-            )
-            if any(
-                piece.original_value == sent_prompt
-                for piece in request.message_pieces
-            ):
+        pieces = memory.get_message_pieces(role="assistant", conversation_id=conversation_id)
+        for response in sorted(pieces, key=lambda piece: piece.timestamp, reverse=True):
+            request = memory.get_request_from_response(response=Message(message_pieces=[response]))
+            if any(piece.original_value == sent_prompt for piece in request.message_pieces):
                 return AttemptTranscript(sent_prompt, response.converted_value)
         return None
     except Exception as error:
-        logger.warning(
-            "Response evidence unavailable: %s", type(error).__name__
-        )
+        logger.warning("Response evidence unavailable: %s", type(error).__name__)
         return None
 
 
@@ -202,10 +177,7 @@ def technical_error(error: BaseException) -> str:
 
 
 def _attack_context(
-    case: EvaluationCase,
-    variant: PromptVariant,
-    scenario: OwaspScenario,
-    run_identifier: str,
+    case: EvaluationCase, variant: PromptVariant, scenario: OwaspScenario, run_identifier: str
 ) -> SingleTurnAttackContext[AttackParameters]:
     """Construct isolated target history and stable research correlation."""
     attempt_label = str(uuid.uuid4())
@@ -213,17 +185,10 @@ def _attack_context(
         params=AttackParameters(
             objective=case.objective
             if case.axis is Axis.OVER_REFUSAL
-            else (
-                f"Criterion: {scenario.criterion}\n"
-                f"Original request: {case.objective}"
-            ),
-            next_message=Message.from_prompt(
-                prompt=variant.sent_prompt, role="user"
-            ),
+            else (f"Criterion: {scenario.criterion}\nOriginal request: {case.objective}"),
+            next_message=Message.from_prompt(prompt=variant.sent_prompt, role="user"),
             prepended_conversation=[
-                Message.from_prompt(
-                    prompt=scenario.system_prompt, role="system"
-                )
+                Message.from_prompt(prompt=scenario.system_prompt, role="system")
             ]
             if scenario.system_prompt
             else None,

@@ -3,9 +3,7 @@
 from datetime import UTC, datetime
 
 from harass.domain.evaluation_run import EvaluationRun, RunStatus
-from harass.infrastructure.persistence.tables import (
-    RunRow,
-)
+from harass.infrastructure.persistence.tables import RunRow
 
 
 def new_run_row(run: EvaluationRun) -> RunRow:
@@ -17,9 +15,7 @@ def new_run_row(run: EvaluationRun) -> RunRow:
         target_model=run.target_model,
         status=run.status.value,
         created_at=run.created_at,
-        lifecycle_events=[
-            {"event": "created", "at": run.created_at.isoformat()}
-        ],
+        lifecycle_events=[{"event": "created", "at": run.created_at.isoformat()}],
         finished_at=run.finished_at,
         error=run.error,
     )
@@ -49,8 +45,4 @@ def read_run(row: RunRow) -> EvaluationRun:
 
 def utc_timestamp(value: datetime | None) -> datetime | None:
     """Restore UTC metadata when SQLite returns timezone-naive timestamps."""
-    return (
-        value.replace(tzinfo=UTC)
-        if value is not None and value.tzinfo is None
-        else value
-    )
+    return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value

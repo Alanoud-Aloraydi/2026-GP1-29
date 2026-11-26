@@ -29,10 +29,7 @@ def configuration() -> SmtpSettings:
 def test_delivery_requires_verified_tls(mode: str) -> None:
     """Authenticate only after establishing a verified TLS transport."""
     settings = replace(configuration(), tls_mode=mode)
-    with (
-        patch("smtplib.SMTP") as plain,
-        patch("smtplib.SMTP_SSL") as secured,
-    ):
+    with patch("smtplib.SMTP") as plain, patch("smtplib.SMTP_SSL") as secured:
         SmtpAccountMailer(settings).send(
             "recipient@example.test", "Account link", "Isolated message."
         )
@@ -41,15 +38,11 @@ def test_delivery_requires_verified_tls(mode: str) -> None:
         options = transport.call_args.kwargs
         assert options["timeout"] == 10
         context = (
-            options["context"]
-            if mode == "ssl"
-            else server.starttls.call_args.kwargs["context"]
+            options["context"] if mode == "ssl" else server.starttls.call_args.kwargs["context"]
         )
         assert context.check_hostname
         assert context.verify_mode.name == "CERT_REQUIRED"
-        server.login.assert_called_once_with(
-            settings.username, settings.password
-        )
+        server.login.assert_called_once_with(settings.username, settings.password)
         if mode == "starttls":
             assert [call[0] for call in server.mock_calls] == [
                 "ehlo",
@@ -79,9 +72,7 @@ def test_delivery_requires_verified_tls(mode: str) -> None:
         {"public_url": "https://example.test#fragment"},
     ],
 )
-def test_unsafe_delivery_configuration_is_rejected(
-    changes: dict[str, Any],
-) -> None:
+def test_unsafe_delivery_configuration_is_rejected(changes: dict[str, Any]) -> None:
     """Reject insecure transport, injected headers and untrusted links."""
     with pytest.raises(SettingsError):
         replace(configuration(), **changes)
@@ -89,17 +80,13 @@ def test_unsafe_delivery_configuration_is_rejected(
 
 def test_local_http_origin_is_allowed_for_development() -> None:
     """Allow loopback development without accepting public plain HTTP."""
-    assert replace(
-        configuration(), public_url="http://127.0.0.1:8000"
-    ).public_url
+    assert replace(configuration(), public_url="http://127.0.0.1:8000").public_url
     settings = configuration()
     assert settings.username not in repr(settings)
     assert settings.password not in repr(settings)
 
 
-def test_disabled_email_does_not_load_smtp(
-    database_factory: sessionmaker[Session],
-) -> None:
+def test_disabled_email_does_not_load_smtp(database_factory: sessionmaker[Session]) -> None:
     """Construct normal accounts without reading optional SMTP settings."""
     backend = Mock(spec=BackendSettings)
     backend.jwt_secret = "isolated-account-composition-key-2026-padding"

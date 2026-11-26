@@ -3,11 +3,9 @@
 import pytest
 
 from harass.application.errors import NoMatchingCasesError
-from harass.application.evaluation.contracts import EvaluationRequest
+from harass.application.evaluation.contracts import EvaluationRequest, RunParameters
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.ports.evaluation_engine import EvaluationEngine
-from harass.application.ports.evaluation_journal import EvaluationJournal
-from harass.application.ports.seed_source import SeedSource
+from harass.application.ports.evaluation import EvaluationEngine, EvaluationJournal, SeedSource
 from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.case_outcome import CaseOutcome
 from harass.domain.case_selection import CaseSelection
@@ -26,9 +24,7 @@ class InMemorySeedSource(SeedSource):
     def load_cases(self, selection: CaseSelection) -> list[EvaluationCase]:
         """Return the matching fixed cases."""
         cases = [
-            EvaluationCase(
-                CaseIdentifier.parse(f"OR-DIN-VIO-MSA-0000{n}"), "p", "o"
-            )
+            EvaluationCase(CaseIdentifier.parse(f"OR-DIN-VIO-MSA-0000{n}"), "p", "o")
             for n in (1, 2)
         ]
         return [case for case in cases if selection.matches(case)]
@@ -51,10 +47,7 @@ class RecordingEngine(EvaluationEngine):
     ) -> list[CaseOutcome]:
         """Record the plan and supply scored outcomes."""
         self.plans.append(plan)
-        return [
-            CaseOutcome(case, "baseline", ResponseCategory.FULL_REFUSAL)
-            for case in plan.cases
-        ]
+        return [CaseOutcome(case, "baseline", ResponseCategory.FULL_REFUSAL) for case in plan.cases]
 
 
 async def test_filters_and_sampling_reach_the_engine() -> None:
@@ -63,13 +56,13 @@ async def test_filters_and_sampling_reach_the_engine() -> None:
     report = await RunEvaluation(InMemorySeedSource(), engine).execute(
         EvaluationRequest(
             CONNECTION,
-            variant_selection=VariantSelection(("or_plain",), ("tatweel",)),
-            max_base_cases_per_axis=1,
+            RunParameters(
+                variant_selection=VariantSelection(("or_plain",), ("tatweel",)),
+                max_base_cases_per_axis=1,
+            ),
         )
     )
-    assert engine.plans[0].variant_selection == VariantSelection(
-        ("or_plain",), ("tatweel",)
-    )
+    assert engine.plans[0].variant_selection == VariantSelection(("or_plain",), ("tatweel",))
     assert len(engine.plans[0].cases) == 1
     assert report.variant_names == ("baseline",)
 
@@ -79,9 +72,6 @@ async def test_empty_selection_stops_before_engine_execution() -> None:
     engine = RecordingEngine()
     with pytest.raises(NoMatchingCasesError):
         await RunEvaluation(InMemorySeedSource(), engine).execute(
-            EvaluationRequest(
-                CONNECTION,
-                selection=CaseSelection(axis=Axis.ADVERSARIAL),
-            )
+            EvaluationRequest(CONNECTION, RunParameters(CaseSelection(axis=Axis.ADVERSARIAL)))
         )
     assert not engine.plans

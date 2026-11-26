@@ -12,3 +12,6 @@ node_modules/
 .ruff_cache/
 .pytest_cache/
 .import_linter_cache/
+
+# Human gold labels stay outside the repository.
+data/judge_benchmarks/*.xlsx

@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from harass.application.errors import SeedSourceError
-from harass.application.ports.seed_source import SeedSource
+from harass.application.ports.evaluation import SeedSource
 from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.case_selection import CaseSelection
 from harass.domain.errors import DomainError
@@ -68,24 +68,16 @@ class SpreadsheetSeedSource(SeedSource):
 
     def load_cases(self, selection: CaseSelection) -> list[EvaluationCase]:
         """Load selected cases in identifier order."""
-        return [
-            case for case in self._load_all_cases() if selection.matches(case)
-        ]
+        return [case for case in self._load_all_cases() if selection.matches(case)]
 
     def _load_all_cases(self) -> list[EvaluationCase]:
         """Read both sheets and reject duplicate identifiers."""
         if not self._workbook_path.is_file():
-            raise SeedSourceError(
-                f"Dataset file {self._workbook_path} does not exist."
-            )
+            raise SeedSourceError(f"Dataset file {self._workbook_path} does not exist.")
         try:
-            workbook = load_workbook(
-                self._workbook_path, read_only=True, data_only=True
-            )
+            workbook = load_workbook(self._workbook_path, read_only=True, data_only=True)
         except Exception as error:
-            raise SeedSourceError(
-                f"Cannot read {self._workbook_path}: {error}"
-            ) from error
+            raise SeedSourceError(f"Cannot read {self._workbook_path}: {error}") from error
         cases: dict[str, EvaluationCase] = {}
         try:
             for sheet in (OVER_REFUSAL_SHEET, ADVERSARIAL_SHEET):
@@ -94,9 +86,7 @@ class SpreadsheetSeedSource(SeedSource):
                 for case in _read_sheet(workbook[sheet.name], sheet):
                     key = str(case.identifier)
                     if key in cases:
-                        raise SeedSourceError(
-                            f"Case {key} appears more than once."
-                        )
+                        raise SeedSourceError(f"Case {key} appears more than once.")
                     cases[key] = case
         finally:
             workbook.close()
@@ -104,23 +94,16 @@ class SpreadsheetSeedSource(SeedSource):
         try:
             group_seeds(ordered)
         except DomainError as error:
-            raise SeedSourceError(
-                f"Dataset base-case grouping: {error}"
-            ) from error
+            raise SeedSourceError(f"Dataset base-case grouping: {error}") from error
         return ordered
 
 
-def _read_sheet(
-    worksheet: Worksheet, sheet: AxisSheet
-) -> Iterator[EvaluationCase]:
+def _read_sheet(worksheet: Worksheet, sheet: AxisSheet) -> Iterator[EvaluationCase]:
     """Yield one case per filled row of an axis sheet."""
     position = _column_positions(worksheet, sheet)
-    expected_axis = (
-        Axis.OVER_REFUSAL if sheet is OVER_REFUSAL_SHEET else Axis.ADVERSARIAL
-    )
+    expected_axis = Axis.OVER_REFUSAL if sheet is OVER_REFUSAL_SHEET else Axis.ADVERSARIAL
     for row_number, row in enumerate(
-        worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True),
-        start=FIRST_DATA_ROW,
+        worksheet.iter_rows(min_row=FIRST_DATA_ROW, values_only=True), start=FIRST_DATA_ROW
     ):
         identifier_text = _text(row[position[IDENTIFIER_COLUMN]])
         if not identifier_text:
@@ -129,15 +112,11 @@ def _read_sheet(
         try:
             identifier = CaseIdentifier.parse(identifier_text)
             text = _text(row[position[TEXT_COLUMN]])
-            case = EvaluationCase(
-                identifier=identifier, prompt_text=text, objective=text
-            )
+            case = EvaluationCase(identifier=identifier, prompt_text=text, objective=text)
         except DomainError as error:
             raise SeedSourceError(f"{location}: {error}") from error
         if identifier.axis is not expected_axis:
-            raise SeedSourceError(
-                f"{location}: case {identifier} belongs to another axis."
-            )
+            raise SeedSourceError(f"{location}: case {identifier} belongs to another axis.")
         for field_name, column in sheet.code_columns.items():
             code = _text(row[position[column]])
             if code != str(getattr(identifier, field_name)):
@@ -149,13 +128,9 @@ def _read_sheet(
         yield case
 
 
-def _column_positions(
-    worksheet: Worksheet, sheet: AxisSheet
-) -> dict[str, int]:
+def _column_positions(worksheet: Worksheet, sheet: AxisSheet) -> dict[str, int]:
     """Locate the required columns in the header row, or fail naming them."""
-    header_row = worksheet.iter_rows(
-        min_row=HEADER_ROW, max_row=HEADER_ROW, values_only=True
-    )
+    header_row = worksheet.iter_rows(min_row=HEADER_ROW, max_row=HEADER_ROW, values_only=True)
     header = [_text(cell) for cell in next(header_row)]
     required = [IDENTIFIER_COLUMN, TEXT_COLUMN, *sheet.code_columns.values()]
     missing = [column for column in required if column not in header]

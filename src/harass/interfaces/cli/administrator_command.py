@@ -38,11 +38,7 @@ def run_administrator_command(
                 print("Administrator error: Passwords differ.", file=output)
                 return 1
             user = administrators.reset_password(arguments.email, password)
-            print(
-                f"The password of {user.email} was reset "
-                "and its sessions ended.",
-                file=output,
-            )
+            print(f"The password of {user.email} was reset and its sessions ended.", file=output)
     except ApplicationError as error:
         print(f"Administrator error: {error}", file=output)
         return 1

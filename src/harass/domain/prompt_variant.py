@@ -1,7 +1,7 @@
 """Define framework-independent prompt variants and recipe contracts."""
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import KW_ONLY, dataclass, field
 from enum import StrEnum
 
 from harass.domain.errors import InvalidEvaluationPlanError
@@ -44,13 +44,9 @@ class PromptTemplate:
     revision: str
     source: str
     review_status: str = "draft"
-    subject_domains: frozenset[SubjectDomain] = field(
-        default_factory=frozenset
-    )
+    subject_domains: frozenset[SubjectDomain] = field(default_factory=frozenset)
     risk_categories: frozenset[RiskCategory] = field(default_factory=frozenset)
-    owasp_categories: frozenset[OwaspCategory] = field(
-        default_factory=frozenset
-    )
+    owasp_categories: frozenset[OwaspCategory] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         """Validate recipe completeness and axis assignments."""
@@ -60,17 +56,11 @@ class PromptTemplate:
             or not self.label.strip()
             or self.text.count("{seed}") != 1
         ):
-            raise InvalidEvaluationPlanError(
-                "Templates require a name, label and one {seed}."
-            )
+            raise InvalidEvaluationPlanError("Templates require a name, label and one {seed}.")
         if not self.varieties or not self.revision or not self.source:
-            raise InvalidEvaluationPlanError(
-                f"Template {self.name} lacks provenance or varieties."
-            )
+            raise InvalidEvaluationPlanError(f"Template {self.name} lacks provenance or varieties.")
         if (self.axis is Axis.ADVERSARIAL) != (self.strategy is not None):
-            raise InvalidEvaluationPlanError(
-                f"Template {self.name} has an invalid axis/strategy."
-            )
+            raise InvalidEvaluationPlanError(f"Template {self.name} has an invalid axis/strategy.")
 
     def applies_to(self, case: EvaluationCase) -> bool:
         """Preserve the seed axis, strategy and linguistic variety."""
@@ -79,18 +69,9 @@ class PromptTemplate:
             identifier.axis is self.axis
             and identifier.strategy is self.strategy
             and identifier.variety in self.varieties
-            and (
-                not self.subject_domains
-                or identifier.subject_domain in self.subject_domains
-            )
-            and (
-                not self.risk_categories
-                or identifier.risk_category in self.risk_categories
-            )
-            and (
-                not self.owasp_categories
-                or identifier.owasp_category in self.owasp_categories
-            )
+            and (not self.subject_domains or identifier.subject_domain in self.subject_domains)
+            and (not self.risk_categories or identifier.risk_category in self.risk_categories)
+            and (not self.owasp_categories or identifier.owasp_category in self.owasp_categories)
         )
 
 
@@ -100,14 +81,14 @@ class TransformDefinition:
 
     name: str
     label: str
-    needs_arabic: bool
-    removes_arabic: bool
-    is_template: bool
-    safe_for_over_refusal: bool
     source: str
-    strategies: frozenset[BypassStrategy] = field(
-        default_factory=lambda: frozenset(BypassStrategy)
-    )
+    _: KW_ONLY
+    needs_arabic: bool = False
+    removes_arabic: bool = False
+    is_template: bool = False
+    safe_for_over_refusal: bool = False
+    needs_language_review: bool = False
+    strategies: frozenset[BypassStrategy] = field(default_factory=lambda: frozenset(BypassStrategy))
 
     def applies_to(self, case: EvaluationCase) -> bool:
         """Check composition eligibility and OR meaning preservation."""
@@ -143,6 +124,4 @@ class AdaptiveSettings:
     def __post_init__(self) -> None:
         """Require a positive budget before any request is submitted."""
         if self.attempt_budget < 1:
-            raise InvalidEvaluationPlanError(
-                "The attempt budget K must be positive."
-            )
+            raise InvalidEvaluationPlanError("The attempt budget K must be positive.")

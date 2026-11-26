@@ -5,12 +5,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>إعداد اتصال نموذج — HARASS</title>
-    <link rel="stylesheet" href="assets/css/styles.css?v=48">
-    <script src="assets/js/core/ui.js?v=48" defer></script>
-    <script src="assets/js/core/api-client.js?v=48" defer></script>
-    <script src="assets/js/core/forms.js?v=48" defer></script>
-    <script src="assets/js/pages/connections.js?v=48" defer></script>
-    <script src="assets/js/core/bootstrap.js?v=48" defer></script>
+    <link rel="stylesheet" href="assets/css/styles.css?v=55">
+    <script type="module" src="assets/js/pages/connections.js?v=55"></script>
   </head>
   <body data-page="model-configuration">
     <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
@@ -23,73 +19,37 @@
             <h1>إعداد اتصال نموذج</h1>
             <p>احفظ بيانات الاتصال ثم اختبر الوصول إلى النموذج.</p>
           </div>
-          <div
-            id="pageError"
-            class="alert alert-error"
-            role="alert"
-            tabindex="-1"
-            hidden
-          ></div>
+          <div id="pageError" class="alert" role="alert" tabindex="-1" hidden></div>
           <div class="setup-layout">
           <form id="connectionForm" class="form-panel">
             <div class="form-group">
               <label for="compatibility">نوع واجهة الاتصال</label>
               <select id="compatibility" aria-describedby="compatibilityHint">
-                <option value="openai_compatible">
-                  واجهة متوافقة مع OpenAI
-                </option>
+                <option value="openai_compatible">واجهة متوافقة مع OpenAI</option>
                 <option disabled>أخرى — غير متاح حاليًا</option>
               </select>
-              <p class="hint" id="compatibilityHint">
-                يشمل أي مزوّد أو نموذج محلي يدعم هذه الواجهة.
-              </p>
+              <p class="hint" id="compatibilityHint">يشمل أي مزوّد أو نموذج محلي يدعم هذه الواجهة.</p>
             </div>
             <div class="form-group">
               <label for="modelName">معرّف النموذج</label>
-              <input
-                id="modelName"
-                name="modelName"
-                type="text"
-                required
-                autocomplete="off"
-                aria-describedby="modelNameHint">
-              <p class="hint" id="modelNameHint">
-                استخدم المعرّف الذي يحدده المزوّد، مثل <code>llama-3.3-70b-versatile</code>.
-              </p>
+              <input id="modelName" name="modelName" type="text" required autocomplete="off" aria-describedby="modelNameHint">
+              <p class="hint" id="modelNameHint">استخدم المعرّف الذي يحدده المزوّد، مثل <code>llama-3.3-70b-versatile</code>.</p>
             </div>
             <div class="form-group">
               <label for="endpoint">عنوان نقطة الوصول</label>
-              <input
-                id="endpoint"
-                name="endpoint"
-                type="url"
-                required
-                autocomplete="off"
-                aria-describedby="endpointHint">
-              <p class="hint" id="endpointHint">
-                مثال: <code>https://api.groq.com/openai/v1</code>
-              </p>
+              <input id="endpoint" name="endpoint" type="url" required autocomplete="off" aria-describedby="endpointHint">
+              <p class="hint" id="endpointHint">مثال: <code>https://api.groq.com/openai/v1</code></p>
             </div>
             <div class="form-group">
               <label for="apiKey">مفتاح API</label>
               <div class="field-with-action">
-                <input
-                  id="apiKey"
-                  name="apiKey"
-                  type="password"
-                  autocomplete="off"
-                  aria-describedby="apiKeyHint">
+                <input id="apiKey" name="apiKey" type="password" autocomplete="off" aria-describedby="apiKeyHint">
                 <button class="btn btn-sm" type="button" data-reveal aria-pressed="false">إظهار</button>
               </div>
-              <p class="hint" id="apiKeyHint">
-                يُحفظ مشفرًا على الخادم. للخدمة المحلية التي لا تتطلب مفتاحًا،
-                أدخل القيمة البديلة التي يوصي بها مزوّدها.
-              </p>
+              <p class="hint" id="apiKeyHint">يُحفظ مشفرًا على الخادم. للخدمة المحلية التي لا تتطلب مفتاحًا، أدخل القيمة البديلة التي يوصي بها مزوّدها.</p>
             </div>
             <div class="form-actions">
-              <button class="btn btn-primary" type="submit">
-                حفظ الاتصال
-              </button>
+              <button class="btn btn-primary" type="submit">حفظ الاتصال</button>
               <a class="btn" href="connections.html">إلغاء</a>
             </div>
           </form>

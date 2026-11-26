@@ -25,12 +25,11 @@ dependencies = [
 ]
 
 [project.scripts]
-harass = "harass.bootstrap.cli:main"
 harass-api = "harass.bootstrap.api:run"
 harass-worker = "harass.bootstrap.worker:main"
-harass-review = "harass.bootstrap.review_cli:main"
-harass-judge-benchmark = "harass.bootstrap.judge_benchmark:main"
+harass-reports = "harass.bootstrap.reports:main"
 harass-admin = "harass.bootstrap.administrators:main"
+harass-generate = "harass.bootstrap.generation:main"
 
 [project.optional-dependencies]
 dev = [
@@ -50,14 +49,21 @@ where = ["src"]
 harass = ["**/*.yaml", "**/*.mako", "**/*.sha256", "**/migrations/versions/*.py", "**/migrations/env.py"]
 
 [tool.ruff]
-line-length = 79
+line-length = 100
 target-version = "py313"
 src = ["src", "tests"]
+
+[tool.ruff.format]
+# Short calls and imports stay on one line instead of one item per line.
+skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ANN", "SIM", "RUF"]
 # Arabic alef and heh are real letters in Arabic prompts mixed with digits.
 allowed-confusables = ["ا", "ه"]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

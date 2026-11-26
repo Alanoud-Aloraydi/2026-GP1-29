@@ -9,40 +9,25 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from harass.application.accounts.administrators import ManageAdministrators
-from harass.application.accounts.errors import (
-    RegistrationError,
-    UnknownAccountError,
-)
+from harass.application.accounts.errors import RegistrationError, UnknownAccountError
 from harass.application.accounts.password_policy import PasswordPolicy
-from harass.domain.authentication import (
-    AuthenticationSession,
-    User,
-    UserRole,
-)
+from harass.domain.authentication import AuthenticationSession, User, UserRole
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.security.jwt_authentication import (
-    JwtAuthenticationSecurity,
-)
+from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
 
-SECURITY = JwtAuthenticationSecurity(
-    "isolated-administrator-test-key-at-least-48-bytes-long"
-)
+SECURITY = JwtAuthenticationSecurity("isolated-administrator-test-key-at-least-48-bytes-long")
 NEW_PASSWORD = "a-new-test-only-password-2026"
 
 
 @pytest.fixture
-def store(
-    database_factory: sessionmaker[Session],
-) -> SqlAlchemyAuthenticationStore:
+def store(database_factory: sessionmaker[Session]) -> SqlAlchemyAuthenticationStore:
     """Return the account store over an isolated database."""
     return SqlAlchemyAuthenticationStore(database_factory)
 
 
-def administrators_for(
-    store: SqlAlchemyAuthenticationStore,
-) -> ManageAdministrators:
+def administrators_for(store: SqlAlchemyAuthenticationStore) -> ManageAdministrators:
     """Build the administrator service over the account store."""
     return ManageAdministrators(store, SECURITY, PasswordPolicy())
 
@@ -64,18 +49,14 @@ def role_of(store: SqlAlchemyAuthenticationStore, user: User) -> UserRole:
     return stored.role
 
 
-def test_new_accounts_are_plain_users(
-    store: SqlAlchemyAuthenticationStore,
-) -> None:
+def test_new_accounts_are_plain_users(store: SqlAlchemyAuthenticationStore) -> None:
     """Signup never produces an administrator."""
     user = register(store, "member@example.test")
 
     assert role_of(store, user) is UserRole.USER
 
 
-def test_grant_and_revoke_change_the_stored_role(
-    store: SqlAlchemyAuthenticationStore,
-) -> None:
+def test_grant_and_revoke_change_the_stored_role(store: SqlAlchemyAuthenticationStore) -> None:
     """The role persists between reads and can be withdrawn again."""
     user = register(store, "member@example.test")
     administrators = administrators_for(store)
@@ -88,9 +69,7 @@ def test_grant_and_revoke_change_the_stored_role(
     assert role_of(store, user) is UserRole.USER
 
 
-def test_email_is_matched_in_canonical_form(
-    store: SqlAlchemyAuthenticationStore,
-) -> None:
+def test_email_is_matched_in_canonical_form(store: SqlAlchemyAuthenticationStore) -> None:
     """Case and surrounding spaces do not hide an account."""
     user = register(store, "member@example.test")
 
@@ -99,9 +78,7 @@ def test_email_is_matched_in_canonical_form(
     assert role_of(store, user) is UserRole.ADMINISTRATOR
 
 
-def test_granting_to_an_unknown_email_changes_nothing(
-    store: SqlAlchemyAuthenticationStore,
-) -> None:
+def test_granting_to_an_unknown_email_changes_nothing(store: SqlAlchemyAuthenticationStore) -> None:
     """A mistyped email fails instead of creating or promoting anyone."""
     user = register(store, "member@example.test")
 
@@ -119,20 +96,14 @@ def test_setting_the_role_of_a_missing_account_reports_false(
 
 
 def test_database_rejects_an_unknown_role(
-    database_factory: sessionmaker[Session],
-    store: SqlAlchemyAuthenticationStore,
+    database_factory: sessionmaker[Session], store: SqlAlchemyAuthenticationStore
 ) -> None:
     """The database is the last line of defence against a bad role."""
     user = register(store, "member@example.test")
 
-    with (
-        pytest.raises(IntegrityError),
-        database_factory() as database,
-        database.begin(),
-    ):
+    with pytest.raises(IntegrityError), database_factory() as database, database.begin():
         database.execute(
-            text("UPDATE users SET role = 'root' WHERE user_id = :id"),
-            {"id": user.user_id},
+            text("UPDATE users SET role = 'root' WHERE user_id = :id"), {"id": user.user_id}
         )
 
 
@@ -143,9 +114,7 @@ def test_reset_password_replaces_the_password_and_ends_sessions(
     user = register(store, "member@example.test")
     assert store.list_sessions(user.user_id)
 
-    administrators_for(store).reset_password(
-        "  Member@Example.TEST ", NEW_PASSWORD
-    )
+    administrators_for(store).reset_password("  Member@Example.TEST ", NEW_PASSWORD)
 
     stored = store.get_user(user.user_id)
     assert stored is not None
@@ -160,9 +129,7 @@ def test_reset_password_rejects_a_weak_password_without_changes(
     user = register(store, "member@example.test")
 
     with pytest.raises(RegistrationError):
-        administrators_for(store).reset_password(
-            "member@example.test", "too-short"
-        )
+        administrators_for(store).reset_password("member@example.test", "too-short")
 
     stored = store.get_user(user.user_id)
     assert stored is not None
@@ -170,14 +137,10 @@ def test_reset_password_rejects_a_weak_password_without_changes(
     assert store.list_sessions(user.user_id)
 
 
-def test_reset_password_for_an_unknown_email_fails(
-    store: SqlAlchemyAuthenticationStore,
-) -> None:
+def test_reset_password_for_an_unknown_email_fails(store: SqlAlchemyAuthenticationStore) -> None:
     """A mistyped email resets nobody."""
     with pytest.raises(UnknownAccountError):
-        administrators_for(store).reset_password(
-            "other@example.test", NEW_PASSWORD
-        )
+        administrators_for(store).reset_password("other@example.test", NEW_PASSWORD)
 
 
 def test_setting_the_password_of_a_missing_account_reports_false(

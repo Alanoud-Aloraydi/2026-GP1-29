@@ -1,174 +1,133 @@
 /* Same-origin API transport with bounded requests and serialized session renewal. */
-(() => {
-  'use strict';
+const REQUEST_TIMEOUT_MS = 20000;
 
-  const errors = {
-    400: 'تعذّر قبول البيانات. راجع الحقول ثم أعد المحاولة.',
-    401: 'انتهت الجلسة أو بيانات الدخول غير صحيحة.',
-    403: 'لا يسمح حسابك بهذا الإجراء.',
-    404: 'لم يعد هذا السجل متاحًا.',
-    409: 'يتعارض الطلب مع سجل موجود. راجع البيانات ثم أعد المحاولة.',
-    413: 'حجم الطلب يتجاوز الحد المسموح.',
-    503: 'الخدمة غير متاحة مؤقتًا. أعد المحاولة لاحقًا.',
-    422: 'راجع البيانات المطلوبة وصيغتها ثم أعد المحاولة.',
-    429: 'تجاوزت عدد المحاولات المسموح. انتظر قليلًا ثم أعد المحاولة.'
-  };
+const statusMessages = {
+  400: 'تعذّر قبول البيانات. راجع الحقول ثم أعد المحاولة.',
+  401: 'انتهت الجلسة أو بيانات الدخول غير صحيحة.',
+  403: 'لا يسمح حسابك بهذا الإجراء.',
+  404: 'لم يعد هذا السجل متاحًا.',
+  409: 'يتعارض الطلب مع سجل موجود. راجع البيانات ثم أعد المحاولة.',
+  413: 'حجم الطلب يتجاوز الحد المسموح.',
+  422: 'راجع البيانات المطلوبة وصيغتها ثم أعد المحاولة.',
+  429: 'تجاوزت عدد المحاولات المسموح. انتظر قليلًا ثم أعد المحاولة.',
+  503: 'الخدمة غير متاحة مؤقتًا. أعد المحاولة لاحقًا.'
+};
 
-  // Messages for specific failures the API names in its body.
-  const codes = {
-    password_rejected: 'اختر كلمة مرور أقل شيوعًا؛ يمكنك استخدام عبارة طويلة.',
-    account_link_invalid: 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطًا جديدًا.',
-    active_run: 'لديك تقييم لم ينتهِ. أكمله أو ألغِه قبل بدء تقييم آخر.'
-  };
+// Messages for specific failures the API names in its body.
+const codeMessages = {
+  password_rejected: 'اختر كلمة مرور أقل شيوعًا؛ يمكنك استخدام عبارة طويلة.',
+  account_link_invalid: 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطًا جديدًا.',
+  active_run: 'لديك تقييم لم ينتهِ. أكمله أو ألغِه قبل بدء تقييم آخر.'
+};
 
-  let renewal;
+const CREDENTIAL_PATHS = new Set(['/auth/login', '/auth/signup', '/auth/refresh']);
 
-  async function fetchBounded (path, options) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    try {
-      return await fetch(path, { ...options, signal: controller.signal });
-    } finally {
-      clearTimeout(timeout);
-    }
+async function fetchBounded (path, options) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(path, { ...options, credentials: 'same-origin', signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  function refreshSession () {
-    if (renewal) return renewal;
-    const rotate = async () => {
-      const current = await fetchBounded('/auth/me', {
-        credentials: 'same-origin'
-      });
-      if (current.ok) return true;
-      const response = await fetchBounded('/auth/refresh', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'X-Harass-Request': '1' }
-      });
-      return response.ok;
-    };
-    renewal = (
-      navigator.locks
-        ? navigator.locks.request('harass-session-renewal', rotate)
-        : rotate()
-    ).finally(() => {
-      renewal = null;
-    });
-    return renewal;
+// Tabs share one renewal, so a rotated refresh token is never used twice.
+let renewal = null;
+function renewSession () {
+  const rotate = async () => (await fetchBounded('/auth/me')).ok ||
+    (await fetchBounded('/auth/refresh', { method: 'POST', headers: { 'X-Harass-Request': '1' } })).ok;
+  renewal ??= (navigator.locks ? navigator.locks.request('harass-session-renewal', rotate) : rotate())
+    .finally(() => { renewal = null; });
+  return renewal;
+}
+
+async function send (method, path, body) {
+  // The API requires this header for cookie-authenticated mutations.
+  const headers = { 'Content-Type': 'application/json', ...(method !== 'GET' && { 'X-Harass-Request': '1' }) };
+  try {
+    return await fetchBounded(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (error) {
+    if (error.name !== 'AbortError') throw new Error('تعذّر الوصول إلى الخدمة. تحقق من الاتصال ثم أعد المحاولة.');
+    throw new Error(path === '/runs' && method === 'POST'
+      ? 'تعذّر التأكد من بدء التقييم. راجع السجل قبل المحاولة مجددًا.'
+      : 'انتهت مهلة الاتصال. أعد المحاولة.');
   }
+}
 
-  async function request (
-    method,
-    path,
-    body,
-    withCounts = false,
-    renewed = false
-  ) {
-    const headers = { 'Content-Type': 'application/json' };
-    // The API requires this header for cookie-authenticated mutations.
-    if (method !== 'GET') headers['X-Harass-Request'] = '1';
-    let response;
-    try {
-      response = await fetchBounded(path, {
-        method,
-        headers,
-        credentials: 'same-origin',
-        body: body === undefined ? undefined : JSON.stringify(body)
-      });
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        throw new Error(
-          path === '/runs' && method === 'POST'
-            ? 'تعذّر التأكد من بدء التقييم. راجع السجل قبل المحاولة مجددًا.'
-            : 'انتهت مهلة الاتصال. أعد المحاولة.'
-        );
-      }
-      throw new Error(
-        'تعذّر الوصول إلى الخدمة. تحقق من الاتصال ثم أعد المحاولة.'
-      );
-    }
-    if (
-      response.status === 401 &&
-      !renewed &&
-      !['/auth/login', '/auth/signup', '/auth/refresh'].includes(path)
-    ) {
-      if (await refreshSession()) { return request(method, path, body, withCounts, true); }
-    }
-    const payload = await response.json().catch(() => null);
-    if (response.ok) {
-      if (!withCounts) return payload;
-      const counts = JSON.parse(
-        response.headers.get('X-Status-Counts') || '{}'
-      );
-      return {
-        items: payload,
-        counts,
-        total: Object.values(counts).reduce((sum, value) => sum + value, 0)
-      };
-    }
-    const error = new Error(
-      errors[response.status] || 'حدث خطأ في الخدمة. أعد المحاولة لاحقًا.'
-    );
-    error.status = response.status;
-    if (codes[payload?.code]) error.message = codes[payload.code];
-    if (payload?.code === 'active_run') error.activeRunId = payload.active_run_id;
-    if (
-      response.status === 401 &&
-      path !== '/auth/login' &&
-      path !== '/auth/signup'
-    ) {
-      const destination = location.pathname.split('/').pop() + location.search;
-      location.href = 'login.html?return=' + encodeURIComponent(destination);
-    }
-    throw error;
+function failure (response, payload) {
+  const error = new Error(codeMessages[payload?.code] || statusMessages[response.status] ||
+    'حدث خطأ في الخدمة. أعد المحاولة لاحقًا.');
+  error.status = response.status;
+  if (payload?.code === 'active_run') error.activeRunId = payload.active_run_id;
+  return error;
+}
+
+async function request (method, path, body) {
+  let response = await send(method, path, body);
+  if (response.status === 401 && !CREDENTIAL_PATHS.has(path) && await renewSession()) {
+    response = await send(method, path, body);
   }
+  const payload = await response.json().catch(() => null);
+  if (response.ok) return { payload, response };
+  if (response.status === 401 && !CREDENTIAL_PATHS.has(path)) {
+    const current = location.pathname.split('/').pop() + location.search;
+    location.href = 'login.html?return=' + encodeURIComponent(current);
+  }
+  throw failure(response, payload);
+}
 
-  const connectionPath = (id) => '/connections/' + encodeURIComponent(id);
-  const runPath = (id) => '/runs/' + encodeURIComponent(id);
-  const connectionPage = (offset = 0) =>
-    request('GET', '/connections?limit=50&offset=' + offset, undefined, true);
-  window.HARASS_API = Object.freeze({
-    options: () => request('GET', '/evaluation-options'),
-    features: () => request('GET', '/auth/features'),
-    forgotPassword: (email) => request('POST', '/auth/password/forgot', { email }),
-    resetPassword: (token, password) => request('POST', '/auth/password/reset', { token, new_password: password }),
-    verifyEmail: (token) => request('POST', '/auth/email/verify', { token }),
-    requestVerification: () => request('POST', '/auth/email/request-verification'),
-    me: () => request('GET', '/auth/me'),
-    signup: (body) => request('POST', '/auth/signup', body),
-    login: (body) => request('POST', '/auth/login', body),
-    logout: () => request('POST', '/auth/logout'),
-    sessions: () => request('GET', '/auth/sessions'),
-    revokeSession: (id) =>
-      request('DELETE', '/auth/sessions/' + encodeURIComponent(id)),
-    logoutAll: () => request('POST', '/auth/logout-all'),
-    updateProfile: (body) => request('PATCH', '/auth/me', body),
-    listConnections: async () => {
-      const items = [];
-      let page;
-      do {
-        page = await connectionPage(items.length);
-        items.push(...page.items);
-      } while (page.items.length && items.length < page.total);
-      return items;
-    },
-    getConnection: (id) => request('GET', connectionPath(id)),
-    connectionPage,
-    addConnection: (body) => request('POST', '/connections', body),
-    updateConnection: (id, body) => request('PUT', connectionPath(id), body),
-    verifyConnection: (id) => request('POST', connectionPath(id) + '/verify'),
-    startRun: (body) => request('POST', '/runs', body),
-    resumeRun: (id) => request('POST', runPath(id) + '/resume'),
-    cancelRun: (id) => request('POST', runPath(id) + '/cancel'),
-    runPage: (offset = 0) =>
-      request('GET', '/runs?limit=50&offset=' + offset, undefined, true),
-    getRun: (id) => request('GET', runPath(id)),
-    getReport: (id) => request('GET', runPath(id) + '/report'),
-    getOutcomes: (id, offset = 0) =>
-      request('GET', runPath(id) + '/outcomes?limit=50&offset=' + offset),
-    reportExportUrl: (id) => runPath(id) + '/report/export',
-    judgeReports: () => request('GET', '/admin/judge-benchmarks'),
-    judgeReport: (id) =>
-      request('GET', '/admin/judge-benchmarks/' + encodeURIComponent(id))
-  });
-})();
+const call = async (method, path, body) => (await request(method, path, body)).payload;
+
+// A list page also reports how many records exist in each status.
+async function page (path, offset) {
+  const { payload, response } = await request('GET', `${path}?limit=50&offset=${offset}`);
+  const counts = JSON.parse(response.headers.get('X-Status-Counts') || '{}');
+  return { items: payload, counts, total: Object.values(counts).reduce((sum, value) => sum + value, 0) };
+}
+
+const connection = (id) => '/connections/' + encodeURIComponent(id);
+const run = (id) => '/runs/' + encodeURIComponent(id);
+
+async function listConnections () {
+  const items = [];
+  let current;
+  do {
+    current = await page('/connections', items.length);
+    items.push(...current.items);
+  } while (current.items.length && items.length < current.total);
+  return items;
+}
+
+export const api = Object.freeze({
+  options: () => call('GET', '/evaluation-options'),
+  features: () => call('GET', '/auth/features'),
+  forgotPassword: (email) => call('POST', '/auth/password/forgot', { email }),
+  resetPassword: (token, password) => call('POST', '/auth/password/reset', { token, new_password: password }),
+  verifyEmail: (token) => call('POST', '/auth/email/verify', { token }),
+  requestVerification: () => call('POST', '/auth/email/request-verification'),
+  me: () => call('GET', '/auth/me'),
+  signup: (credentials) => call('POST', '/auth/signup', credentials),
+  login: (credentials) => call('POST', '/auth/login', credentials),
+  logout: () => call('POST', '/auth/logout'),
+  logoutAll: () => call('POST', '/auth/logout-all'),
+  sessions: () => call('GET', '/auth/sessions'),
+  revokeSession: (id) => call('DELETE', '/auth/sessions/' + encodeURIComponent(id)),
+  updateProfile: (profile) => call('PATCH', '/auth/me', profile),
+  connectionPage: (offset = 0) => page('/connections', offset),
+  listConnections,
+  getConnection: (id) => call('GET', connection(id)),
+  addConnection: (body) => call('POST', '/connections', body),
+  updateConnection: (id, body) => call('PUT', connection(id), body),
+  verifyConnection: (id) => call('POST', connection(id) + '/verify'),
+  runPage: (offset = 0) => page('/runs', offset),
+  startRun: (body) => call('POST', '/runs', body),
+  getRun: (id) => call('GET', run(id)),
+  resumeRun: (id) => call('POST', run(id) + '/resume'),
+  cancelRun: (id) => call('POST', run(id) + '/cancel'),
+  getReport: (id) => call('GET', run(id) + '/report'),
+  getOutcomes: (id, offset = 0) => call('GET', `${run(id)}/outcomes?limit=50&offset=${offset}`),
+  reportExportUrl: (id) => run(id) + '/report/export',
+  judgeReports: () => call('GET', '/admin/judge-benchmarks'),
+  judgeReport: (id) => call('GET', '/admin/judge-benchmarks/' + encodeURIComponent(id))
+});

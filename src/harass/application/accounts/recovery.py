@@ -10,11 +10,9 @@ from uuid import uuid4
 
 from harass.application.accounts.errors import InvalidAccountActionError
 from harass.application.accounts.password_policy import PasswordPolicy
-from harass.application.ports.account_actions import (
+from harass.application.ports.accounts import (
     AccountActionStore,
     AccountMailer,
-)
-from harass.application.ports.authentication import (
     AuthenticationSecurity,
     AuthenticationStore,
 )
@@ -37,9 +35,12 @@ class AccountRecovery:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         """Bind storage, delivery, password rules and the trusted site URL."""
-        self._accounts, self._actions = accounts, actions
-        self._security, self._mailer = security, mailer
-        self._passwords, self._public_url = passwords, public_url.rstrip("/")
+        self._accounts = accounts
+        self._actions = actions
+        self._security = security
+        self._mailer = mailer
+        self._passwords = passwords
+        self._public_url = public_url.rstrip("/")
         self._clock = clock
 
     def request_reset(self, email: str) -> None:
@@ -64,9 +65,7 @@ class AccountRecovery:
         digest = _digest(token)
         self._passwords.validate(password)
         password_hash = self._security.hash_password(password)
-        if not self._actions.reset_password(
-            digest, password_hash, self._clock()
-        ):
+        if not self._actions.reset_password(digest, password_hash, self._clock()):
             raise InvalidAccountActionError("Invalid or expired account link.")
 
     def _issue(self, user: User, purpose: AccountActionPurpose) -> None:
@@ -84,12 +83,8 @@ class AccountRecovery:
             return
         reset = purpose is AccountActionPurpose.RESET_PASSWORD
         page = "reset-password.html" if reset else "verify-email.html"
-        subject = (
-            "Reset your HARASS password" if reset else "Verify your email"
-        )
-        link = (
-            self._public_url + "/" + page + "#" + urlencode({"token": token})
-        )
+        subject = "Reset your HARASS password" if reset else "Verify your email"
+        link = self._public_url + "/" + page + "#" + urlencode({"token": token})
         self._mailer.send(
             user.email,
             subject,

@@ -2,26 +2,26 @@
 
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends
 
 from harass.application.errors import UnknownBenchmarkReportError
-from harass.application.judge_benchmark_reports import JudgeBenchmarkReports
+from harass.application.judge_reports import JudgeReports
 from harass.interfaces.api.accounts.dependencies import administrator
-from harass.interfaces.api.evaluations.mapping import validated_identifier
+from harass.interfaces.api.identifiers import validated_identifier
 
 
-def install_admin_routes(app: FastAPI, reports: JudgeBenchmarkReports) -> None:
-    """Register the administrator endpoints with their injected service."""
-    guard = [Depends(administrator)]
+def admin_router(reports: JudgeReports) -> APIRouter:
+    """List and read judge benchmark reports, for administrators only."""
+    router = APIRouter(prefix="/admin/judge-benchmarks", dependencies=[Depends(administrator)])
 
-    @app.get("/admin/judge-benchmarks", dependencies=guard)
+    @router.get("")
     def list_reports() -> list[dict[str, Any]]:
-        """Return the newest published benchmark reports."""
+        """Return the newest published reports."""
         return reports.summaries()
 
-    @app.get("/admin/judge-benchmarks/{report_id}", dependencies=guard)
+    @router.get("/{report_id}")
     def get_report(report_id: str) -> dict[str, Any]:
-        """Return one benchmark report with its full document."""
-        return reports.get(
-            validated_identifier(report_id, UnknownBenchmarkReportError)
-        )
+        """Return one report with its full document."""
+        return reports.get(validated_identifier(report_id, UnknownBenchmarkReportError))
+
+    return router

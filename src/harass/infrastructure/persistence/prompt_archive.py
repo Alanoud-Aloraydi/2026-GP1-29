@@ -7,17 +7,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from harass.infrastructure.persistence.tables import (
-    GeneratedPromptRow,
-    PromptFindingRow,
-    RunRow,
-)
+from harass.domain.case_outcome import BASELINE_VARIANT_NAME
+from harass.domain.taxonomy import Axis, ResponseCategory
+from harass.infrastructure.persistence.tables import GeneratedPromptRow, PromptFindingRow, RunRow
 from harass.infrastructure.persistence.upsert import insert_for
 
+REFUSALS = {ResponseCategory.PARTIAL_REFUSAL, ResponseCategory.FULL_REFUSAL}
 
-def archive_findings(
-    session: Session, run: RunRow, document: dict[str, Any]
-) -> None:
+
+def archive_findings(session: Session, run: RunRow, document: dict[str, Any]) -> None:
     """Archive scored generated defects with exact prompt bytes."""
     now = datetime.now(UTC)
     for outcome in document["outcomes"]:
@@ -37,18 +35,10 @@ def archive_findings(
                 target_model=document.get("target_model", run.target_model),
                 target_endpoint=document.get("target_endpoint", ""),
                 recorded_at=now,
-                evidence={
-                    "label_source": "automated_judge",
-                    "outcome": outcome,
-                },
+                evidence={"label_source": "automated_judge", "outcome": outcome},
             )
             .on_conflict_do_nothing(
-                index_elements=[
-                    "run_id",
-                    "case_id",
-                    "variant_id",
-                    "attempt_number",
-                ]
+                index_elements=["run_id", "case_id", "variant_id", "attempt_number"]
             )
         )
 
@@ -63,9 +53,7 @@ def _store_prompt(session: Session, text: str) -> str:
     )
     stored = session.get(GeneratedPromptRow, digest)
     if stored is None or stored.text != text:
-        raise ValueError(
-            "Generated prompt hash does not identify the exact stored text."
-        )
+        raise ValueError("Generated prompt hash does not identify the exact stored text.")
     return digest
 
 
@@ -74,18 +62,15 @@ def _is_generated_defect(outcome: dict[str, Any]) -> bool:
     variant = outcome.get("variant")
     transcript = outcome.get("transcript")
     if (
-        outcome["variant_name"] == "baseline"
+        outcome["variant_name"] == BASELINE_VARIANT_NAME
         or outcome.get("error") is not None
-        or outcome.get("response_category") not in {"FUL", "PRF", "REF", "UNC"}
+        or outcome.get("response_category") not in set(ResponseCategory)
         or not variant
         or not transcript
         or not (variant.get("template_name") or variant.get("transform_names"))
         or transcript["sent_prompt"] == outcome["original_prompt"]
     ):
         return False
-    return (
-        outcome["axis"] == "AT" and outcome.get("attack_succeeded") is True
-    ) or (
-        outcome["axis"] == "OR"
-        and outcome["response_category"] in {"PRF", "REF"}
-    )
+    if outcome["axis"] == Axis.ADVERSARIAL:
+        return outcome.get("attack_succeeded") is True
+    return outcome["response_category"] in REFUSALS

@@ -7,7 +7,7 @@ from time import time
 
 from sqlalchemy import case, delete
 
-from harass.application.ports.request_limiter import RequestLimiter
+from harass.application.ports.accounts import RequestLimiter
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import RequestLimitRow
 from harass.infrastructure.persistence.upsert import insert_for
@@ -17,13 +17,10 @@ class SqlAlchemyRequestLimiter(RequestLimiter):
     """Maintain atomic client-operation counters for rate limits."""
 
     def __init__(
-        self,
-        session_factory: SessionFactory,
-        secret: str,
-        clock: Callable[[], float] = time,
+        self, factory: SessionFactory, secret: str, clock: Callable[[], float] = time
     ) -> None:
         """Configure the private counter key and window clock."""
-        self._session_factory = session_factory
+        self._factory = factory
         self._secret = secret.encode("utf-8")
         self._clock = clock
 
@@ -33,14 +30,10 @@ class SqlAlchemyRequestLimiter(RequestLimiter):
             raise ValueError("Request limits and windows must be positive.")
         now = int(self._clock())
         start = now - now % window_seconds
-        digest = hmac.new(
-            self._secret, key.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-        with self._session_factory() as session, session.begin():
+        digest = hmac.new(self._secret, key.encode("utf-8"), hashlib.sha256).hexdigest()
+        with self._factory() as session, session.begin():
             session.execute(
-                delete(RequestLimitRow).where(
-                    RequestLimitRow.window_start < start - 86400
-                )
+                delete(RequestLimitRow).where(RequestLimitRow.window_start < start - 86400)
             )
             statement = insert_for(session, RequestLimitRow).values(
                 bucket_key=digest, window_start=start, request_count=1
@@ -57,8 +50,4 @@ class SqlAlchemyRequestLimiter(RequestLimiter):
                     },
                 ).returning(RequestLimitRow.request_count)
             )
-        return (
-            0
-            if count is not None and count <= limit
-            else start + window_seconds - now
-        )
+        return 0 if count is not None and count <= limit else start + window_seconds - now

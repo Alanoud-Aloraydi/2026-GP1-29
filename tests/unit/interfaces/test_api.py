@@ -14,34 +14,22 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from harass.application.connections import ManageConnections
-from harass.application.evaluation.contracts import (
-    EvaluationReport,
-    EvaluationRequest,
-)
+from harass.application.evaluation.contracts import EvaluationReport, EvaluationRequest
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
 from harass.application.evaluation.worker import ProcessRuns
-from harass.application.ports.connection_verifier import ConnectionVerifier
-from harass.application.ports.evaluation_journal import EvaluationJournal
+from harass.application.ports.connections import ConnectionVerifier
+from harass.application.ports.evaluation import EvaluationJournal
 from harass.domain.metrics import compute_metrics
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.dataset.yaml_variant_catalog import (
-    YamlVariantCatalog,
-)
-from harass.infrastructure.persistence.sqlalchemy_connections import (
-    SqlAlchemyConnectionStore,
-)
-from harass.infrastructure.persistence.sqlalchemy_jobs import (
-    SqlAlchemyRunQueue,
-)
-from harass.infrastructure.persistence.sqlalchemy_runs import (
-    SqlAlchemyRunStore,
-)
+from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
+from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
+from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
 from harass.infrastructure.persistence.tables import Base
-from harass.infrastructure.security.fernet_secret_cipher import (
-    FernetSecretCipher,
-)
-from harass.interfaces.api.app import create_app, owner_id
+from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
+from harass.interfaces.api.accounts.dependencies import authenticated_owner
+from harass.interfaces.api.app import create_app
 
 OWNER_HEADER = {"X-Owner-Id": "user-1"}
 
@@ -50,10 +38,7 @@ class StubEvaluation:
     """Returns a fixed empty report."""
 
     async def execute(
-        self,
-        request: EvaluationRequest,
-        *,
-        journal: EvaluationJournal | None = None,
+        self, request: EvaluationRequest, *, journal: EvaluationJournal | None = None
     ) -> EvaluationReport:
         """Return an empty report for the request's target."""
         assert request.run_identifier is not None
@@ -79,9 +64,7 @@ class PassingVerifier(ConnectionVerifier):
 def client() -> Iterator[TestClient]:
     """Return a TestClient wired to SQLite stores and stub evaluation."""
     engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
@@ -92,16 +75,12 @@ def client() -> Iterator[TestClient]:
     )
     queue = SqlAlchemyRunQueue(factory, "api-fixture", "api-judge")
     runs = ManageRuns(SqlAlchemyRunStore(factory), connections, queue=queue)
-    catalog = YamlVariantCatalog(
-        Path(__file__).resolve().parents[3] / "config" / "templates"
-    )
+    catalog = YamlVariantCatalog(Path(__file__).resolve().parents[3] / "config" / "templates")
     app = create_app(connections, runs, catalog)
-    app.state.test_worker = ProcessRuns(
-        queue, connections, cast(RunEvaluation, StubEvaluation())
-    )
+    app.state.test_worker = ProcessRuns(queue, connections, cast(RunEvaluation, StubEvaluation()))
     # This isolated fixture bypasses authentication explicitly, never through a
     # production header.
-    app.dependency_overrides[owner_id] = lambda: "user-1"
+    app.dependency_overrides[authenticated_owner] = lambda: "user-1"
     with TestClient(app) as client:
         yield client
     engine.dispose()
@@ -111,11 +90,7 @@ def add_connection(client: TestClient) -> str:
     """Add a connection and return its id."""
     response = client.post(
         "/connections",
-        json={
-            "base_url": "https://api.invalid/v1",
-            "model_name": "model",
-            "api_key": "secret",
-        },
+        json={"base_url": "https://api.invalid/v1", "model_name": "model", "api_key": "secret"},
         headers=OWNER_HEADER,
     )
     assert response.status_code == 201
@@ -132,9 +107,7 @@ def test_added_connection_never_returns_the_key(client: TestClient) -> None:
     assert "api_key" not in listed[0] and "secret" not in str(listed)
 
 
-def test_claimed_owner_header_is_not_authentication(
-    client: TestClient,
-) -> None:
+def test_claimed_owner_header_is_not_authentication(client: TestClient) -> None:
     """Verify claimed owner header is not authentication."""
     cast(FastAPI, client.app).dependency_overrides.clear()
     assert client.get("/connections", headers=OWNER_HEADER).status_code == 401
@@ -144,9 +117,7 @@ def test_run_requires_a_verified_connection(client: TestClient) -> None:
     """Starting a run on an untested connection is a conflict."""
     connection_id = add_connection(client)
 
-    response = client.post(
-        "/runs", json={"connection_id": connection_id}, headers=OWNER_HEADER
-    )
+    response = client.post("/runs", json={"connection_id": connection_id}, headers=OWNER_HEADER)
     assert response.status_code == 409
 
 
@@ -154,9 +125,7 @@ def test_run_completes_and_exposes_its_report(client: TestClient) -> None:
     """Verify run completes and exposes its report."""
     connection_id = add_connection(client)
     assert (
-        client.post(
-            f"/connections/{connection_id}/verify", headers=OWNER_HEADER
-        ).json()["status"]
+        client.post(f"/connections/{connection_id}/verify", headers=OWNER_HEADER).json()["status"]
         == "connected"
     )
 
@@ -179,24 +148,14 @@ def test_unknown_run_is_not_found(client: TestClient) -> None:
     assert client.get("/runs/missing", headers=OWNER_HEADER).status_code == 404
 
 
-def test_evaluation_options_are_real_library_metadata(
-    client: TestClient,
-) -> None:
+def test_evaluation_options_are_real_library_metadata(client: TestClient) -> None:
     """Verify evaluation options are real library metadata."""
     response = client.get("/evaluation-options", headers=OWNER_HEADER)
     assert response.status_code == 200
     assert len(response.json()["templates"]) == 16
     assert "MSA" in response.json()["varieties"]
-    assert set(response.json()["owasp_categories"]) == {
-        "LLM01",
-        "LLM02",
-        "LLM07",
-        "LLM08",
-        "NAP",
-    }
-    assert "tatweel" in {
-        entry["name"] for entry in response.json()["transforms"]
-    }
+    assert set(response.json()["owasp_categories"]) == {"LLM01", "LLM02", "LLM07", "LLM08", "NAP"}
+    assert "tatweel" in {entry["name"] for entry in response.json()["transforms"]}
 
 
 @pytest.mark.parametrize(
@@ -212,7 +171,5 @@ def test_invalid_evaluation_parameters_are_rejected(
     client: TestClient, body: dict[str, object]
 ) -> None:
     """Malformed classifications and budgets fail before a run is created."""
-    response = client.post(
-        "/runs", headers=OWNER_HEADER, json={"connection_id": "unused", **body}
-    )
+    response = client.post("/runs", headers=OWNER_HEADER, json={"connection_id": "unused", **body})
     assert response.status_code == 422

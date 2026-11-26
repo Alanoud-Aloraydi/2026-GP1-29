@@ -7,9 +7,15 @@ from pathlib import Path
 import yaml
 
 from harass.application.errors import ApplicationError
-from harass.application.ports.variant_catalog import VariantCatalog
+from harass.application.ports.evaluation import VariantCatalog
 from harass.domain.errors import DomainError
 from harass.domain.evaluation_case import EvaluationCase
+from harass.domain.generation.transforms import (
+    TRANSFORMS,
+    apply_transform,
+    compatible_sequence,
+    has_arabic,
+)
 from harass.domain.prompt_variant import (
     PromptTemplate,
     PromptVariant,
@@ -24,13 +30,6 @@ from harass.domain.taxonomy import (
     RiskCategory,
     SubjectDomain,
 )
-from harass.infrastructure.dataset.prompt_transforms import (
-    LANGUAGE_REVIEW_TRANSFORMS,
-    TRANSFORMS,
-    apply_transform,
-    compatible_sequence,
-    has_arabic,
-)
 
 
 class VariantCatalogError(ApplicationError):
@@ -42,18 +41,12 @@ class YamlVariantCatalog(VariantCatalog):
 
     def __init__(self, directory: Path) -> None:
         """Load YAML templates and validate their applicability."""
-        self._templates = tuple(
-            _load_template(path) for path in sorted(directory.glob("*.yaml"))
-        )
+        self._templates = tuple(_load_template(path) for path in sorted(directory.glob("*.yaml")))
         if not self._templates:
-            raise VariantCatalogError(
-                f"No template files found in {directory}."
-            )
+            raise VariantCatalogError(f"No template files found in {directory}.")
         names = [template.name for template in self._templates]
         if len(names) != len(set(names)):
-            raise VariantCatalogError(
-                "Template names must be unique across files."
-            )
+            raise VariantCatalogError("Template names must be unique across files.")
 
     def templates(self) -> tuple[PromptTemplate, ...]:
         """Return all templates in stable filename order."""
@@ -63,9 +56,7 @@ class YamlVariantCatalog(VariantCatalog):
         """Return the local, rule-based transform definitions."""
         return TRANSFORMS
 
-    def variants(
-        self, case: EvaluationCase, selection: VariantSelection
-    ) -> list[PromptVariant]:
+    def variants(self, case: EvaluationCase, selection: VariantSelection) -> list[PromptVariant]:
         """Build eligible recipes and deduplicate submitted request text."""
         template_names = _resolve_names(
             selection.template_names, tuple(t.name for t in self._templates)
@@ -75,20 +66,12 @@ class YamlVariantCatalog(VariantCatalog):
         )
         templates: list[PromptTemplate | None] = [None]
         templates.extend(
-            t
-            for t in self._templates
-            if t.name in template_names and t.applies_to(case)
+            t for t in self._templates if t.name in template_names and t.applies_to(case)
         )
         transforms = tuple(
-            t
-            for t in TRANSFORMS
-            if t.name in transform_names and t.applies_to(case)
+            t for t in TRANSFORMS if t.name in transform_names and t.applies_to(case)
         )
-        sequences = (
-            [()]
-            + [(t,) for t in transforms]
-            + list(permutations(transforms, 2))
-        )
+        sequences = [()] + [(t,) for t in transforms] + list(permutations(transforms, 2))
         variants: dict[str, PromptVariant] = {}
         for template in templates:
             for sequence in filter(compatible_sequence, sequences):
@@ -102,9 +85,7 @@ class YamlVariantCatalog(VariantCatalog):
         return list(variants.values())
 
 
-def _transformed(
-    text: str, sequence: tuple[TransformDefinition, ...]
-) -> str | None:
+def _transformed(text: str, sequence: tuple[TransformDefinition, ...]) -> str | None:
     """Apply transforms in order, or return None when one cannot apply."""
     for transform in sequence:
         if transform.needs_arabic and not has_arabic(text):
@@ -130,7 +111,7 @@ def _variant(
     sources = [template.source] if template else []
     sources += [transform.source for transform in sequence]
     review_status = template.review_status if template else "rule_based"
-    if LANGUAGE_REVIEW_TRANSFORMS.intersection(names):
+    if any(transform.needs_language_review for transform in sequence):
         review_status = "requires_language_review"
     return PromptVariant(
         variant_id="+".join((template.name if template else "seed", *names)),
@@ -146,16 +127,12 @@ def _variant(
     )
 
 
-def _resolve_names(
-    requested: tuple[str, ...] | None, available: tuple[str, ...]
-) -> tuple[str, ...]:
+def _resolve_names(requested: tuple[str, ...] | None, available: tuple[str, ...]) -> frozenset[str]:
     """Resolve optional catalogue filters and reject unknown entries."""
-    names = available if requested is None else requested
-    unknown = set(names) - set(available)
+    names = frozenset(available if requested is None else requested)
+    unknown = names.difference(available)
     if unknown:
-        raise VariantCatalogError(
-            f"Unknown library names: {', '.join(sorted(unknown))}."
-        )
+        raise VariantCatalogError(f"Unknown library names: {', '.join(sorted(unknown))}.")
     return names
 
 
@@ -170,31 +147,14 @@ def _load_template(path: Path) -> PromptTemplate:
             label=str(entry["label"]),
             text=str(entry["text"]),
             axis=Axis(entry["axis"]),
-            strategy=BypassStrategy(entry["strategy"])
-            if entry.get("strategy")
-            else None,
+            strategy=BypassStrategy(entry["strategy"]) if entry.get("strategy") else None,
             varieties=frozenset(ArabicVariety(v) for v in entry["varieties"]),
             revision=str(entry["revision"]),
             source=str(entry["source"]),
             review_status=str(entry.get("review_status", "draft")),
-            subject_domains=frozenset(
-                SubjectDomain(v) for v in entry.get("subject_domains", [])
-            ),
-            risk_categories=frozenset(
-                RiskCategory(v) for v in entry.get("risk_categories", [])
-            ),
-            owasp_categories=frozenset(
-                OwaspCategory(v) for v in entry.get("owasp_categories", [])
-            ),
+            subject_domains=frozenset(SubjectDomain(v) for v in entry.get("subject_domains", [])),
+            risk_categories=frozenset(RiskCategory(v) for v in entry.get("risk_categories", [])),
+            owasp_categories=frozenset(OwaspCategory(v) for v in entry.get("owasp_categories", [])),
         )
-    except (
-        OSError,
-        yaml.YAMLError,
-        ValueError,
-        KeyError,
-        TypeError,
-        DomainError,
-    ) as error:
-        raise VariantCatalogError(
-            f"Invalid template file {path}: {error}"
-        ) from error
+    except (OSError, yaml.YAMLError, ValueError, KeyError, TypeError, DomainError) as error:
+        raise VariantCatalogError(f"Invalid template file {path}: {error}") from error

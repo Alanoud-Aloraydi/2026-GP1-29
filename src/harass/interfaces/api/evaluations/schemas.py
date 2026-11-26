@@ -6,13 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from harass.domain.prompt_variant import EvaluationMode
-from harass.domain.taxonomy import (
-    ArabicVariety,
-    Axis,
-    BypassStrategy,
-    RiskCategory,
-    SubjectDomain,
-)
+from harass.domain.taxonomy import ArabicVariety, Axis, BypassStrategy, RiskCategory, SubjectDomain
 
 
 class SelectionModel(BaseModel):

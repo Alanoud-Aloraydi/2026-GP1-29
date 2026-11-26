@@ -15,15 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from harass.application.accounts.authentication import ManageAuthentication
-from harass.application.accounts.errors import (
-    AuthenticationError,
-    InvalidAccountActionError,
-)
+from harass.application.accounts.errors import AuthenticationError, InvalidAccountActionError
 from harass.application.accounts.password_policy import PasswordPolicy
 from harass.application.accounts.recovery import AccountRecovery
 from harass.application.connections import ManageConnections
 from harass.application.evaluation.run_service import ManageRuns
-from harass.application.ports.account_actions import AccountMailer
+from harass.application.ports.accounts import AccountMailer
 from harass.domain.authentication import AuthenticatedLogin
 from harass.infrastructure.persistence.sqlalchemy_account_actions import (
     SqlAlchemyAccountActionStore,
@@ -31,13 +28,9 @@ from harass.infrastructure.persistence.sqlalchemy_account_actions import (
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.persistence.sqlalchemy_request_limiter import (
-    SqlAlchemyRequestLimiter,
-)
+from harass.infrastructure.persistence.sqlalchemy_request_limiter import SqlAlchemyRequestLimiter
 from harass.infrastructure.persistence.tables import AccountActionRow
-from harass.infrastructure.security.jwt_authentication import (
-    JwtAuthenticationSecurity,
-)
+from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
 from harass.interfaces.api.app import create_app
 
 PASSWORD = "recovery-fixture-password-2026"
@@ -93,9 +86,7 @@ def services(database_factory: sessionmaker[Session]) -> Services:
         "https://harass.example.test",
         clock=lambda: now[0],
     )
-    return Services(
-        accounts, store, recovery, mailbox, database_factory, login, now
-    )
+    return Services(accounts, store, recovery, mailbox, database_factory, login, now)
 
 
 def http_client(services: Services, enabled: bool = True) -> TestClient:
@@ -114,22 +105,16 @@ def http_client(services: Services, enabled: bool = True) -> TestClient:
 def test_disabled_feature_has_no_delivery_routes(services: Services) -> None:
     """Disabled email cannot send messages or expose action endpoints."""
     with http_client(services, enabled=False) as client:
-        assert client.get("/auth/features").json() == {
-            "account_email_enabled": False
-        }
+        assert client.get("/auth/features").json() == {"account_email_enabled": False}
         assert (
             client.post(
-                "/auth/password/forgot",
-                headers=MUTATION,
-                json={"email": "recovery@example.test"},
+                "/auth/password/forgot", headers=MUTATION, json={"email": "recovery@example.test"}
             ).status_code
             == 404
         )
         assert (
             client.post(
-                "/auth/email/verify",
-                headers=MUTATION,
-                json={"token": "x" * 43},
+                "/auth/email/verify", headers=MUTATION, json={"token": "x" * 43}
             ).status_code
             == 404
         )
@@ -156,9 +141,7 @@ def test_reset_revokes_access_and_refresh_sessions(services: Services) -> None:
     """Password recovery revokes all sessions and never signs in implicitly."""
     second = services.accounts.login(services.login.user.email, PASSWORD)
     services.recovery.request_reset(services.login.user.email)
-    services.recovery.reset(
-        services.mailbox.token(), "changed-fixture-password-2026"
-    )
+    services.recovery.reset(services.mailbox.token(), "changed-fixture-password-2026")
     assert services.store.list_sessions(services.login.user.user_id) == []
     for login in (services.login, second):
         with pytest.raises(AuthenticationError):
@@ -167,9 +150,7 @@ def test_reset_revokes_access_and_refresh_sessions(services: Services) -> None:
             services.accounts.refresh(login.refresh_token or "")
     with pytest.raises(AuthenticationError):
         services.accounts.login(services.login.user.email, PASSWORD)
-    services.accounts.login(
-        services.login.user.email, "changed-fixture-password-2026"
-    )
+    services.accounts.login(services.login.user.email, "changed-fixture-password-2026")
 
 
 def test_verification_consumes_only_its_own_action(services: Services) -> None:
@@ -187,9 +168,7 @@ def test_verification_consumes_only_its_own_action(services: Services) -> None:
     assert len(services.mailbox.messages) == 1
 
 
-def test_expiry_reissue_and_password_change_invalidate_links(
-    services: Services,
-) -> None:
+def test_expiry_reissue_and_password_change_invalidate_links(services: Services) -> None:
     """Reject expired, replaced or invalidated account links."""
     services.recovery.request_reset(services.login.user.email)
     first = services.mailbox.token()
@@ -205,17 +184,13 @@ def test_expiry_reissue_and_password_change_invalidate_links(
     third = services.mailbox.token()
     services.store.set_password(
         services.login.user.user_id,
-        JwtAuthenticationSecurity(KEY).hash_password(
-            "updated-current-password-2026"
-        ),
+        JwtAuthenticationSecurity(KEY).hash_password("updated-current-password-2026"),
     )
     with pytest.raises(InvalidAccountActionError):
         services.recovery.reset(third, "changed-fixture-password-2026")
 
 
-def test_concurrent_token_consumption_has_one_winner(
-    services: Services,
-) -> None:
+def test_concurrent_token_consumption_has_one_winner(services: Services) -> None:
     """Concurrent reset submissions cannot both consume one credential."""
     services.recovery.request_reset(services.login.user.email)
     token = services.mailbox.token()
@@ -233,66 +208,44 @@ def test_concurrent_token_consumption_has_one_winner(
     assert sorted(results) == [False, True]
 
 
-def test_http_recovery_is_generic_rate_limited_and_same_origin(
-    services: Services,
-) -> None:
+def test_http_recovery_is_generic_rate_limited_and_same_origin(services: Services) -> None:
     """Keep recovery responses independent of account existence."""
     with http_client(services) as client:
         assert (
             client.post(
-                "/auth/password/forgot",
-                json={"email": "recovery@example.test"},
+                "/auth/password/forgot", json={"email": "recovery@example.test"}
             ).status_code
             == 403
         )
         known = client.post(
-            "/auth/password/forgot",
-            headers=MUTATION,
-            json={"email": "recovery@example.test"},
+            "/auth/password/forgot", headers=MUTATION, json={"email": "recovery@example.test"}
         )
         unknown = client.post(
-            "/auth/password/forgot",
-            headers=MUTATION,
-            json={"email": "unknown@example.test"},
+            "/auth/password/forgot", headers=MUTATION, json={"email": "unknown@example.test"}
         )
         assert known.status_code == unknown.status_code == 202
         assert known.json() == unknown.json() == {"status": "accepted"}
         assert len(services.mailbox.messages) == 1
-        invalid = client.post(
-            "/auth/email/verify", headers=MUTATION, json={"token": "x" * 43}
-        )
+        invalid = client.post("/auth/email/verify", headers=MUTATION, json={"token": "x" * 43})
         assert invalid.status_code == 400
         assert invalid.json() == {"code": "account_link_invalid"}
         for _ in range(7):
             client.post(
-                "/auth/password/forgot",
-                headers=MUTATION,
-                json={"email": "unknown@example.test"},
+                "/auth/password/forgot", headers=MUTATION, json={"email": "unknown@example.test"}
             )
         assert (
             client.post(
-                "/auth/password/forgot",
-                headers=MUTATION,
-                json={"email": "unknown@example.test"},
+                "/auth/password/forgot", headers=MUTATION, json={"email": "unknown@example.test"}
             ).status_code
             == 429
         )
 
 
-def test_verification_request_uses_authenticated_owner(
-    services: Services,
-) -> None:
+def test_verification_request_uses_authenticated_owner(services: Services) -> None:
     """The verification endpoint cannot accept another account's address."""
     with http_client(services) as client:
-        assert (
-            client.post(
-                "/auth/email/request-verification", headers=MUTATION
-            ).status_code
-            == 401
-        )
+        assert client.post("/auth/email/request-verification", headers=MUTATION).status_code == 401
         client.cookies.set("harass_session", services.login.token)
-        response = client.post(
-            "/auth/email/request-verification", headers=MUTATION
-        )
+        response = client.post("/auth/email/request-verification", headers=MUTATION)
         assert response.status_code == 202
         assert services.mailbox.messages[-1][0] == services.login.user.email

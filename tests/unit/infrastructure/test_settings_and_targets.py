@@ -3,10 +3,7 @@
 import pytest
 
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.pyrit.target_builder import (
-    build_target,
-    close_target,
-)
+from harass.infrastructure.pyrit.target_builder import build_target, close_target
 from harass.infrastructure.settings import (
     DEFAULT_TARGET_MAX_COMPLETION_TOKENS,
     DEFAULT_TARGET_TEMPERATURE,
@@ -27,10 +24,7 @@ def test_optional_settings_fall_back_to_documented_defaults() -> None:
 
     assert settings.judge_server_url == "http://judge-host:8083"
     assert settings.target_generation.temperature == DEFAULT_TARGET_TEMPERATURE
-    assert (
-        settings.target_generation.max_completion_tokens
-        == DEFAULT_TARGET_MAX_COMPLETION_TOKENS
-    )
+    assert settings.target_generation.max_completion_tokens == DEFAULT_TARGET_MAX_COMPLETION_TOKENS
 
 
 def test_missing_required_setting_names_the_variable() -> None:
@@ -41,10 +35,7 @@ def test_missing_required_setting_names_the_variable() -> None:
 
 def test_malformed_number_is_rejected() -> None:
     """Numeric settings are validated instead of failing later inside a run."""
-    environment = {
-        **REQUIRED_ENVIRONMENT,
-        "HARASS_TARGET_TEMPERATURE": "cold",
-    }
+    environment = {**REQUIRED_ENVIRONMENT, "HARASS_TARGET_TEMPERATURE": "cold"}
 
     with pytest.raises(SettingsError, match="HARASS_TARGET_TEMPERATURE"):
         Settings.from_environment(environment)
@@ -53,14 +44,9 @@ def test_malformed_number_is_rejected() -> None:
 @pytest.mark.parametrize("raw_value", ["0", "-5", "12.5", "many"])
 def test_token_limits_must_be_positive_whole_numbers(raw_value: str) -> None:
     """Verify token limits must be positive whole numbers."""
-    environment = {
-        **REQUIRED_ENVIRONMENT,
-        "HARASS_TARGET_MAX_COMPLETION_TOKENS": raw_value,
-    }
+    environment = {**REQUIRED_ENVIRONMENT, "HARASS_TARGET_MAX_COMPLETION_TOKENS": raw_value}
 
-    with pytest.raises(
-        SettingsError, match="HARASS_TARGET_MAX_COMPLETION_TOKENS"
-    ):
+    with pytest.raises(SettingsError, match="HARASS_TARGET_MAX_COMPLETION_TOKENS"):
         Settings.from_environment(environment)
 
 
@@ -76,8 +62,7 @@ def test_malformed_boolean_is_rejected() -> None:
 def test_target_applies_system_wide_generation_settings() -> None:
     """Every model under evaluation receives the same decoding parameters."""
     target = build_target(
-        CONNECTION,
-        TargetGenerationSettings(temperature=0.0, max_completion_tokens=900),
+        CONNECTION, TargetGenerationSettings(temperature=0.0, max_completion_tokens=900)
     )
 
     parameters = target.get_identifier().params

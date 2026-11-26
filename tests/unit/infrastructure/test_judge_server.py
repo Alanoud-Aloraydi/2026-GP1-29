@@ -17,12 +17,7 @@ from typing import Any, Protocol, cast
 import pytest
 
 MIB = 1024 * 1024
-SERVER_SCRIPT = (
-    Path(__file__).resolve().parents[3]
-    / "tools"
-    / "judge_host"
-    / "judge_server.py"
-)
+SERVER_SCRIPT = Path(__file__).resolve().parents[3] / "tools" / "judge_host" / "judge_server.py"
 
 
 class Model(Protocol):
@@ -94,16 +89,11 @@ class FakeTensor:
 class FakeModel:
     """Stand in for the loaded d1 model."""
 
-    def system_one(
-        self, state: str, questions: dict[str, Any]
-    ) -> dict[str, Any]:
+    def system_one(self, state: str, questions: dict[str, Any]) -> dict[str, Any]:
         """Answer every question with the same choice."""
         return {
             "answers": {
-                name: {
-                    "choice": "REF",
-                    "probabilities": FakeTensor([0.1, 0.9]),
-                }
+                name: {"choice": "REF", "probabilities": FakeTensor([0.1, 0.9])}
                 for name in questions
             },
             "usage": {"tokens": 5},
@@ -157,9 +147,7 @@ def stack(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Stack:
         module = types.ModuleType(name)
         module.__dict__.update(attributes)
         monkeypatch.setitem(sys.modules, name, module)
-    spec = importlib.util.spec_from_file_location(
-        "judge_server", SERVER_SCRIPT
-    )
+    spec = importlib.util.spec_from_file_location("judge_server", SERVER_SCRIPT)
     assert spec is not None
     assert spec.loader is not None
     script = importlib.util.module_from_spec(spec)
@@ -187,9 +175,7 @@ def test_the_model_loads_on_first_use_and_only_once(stack: Stack) -> None:
     assert stack.loads == ["load"]
 
 
-def test_unloading_frees_the_gpu_and_the_next_request_reloads(
-    stack: Stack,
-) -> None:
+def test_unloading_frees_the_gpu_and_the_next_request_reloads(stack: Stack) -> None:
     """Another service can take the GPU between uses."""
     model = d1_model(stack)
     model.decide(D1_REQUEST)
@@ -250,9 +236,7 @@ def test_each_model_has_its_own_port(stack: Stack) -> None:
     }
 
 
-def test_the_yes_probability_renormalises_over_yes_and_no_only(
-    stack: Stack,
-) -> None:
+def test_the_yes_probability_renormalises_over_yes_and_no_only(stack: Stack) -> None:
     """Other tokens are ignored and spelling variants of an answer count."""
     probability = stack.script.yes_probability(
         [("The", -0.1), (" Yes", math.log(0.6)), ("no.", math.log(0.2))]
@@ -261,9 +245,7 @@ def test_the_yes_probability_renormalises_over_yes_and_no_only(
     assert probability == pytest.approx(0.75)
 
 
-def test_a_missing_answer_token_leaves_the_other_one_certain(
-    stack: Stack,
-) -> None:
+def test_a_missing_answer_token_leaves_the_other_one_certain(stack: Stack) -> None:
     """Without a no among the best tokens, yes is the whole probability."""
     assert stack.script.yes_probability([("yes", -3.0)]) == 1.0
     assert stack.script.yes_probability([("no", -3.0)]) == 0.0
@@ -275,17 +257,12 @@ def test_an_answer_slot_without_yes_or_no_is_a_failure(stack: Stack) -> None:
         stack.script.yes_probability([("maybe", -0.1)])
 
 
-OPTIONS = [
-    {"key": "yes", "description": "It does."},
-    {"key": "no", "description": "It does not."},
-]
+OPTIONS = [{"key": "yes", "description": "It does."}, {"key": "no", "description": "It does not."}]
 
 
 def test_faisal_task_uses_the_trained_format(stack: Stack) -> None:
     """Options are lettered in order and keep their keys and descriptions."""
-    task = json.loads(
-        stack.script.faisal_task({"request": "r"}, "Which?", OPTIONS)
-    )
+    task = json.loads(stack.script.faisal_task({"request": "r"}, "Which?", OPTIONS))
 
     assert task["state"] == {"request": "r"}
     assert task["question"] == "Which?"
@@ -296,9 +273,7 @@ def test_faisal_task_uses_the_trained_format(stack: Stack) -> None:
 
 
 @pytest.mark.parametrize("count", [1, 25])
-def test_faisal_rejects_a_bad_number_of_options(
-    stack: Stack, count: int
-) -> None:
+def test_faisal_rejects_a_bad_number_of_options(stack: Stack, count: int) -> None:
     """Faisal takes between two and twenty-four options."""
     options = [{"key": str(i), "description": "d"} for i in range(count)]
 
@@ -339,9 +314,7 @@ def test_faisal_returns_one_probability_per_option(stack: Stack) -> None:
 
     model = stack.script.LoadedFaisal(Network(), Tokenizer(), list(range(24)))
 
-    answer = stack.script.decide_faisal(
-        model, {"state": "s", "question": "q", "options": OPTIONS}
-    )
+    answer = stack.script.decide_faisal(model, {"state": "s", "question": "q", "options": OPTIONS})
 
     assert set(answer["probabilities"]) == {"yes", "no"}
     assert answer["probabilities"]["no"] == pytest.approx(0.75)
@@ -365,9 +338,7 @@ def base_url(stack: Stack, tmp_path: Path) -> Iterator[str]:
 def post(url: str, payload: object) -> tuple[int, dict[str, Any]]:
     """Post JSON and return the status and decoded reply."""
     request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
     )
     try:
         with urllib.request.urlopen(request) as reply:
@@ -417,13 +388,9 @@ def test_unload_endpoint_releases_the_model(base_url: str) -> None:
     assert get(f"{base_url}/health")["loaded"] is False
 
 
-def test_log_endpoint_returns_the_recent_lines(
-    base_url: str, stack: Stack
-) -> None:
+def test_log_endpoint_returns_the_recent_lines(base_url: str, stack: Stack) -> None:
     """The operator can read the server log without touching the PC."""
-    stack.script.Handler.log_file.write_text(
-        "first\nsecond\n", encoding="utf-8"
-    )
+    stack.script.Handler.log_file.write_text("first\nsecond\n", encoding="utf-8")
 
     assert get(f"{base_url}/log") == {"lines": ["first", "second"]}
 
@@ -435,9 +402,7 @@ class GuardTokenizer:
         """Start without a recorded conversation."""
         self.conversations: list[list[dict[str, str]]] = []
 
-    def apply_chat_template(
-        self, messages: list[dict[str, str]], tokenize: bool
-    ) -> str:
+    def apply_chat_template(self, messages: list[dict[str, str]], tokenize: bool) -> str:
         """Record the conversation and return a prompt."""
         self.conversations.append(messages)
         return "prompt"
@@ -448,11 +413,7 @@ class GuardTokenizer:
 
     def decode(self, tokens: list[int], skip_special_tokens: bool) -> str:
         """Decode the new tokens into the verdict text."""
-        return (
-            "Safety: Safe" + chr(10) + "Refusal: Yes"
-            if tokens == [7, 8]
-            else ""
-        )
+        return "Safety: Safe" + chr(10) + "Refusal: Yes" if tokens == [7, 8] else ""
 
 
 class GuardIds:
@@ -467,9 +428,7 @@ class GuardIds:
         """Return the batch size and the number of tokens."""
         return (1, len(self.row))
 
-    def __getitem__(
-        self, key: int | tuple[slice, slice]
-    ) -> "list[int] | GuardIds":
+    def __getitem__(self, key: int | tuple[slice, slice]) -> "list[int] | GuardIds":
         """Return the row, or the columns between two positions."""
         if isinstance(key, int):
             return self.row
@@ -505,20 +464,14 @@ class GuardNetwork:
         self.generation_cache: object = None
         self.model = self.read_chunk
 
-    def read_chunk(
-        self, input_ids: GuardIds, past_key_values: object, use_cache: bool
-    ) -> None:
+    def read_chunk(self, input_ids: GuardIds, past_key_values: object, use_cache: bool) -> None:
         """Record one chunk of the prompt that was fed to the base network."""
         assert use_cache is True
         self.generation_cache = past_key_values
         self.chunks.append(input_ids.row)
 
     def generate(
-        self,
-        input_ids: GuardIds,
-        past_key_values: object,
-        max_new_tokens: int,
-        do_sample: bool,
+        self, input_ids: GuardIds, past_key_values: object, max_new_tokens: int, do_sample: bool
     ) -> list[list[int]]:
         """Return the prompt followed by the verdict tokens."""
         assert do_sample is False
@@ -530,10 +483,7 @@ def test_qwenguard_returns_the_decoded_verdict_text(stack: Stack) -> None:
     """The conversation is moderated greedily and only new tokens decoded."""
     tokenizer = GuardTokenizer()
     model = stack.script.LoadedGuard(GuardNetwork(), tokenizer)
-    messages = [
-        {"role": "user", "content": "q"},
-        {"role": "assistant", "content": "a"},
-    ]
+    messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]
 
     answer = stack.script.decide_qwenguard(model, {"messages": messages})
 
@@ -542,12 +492,7 @@ def test_qwenguard_returns_the_decoded_verdict_text(stack: Stack) -> None:
 
 
 @pytest.mark.parametrize(
-    "messages",
-    [
-        [],
-        [{"role": "system", "content": "x"}],
-        [{"role": "user", "content": 3}],
-    ],
+    "messages", [[], [{"role": "system", "content": "x"}], [{"role": "user", "content": 3}]]
 )
 def test_qwenguard_rejects_malformed_conversations(
     stack: Stack, messages: list[dict[str, object]]
@@ -563,9 +508,7 @@ def test_gpu_memory_is_not_read_before_the_gpu_is_used(
     stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asking an idle server must not create a CUDA context."""
-    monkeypatch.setattr(
-        sys.modules["torch"].cuda, "is_initialized", lambda: False
-    )
+    monkeypatch.setattr(sys.modules["torch"].cuda, "is_initialized", lambda: False)
 
     assert stack.script.gpu_memory() is None
 

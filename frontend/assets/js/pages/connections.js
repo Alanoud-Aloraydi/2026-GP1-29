@@ -1,138 +1,89 @@
-/* Connections page interactions and error recovery. */
-(() => {
-  'use strict';
-  const api = window.HARASS_API;
-  const view = window.HARASS;
-  const { bindSubmit, formError, bindPages } = window.HARASS_FORMS;
-  function connectionCards (connections) {
-    return (
-      '<ul class="connection-list">' +
-      connections
-        .map(
-          (connection) =>
-            '<li class="card connection-card"><div class="connection-main"><strong><bdi>' +
-            view.escape(connection.model_name) +
-            '</bdi></strong><span class="hint"><bdi>' +
-            view.escape(connection.base_url) +
-            '</bdi></span></div><div>' +
-            view.status(connection.status, 'connection') +
-            (connection.status === 'failed'
-              ? '<p class="hint">راجع العنوان والمفتاح ثم أعد الاختبار.</p>'
-              : '') +
-            '</div><div class="row-actions"><button class="btn btn-sm" data-verify="' +
-            view.escape(connection.connection_id) +
-            '">اختبار الاتصال</button>' +
-            view.link(
-              'model-configuration.html?id=' +
-                encodeURIComponent(connection.connection_id),
-              'تعديل'
-            ) +
-            '</div></li>'
-        )
-        .join('') +
-      '</ul>'
-    );
-  }
+/* Model connections: the paged list and the add or edit form. */
+import { api } from '../core/api-client.js';
+import { start } from '../core/bootstrap.js';
+import { bindSubmit, formError, pagedList, runBusy } from '../core/forms.js';
+import { empty, html, link, showError, status } from '../core/ui.js';
 
-  async function connectionsPage () {
-    const container = document.getElementById('connections');
-    let offset = 0;
-    async function load () {
-      view.clearError();
-      try {
-        const page = await api.connectionPage(offset);
-        container.innerHTML = page.items.length
-          ? connectionCards(page.items)
-          : view.empty(
-            'لا توجد اتصالات بعد',
-            'أضف اتصال النموذج الذي تريد تقييمه.',
-            'model-configuration.html',
-            'إضافة اتصال'
-          );
-        container.insertAdjacentHTML(
-          'beforeend',
-          view.pageControls(offset, page.total, 'connections')
-        );
-        bindPages('connections', offset, (value) => {
-          offset = value;
-          load();
-        });
-      } catch (error) {
-        container.innerHTML =
-          '<p>تعذّر تحميل الاتصالات.</p>' +
-          '<button type="button" class="btn" data-retry>إعادة المحاولة</button>';
-        view.showError(error.message);
-      }
-    }
-    container.addEventListener('click', async (event) => {
-      const button = event.target.closest('button');
-      if (button?.hasAttribute('data-retry')) return load();
-      if (!button?.dataset.verify) return;
-      view.busy(button, true);
-      try {
-        await api.verifyConnection(button.dataset.verify);
-        await load();
-      } catch (error) {
-        view.showError(error.message);
-        button.textContent = 'إعادة الاختبار';
-      } finally {
-        view.busy(button, false);
-      }
-    });
-    await load();
-  }
+const connectionCard = (connection) => html`
+  <li class="card connection-card">
+    <div class="connection-main">
+      <strong><bdi>${connection.model_name}</bdi></strong>
+      <span class="hint"><bdi>${connection.base_url}</bdi></span>
+    </div>
+    <div>
+      ${status(connection.status, 'connection')}
+      ${connection.status === 'failed' && html`<p class="hint">راجع العنوان والمفتاح ثم أعد الاختبار.</p>`}
+    </div>
+    <div class="row-actions">
+      <button class="btn btn-sm" type="button" data-verify="${connection.connection_id}">اختبار الاتصال</button>
+      ${link('model-configuration.html?id=' + encodeURIComponent(connection.connection_id), 'تعديل')}
+    </div>
+  </li>`;
 
-  function validEndpoint (value) {
-    try {
-      const url = new URL(value);
-      return (
-        ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname)
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  async function connectionForm () {
-    const form = document.getElementById('connectionForm');
-    const identifier = new URLSearchParams(location.search).get('id');
-    let connectionRevision;
-    form.apiKey.required = !identifier;
-    if (identifier) {
-      const connection = await api.getConnection(identifier);
-      if (!connection) {
-        view.showError('لم يعد الاتصال متاحًا. افتح قائمة الاتصالات.');
-        form.hidden = true;
-        return;
-      }
-      form.modelName.value = connection.model_name;
-      connectionRevision = connection.revision;
-      form.endpoint.value = connection.base_url;
-      document.getElementById('apiKeyHint').textContent =
-        'اترك الحقل فارغًا للإبقاء على المفتاح المحفوظ، أو أدخل مفتاحًا جديدًا.';
-    }
-    bindSubmit(form, async () => {
-      const baseUrl = form.endpoint.value.trim();
-      if (!validEndpoint(baseUrl)) {
-        formError('أدخل عنوانًا يبدأ بـ http:// أو https://.', form.endpoint);
-      }
-      const body = {
-        api_compatibility: 'openai_compatible',
-        base_url: baseUrl,
-        model_name: form.modelName.value.trim(),
-        api_key: form.apiKey.value.trim() || null,
-        revision: connectionRevision
-      };
-      await (identifier
-        ? api.updateConnection(identifier, body)
-        : api.addConnection(body));
-      form.apiKey.value = '';
-      location.href = 'connections.html';
-    });
-  }
-
-  Object.assign((window.HARASS_PAGES ||= {}), {
-    connections: connectionsPage,
-    'model-configuration': connectionForm
+async function connectionsPage () {
+  const container = document.getElementById('connections');
+  const load = pagedList({
+    container,
+    prefix: 'connections',
+    fetchPage: api.connectionPage,
+    render: (connections) => html`<ul class="connection-list">${connections.map(connectionCard)}</ul>`,
+    empty: empty(
+      'لا توجد اتصالات بعد', 'أضف اتصال النموذج الذي تريد تقييمه.', 'model-configuration.html', 'إضافة اتصال'
+    ),
+    failureText: 'تعذّر تحميل الاتصالات.'
   });
-})();
+  container.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-verify]');
+    if (!button) return;
+    runBusy(button, async () => {
+      await api.verifyConnection(button.dataset.verify);
+      await load();
+    });
+  });
+  await load();
+}
+
+function validEndpoint (value) {
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function connectionForm () {
+  const form = document.getElementById('connectionForm');
+  const identifier = new URLSearchParams(location.search).get('id');
+  let revision;
+  form.apiKey.required = !identifier;
+  if (identifier) {
+    const connection = await api.getConnection(identifier);
+    if (!connection) {
+      showError('لم يعد الاتصال متاحًا. افتح قائمة الاتصالات.');
+      form.hidden = true;
+      return;
+    }
+    form.modelName.value = connection.model_name;
+    form.endpoint.value = connection.base_url;
+    revision = connection.revision;
+    document.getElementById('apiKeyHint').textContent =
+      'اترك الحقل فارغًا للإبقاء على المفتاح المحفوظ، أو أدخل مفتاحًا جديدًا.';
+  }
+  bindSubmit(form, async () => {
+    const baseUrl = form.endpoint.value.trim();
+    if (!validEndpoint(baseUrl)) formError('أدخل عنوانًا يبدأ بـ http:// أو https://.', form.endpoint);
+    const body = {
+      api_compatibility: 'openai_compatible',
+      base_url: baseUrl,
+      model_name: form.modelName.value.trim(),
+      api_key: form.apiKey.value.trim() || null,
+      revision
+    };
+    await (identifier ? api.updateConnection(identifier, body) : api.addConnection(body));
+    form.apiKey.value = '';
+    location.href = 'connections.html';
+  });
+}
+
+start(document.body.dataset.page === 'connections' ? connectionsPage : connectionForm);

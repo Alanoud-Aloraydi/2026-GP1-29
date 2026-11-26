@@ -9,9 +9,7 @@ from harass.domain.case_outcome import CaseOutcome
 from harass.domain.taxonomy import Axis
 
 
-def adaptive_summary(
-    outcomes: Sequence[CaseOutcome], budget: int
-) -> dict[str, Any]:
+def adaptive_summary(outcomes: Sequence[CaseOutcome], budget: int) -> dict[str, Any]:
     """Summarize detection bounds, censoring and first-defect timing.
 
     Unknown prefix judgments and exhausted libraries are not clean negative
@@ -31,9 +29,7 @@ def adaptive_summary(
     }
 
 
-def _axis_summary(
-    cases: list[list[CaseOutcome]], budget: int
-) -> dict[str, Any]:
+def _axis_summary(cases: list[list[CaseOutcome]], budget: int) -> dict[str, Any]:
     """Summarize the generated attempts of every case on one axis."""
     first_defects = [
         min(o.attempt_number for o in attempts if _is_defect(o))
@@ -51,22 +47,16 @@ def _axis_summary(
             o.submission_uncertain for attempts in cases for o in attempts
         ),
         "early_stopped_cases": sum(
-            any(o.stop_reason == "first_defect" for o in attempts)
-            for attempts in cases
+            any(o.stop_reason == "first_defect" for o in attempts) for attempts in cases
         ),
         "library_exhausted_cases": sum(
-            not attempts or attempts[-1].stop_reason == "variants_exhausted"
-            for attempts in cases
+            not attempts or attempts[-1].stop_reason == "variants_exhausted" for attempts in cases
         ),
-        "defect_within_k": {
-            str(k): _detection_within(cases, k) for k in range(1, budget + 1)
-        },
+        "defect_within_k": {str(k): _detection_within(cases, k) for k in range(1, budget + 1)},
     }
 
 
-def _detection_within(
-    cases: list[list[CaseOutcome]], k: int
-) -> dict[str, int | float]:
+def _detection_within(cases: list[list[CaseOutcome]], k: int) -> dict[str, int | float]:
     """Bound the share of cases with a defect among their first k attempts.
 
     Time is O(n) for n attempts, so the whole curve is O(n * budget).

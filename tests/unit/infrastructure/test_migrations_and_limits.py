@@ -12,19 +12,12 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
-from harass.infrastructure.persistence.schema import (
-    migration_config,
-    require_current_schema,
-)
-from harass.infrastructure.persistence.sqlalchemy_request_limiter import (
-    SqlAlchemyRequestLimiter,
-)
+from harass.infrastructure.persistence.schema import migration_config, require_current_schema
+from harass.infrastructure.persistence.sqlalchemy_request_limiter import SqlAlchemyRequestLimiter
 from harass.infrastructure.persistence.tables import Base
 
 
-def test_migrations_match_models_preserve_data_and_reverse(
-    database_engine: Engine,
-) -> None:
+def test_migrations_match_models_preserve_data_and_reverse(database_engine: Engine) -> None:
     """Verify migrations match models preserve data and reverse."""
     engine = database_engine
     config = migration_config()
@@ -43,12 +36,7 @@ def test_migrations_match_models_preserve_data_and_reverse(
             )
         )
         command.upgrade(config, "head")
-        assert (
-            compare_metadata(
-                MigrationContext.configure(connection), Base.metadata
-            )
-            == []
-        )
+        assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
         assert (
             connection.scalar(
                 text(
@@ -61,37 +49,27 @@ def test_migrations_match_models_preserve_data_and_reverse(
         assert (
             connection.scalar(
                 text(
-                    "SELECT role FROM users WHERE user_id = "
-                    "'10000000-0000-4000-8000-000000000001'"
+                    "SELECT role FROM users WHERE user_id = '10000000-0000-4000-8000-000000000001'"
                 )
             )
             == "user"
         )
         command.downgrade(config, "0001_accounts_runs")
         assert "generated_prompts" not in inspect(connection).get_table_names()
-        assert "role" not in {
-            column["name"]
-            for column in inspect(connection).get_columns("users")
-        }
+        assert "role" not in {column["name"] for column in inspect(connection).get_columns("users")}
         assert connection.scalar(text("SELECT count(*) FROM users")) == 1
         command.upgrade(config, "head")
     require_current_schema(engine)
     engine.dispose()
 
 
-def test_shared_limiter_counts_across_instances_and_resets(
-    tmp_path: Path,
-) -> None:
+def test_shared_limiter_counts_across_instances_and_resets(tmp_path: Path) -> None:
     """Verify shared limiter counts across instances and resets."""
     engine = create_engine(f"sqlite:///{tmp_path / 'limits.sqlite'}")
     Base.metadata.create_all(engine)
     now = [120.0]
-    first = SqlAlchemyRequestLimiter(
-        sessionmaker(engine), "test-secret", lambda: now[0]
-    )
-    second = SqlAlchemyRequestLimiter(
-        sessionmaker(engine), "test-secret", lambda: now[0]
-    )
+    first = SqlAlchemyRequestLimiter(sessionmaker(engine), "test-secret", lambda: now[0])
+    second = SqlAlchemyRequestLimiter(sessionmaker(engine), "test-secret", lambda: now[0])
     assert first.consume("auth:client", 2) == 0
     assert second.consume("auth:client", 2) == 0
     assert first.consume("auth:client", 2) == 60
@@ -101,19 +79,13 @@ def test_shared_limiter_counts_across_instances_and_resets(
     engine.dispose()
 
 
-def test_shared_limiter_admits_only_the_budget_under_concurrent_requests(
-    tmp_path: Path,
-) -> None:
+def test_shared_limiter_admits_only_the_budget_under_concurrent_requests(tmp_path: Path) -> None:
     """Verify shared limiter admits only budget under concurrent requests."""
     engine = create_engine(f"sqlite:///{tmp_path / 'concurrent.sqlite'}")
     Base.metadata.create_all(engine)
-    limiter = SqlAlchemyRequestLimiter(
-        sessionmaker(engine), "test-secret", lambda: 120
-    )
+    limiter = SqlAlchemyRequestLimiter(sessionmaker(engine), "test-secret", lambda: 120)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        waits = list(
-            pool.map(lambda _: limiter.consume("runs:user", 3), range(12))
-        )
+        waits = list(pool.map(lambda _: limiter.consume("runs:user", 3), range(12)))
     assert waits.count(0) == 3
     assert waits.count(60) == 9
     engine.dispose()
@@ -123,9 +95,7 @@ def test_postgresql_migrations_render_without_credentials_or_a_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify postgresql migrations render without credentials or server."""
-    monkeypatch.setenv(
-        "HARASS_DATABASE_URL", "postgresql+psycopg://localhost/harass"
-    )
+    monkeypatch.setenv("HARASS_DATABASE_URL", "postgresql+psycopg://localhost/harass")
     config = migration_config()
     buffer = StringIO()
     config.output_buffer = buffer

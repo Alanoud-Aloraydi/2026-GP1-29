@@ -4,7 +4,7 @@ import asyncio
 
 import httpx
 
-from harass.application.ports.connection_verifier import ConnectionVerifier
+from harass.application.ports.connections import ConnectionVerifier
 from harass.domain.target_connection import TargetConnection
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
 
@@ -31,9 +31,7 @@ class OpenAIConnectionVerifier(ConnectionVerifier):
         headers = {"Authorization": f"Bearer {target.api_key}"}
         try:
             transport = (
-                self._endpoint_policy.transport(target.base_url)
-                if self._endpoint_policy
-                else None
+                self._endpoint_policy.transport(target.base_url) if self._endpoint_policy else None
             )
             async with (
                 asyncio.timeout(self._timeout_seconds),
@@ -44,9 +42,7 @@ class OpenAIConnectionVerifier(ConnectionVerifier):
                     follow_redirects=False,
                 ) as client,
             ):
-                response = await client.get(
-                    endpoint + "/models", headers=headers
-                )
+                response = await client.get(endpoint + "/models", headers=headers)
                 if failure := _http_failure(response):
                     return failure
                 served = [model["id"] for model in response.json()["data"]]
@@ -73,10 +69,8 @@ def _greeting_request(model_name: str) -> dict[str, object]:
     """Build a neutral, bounded generation request for the check."""
     return {
         "model": model_name,
-        "messages": [
-            {"role": "user", "content": "Reply with the word Hello."}
-        ],
-        "max_completion_tokens": 900,
+        "messages": [{"role": "user", "content": "Reply with the word Hello."}],
+        "max_completion_tokens": 16,
         "temperature": 0,
     }
 

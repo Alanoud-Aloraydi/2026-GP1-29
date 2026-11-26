@@ -1,4 +1,4 @@
-"""Account identities, revocable sessions and expiring actions."""
+"""Account identities, revocable sessions, expiring actions and request limits."""
 
 from datetime import datetime
 
@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     false,
@@ -22,25 +23,17 @@ class UserRow(Base):
     """Account identity and salted password hash."""
 
     __tablename__ = "users"
-    __table_args__ = (
-        CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),
-    )
+    __table_args__ = (CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),)
 
     user_id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True)
     full_name: Mapped[str] = mapped_column(String(100))
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(Text)
-    email_verified: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=false()
-    )
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     role: Mapped[str] = mapped_column(
-        String(16),
-        default=UserRole.USER.value,
-        server_default=UserRole.USER.value,
+        String(16), default=UserRole.USER.value, server_default=UserRole.USER.value
     )
-    created_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuthenticationSessionRow(Base):
@@ -48,22 +41,12 @@ class AuthenticationSessionRow(Base):
 
     __tablename__ = "authentication_sessions"
     session_id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True)
-    user_id: Mapped[str] = mapped_column(
-        ENTITY_ID, ForeignKey("users.user_id"), index=True
-    )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True
-    )
-    created_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    refresh_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    user_id: Mapped[str] = mapped_column(ENTITY_ID, ForeignKey("users.user_id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     refresh_hash: Mapped[str | None] = mapped_column(String(64))
-    used_refresh_hashes: Mapped[list[str]] = mapped_column(
-        JSON, default=list, server_default="[]"
-    )
+    used_refresh_hashes: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
 
 
 class AccountActionRow(Base):
@@ -72,16 +55,22 @@ class AccountActionRow(Base):
     __tablename__ = "account_actions"
     __table_args__ = (
         CheckConstraint(
-            "purpose IN ('verify_email', 'reset_password')",
-            name="ck_account_action_purpose",
+            "purpose IN ('verify_email', 'reset_password')", name="ck_account_action_purpose"
         ),
     )
 
     action_id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True)
-    user_id: Mapped[str] = mapped_column(
-        ENTITY_ID, ForeignKey("users.user_id"), index=True
-    )
+    user_id: Mapped[str] = mapped_column(ENTITY_ID, ForeignKey("users.user_id"), index=True)
     purpose: Mapped[str] = mapped_column(String(32))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     credential_hash: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RequestLimitRow(Base):
+    """Shared fixed-window request counters without raw client identifiers."""
+
+    __tablename__ = "request_limits"
+    bucket_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_start: Mapped[int] = mapped_column(Integer, index=True)
+    request_count: Mapped[int] = mapped_column(Integer)

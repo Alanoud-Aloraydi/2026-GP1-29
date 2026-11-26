@@ -21,15 +21,7 @@ _CASE_NUMBER_PATTERN = re.compile(r"\d{5}")
 # Segment order of each axis, for example OR-HLT-HRM-MSA-00001.
 _SEGMENT_NAMES = {
     Axis.OVER_REFUSAL: ("axis", "domain", "risk", "variety", "number"),
-    Axis.ADVERSARIAL: (
-        "axis",
-        "domain",
-        "risk",
-        "strategy",
-        "owasp",
-        "variety",
-        "number",
-    ),
+    Axis.ADVERSARIAL: ("axis", "domain", "risk", "strategy", "owasp", "variety", "number"),
 }
 
 
@@ -49,8 +41,7 @@ class CaseIdentifier:
         """Enforce the coding-system rules that span several fields."""
         if not _CASE_NUMBER_PATTERN.fullmatch(self.case_number):
             raise InvalidCaseIdentifierError(
-                f"Case number '{self.case_number}' must consist of "
-                "exactly five digits."
+                f"Case number '{self.case_number}' must consist of exactly five digits."
             )
         if self.case_number[0] != self.variety.case_number_digit:
             raise InvalidCaseIdentifierError(
@@ -61,14 +52,12 @@ class CaseIdentifier:
         if self.axis is Axis.OVER_REFUSAL:
             if self.strategy is not None or self.owasp_category is not None:
                 raise InvalidCaseIdentifierError(
-                    "Over-refusal cases carry neither a bypass "
-                    "strategy nor an OWASP category."
+                    "Over-refusal cases carry neither a bypass strategy nor an OWASP category."
                 )
             return
         if self.strategy is None or self.owasp_category is None:
             raise InvalidCaseIdentifierError(
-                "Adversarial cases require one bypass strategy "
-                "and an OWASP category."
+                "Adversarial cases require one bypass strategy and an OWASP category."
             )
 
     @property
@@ -95,30 +84,20 @@ class CaseIdentifier:
             risk_category=_parse_code(RiskCategory, code["risk"], text),
             variety=_parse_code(ArabicVariety, code["variety"], text),
             case_number=code["number"],
-            strategy=_parse_code(BypassStrategy, code["strategy"], text)
-            if adversarial
-            else None,
-            owasp_category=_parse_code(OwaspCategory, code["owasp"], text)
-            if adversarial
-            else None,
+            strategy=_parse_code(BypassStrategy, code["strategy"], text) if adversarial else None,
+            owasp_category=_parse_code(OwaspCategory, code["owasp"], text) if adversarial else None,
         )
 
     def __str__(self) -> str:
         """Render the identifier in its canonical textual form."""
-        segments: list[str] = [
-            self.axis,
-            self.subject_domain,
-            self.risk_category,
-        ]
+        segments: list[str] = [self.axis, self.subject_domain, self.risk_category]
         if self.strategy is not None and self.owasp_category is not None:
             segments.extend([self.strategy, self.owasp_category])
         segments.extend([self.variety, self.case_number])
         return _SEGMENT_SEPARATOR.join(segments)
 
 
-def _parse_code[CodeT: StrEnum](
-    code_type: type[CodeT], code: str, identifier: str
-) -> CodeT:
+def _parse_code[CodeT: StrEnum](code_type: type[CodeT], code: str, identifier: str) -> CodeT:
     """Convert one identifier segment into its taxonomy member."""
     try:
         return code_type(code)

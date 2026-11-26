@@ -65,10 +65,7 @@ class CaseOutcome:
         """Check that all verdicts required by the case axis are present."""
         if self.error is not None or self.response_category is None:
             return False
-        return (
-            self.case.axis is Axis.OVER_REFUSAL
-            or self.attack_succeeded is not None
-        )
+        return self.case.axis is Axis.OVER_REFUSAL or self.attack_succeeded is not None
 
     @property
     def is_refusal(self) -> bool:

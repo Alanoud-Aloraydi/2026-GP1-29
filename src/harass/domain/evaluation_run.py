@@ -15,6 +15,10 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+# Work that still holds the owner's single evaluation slot.
+ACTIVE_STATUSES = (RunStatus.PENDING, RunStatus.RUNNING)
+
+
 @dataclass(frozen=True)
 class EvaluationRun:
     """What a client asked to evaluate and how far it has got.

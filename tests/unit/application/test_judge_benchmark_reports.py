@@ -9,14 +9,9 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from harass.application.errors import (
-    InvalidBenchmarkReportError,
-    UnknownBenchmarkReportError,
-)
-from harass.application.judge_benchmark_reports import JudgeBenchmarkReports
-from harass.infrastructure.persistence.sqlalchemy_judge_benchmarks import (
-    SqlAlchemyJudgeBenchmarkStore,
-)
+from harass.application.errors import InvalidBenchmarkReportError, UnknownBenchmarkReportError
+from harass.application.judge_reports import JudgeReports
+from harass.infrastructure.persistence.sqlalchemy_judge_reports import SqlAlchemyJudgeReportStore
 from harass.infrastructure.persistence.tables import JudgeBenchmarkReportRow
 
 
@@ -54,16 +49,12 @@ def ticking_clock() -> Callable[[], datetime]:
 
 
 @pytest.fixture
-def reports(database_factory: sessionmaker[Session]) -> JudgeBenchmarkReports:
+def reports(database_factory: sessionmaker[Session]) -> JudgeReports:
     """Return the service over an isolated database."""
-    return JudgeBenchmarkReports(
-        SqlAlchemyJudgeBenchmarkStore(database_factory), ticking_clock()
-    )
+    return JudgeReports(SqlAlchemyJudgeReportStore(database_factory), ticking_clock())
 
 
-def test_a_published_report_round_trips_with_its_summary(
-    reports: JudgeBenchmarkReports,
-) -> None:
+def test_a_published_report_round_trips_with_its_summary(reports: JudgeReports) -> None:
     """The stored document comes back unchanged beside its headline figures."""
     document = report()
 
@@ -78,9 +69,7 @@ def test_a_published_report_round_trips_with_its_summary(
     assert stored["passes_gate"] is False
 
 
-def test_summaries_list_the_newest_first_without_documents(
-    reports: JudgeBenchmarkReports,
-) -> None:
+def test_summaries_list_the_newest_first_without_documents(reports: JudgeReports) -> None:
     """The comparison list is cheap: no full documents, newest on top."""
     older = reports.publish(report())
     newer = reports.publish(report(split="test"))
@@ -91,9 +80,7 @@ def test_summaries_list_the_newest_first_without_documents(
     assert all("report" not in item for item in listed)
 
 
-def test_publishing_the_same_content_twice_stores_it_once(
-    reports: JudgeBenchmarkReports,
-) -> None:
+def test_publishing_the_same_content_twice_stores_it_once(reports: JudgeReports) -> None:
     """Re-publishing a file is harmless and returns the first identifier."""
     first = reports.publish(report())
 
@@ -101,9 +88,7 @@ def test_publishing_the_same_content_twice_stores_it_once(
     assert len(reports.summaries()) == 1
 
 
-def test_changed_content_is_a_new_report(
-    reports: JudgeBenchmarkReports,
-) -> None:
+def test_changed_content_is_a_new_report(reports: JudgeReports) -> None:
     """A different run of the same judge is kept separately."""
     first = reports.publish(report())
 
@@ -111,9 +96,7 @@ def test_changed_content_is_a_new_report(
     assert len(reports.summaries()) == 2
 
 
-def test_a_partial_document_still_has_a_summary(
-    reports: JudgeBenchmarkReports,
-) -> None:
+def test_a_partial_document_still_has_a_summary(reports: JudgeReports) -> None:
     """Missing metrics show as empty rather than failing the list."""
     document = report()
     for key in ("attack_success", "cost", "gate", "category"):
@@ -133,22 +116,14 @@ def test_a_partial_document_still_has_a_summary(
         report(judge=None),
         report(judge={"model": "", "rubric_fingerprint": "x"}),
         report(judge={"model": "m"}),
-        report(
-            judge={
-                "model": "m",
-                "rubric_fingerprint": "x",
-                "quantization": 4,
-            }
-        ),
+        report(judge={"model": "m", "rubric_fingerprint": "x", "quantization": 4}),
         report(split="everything"),
         report(trials=0),
         report(cases=True),
         report(cases="135"),
     ],
 )
-def test_malformed_reports_are_rejected(
-    reports: JudgeBenchmarkReports, document: dict[str, Any]
-) -> None:
+def test_malformed_reports_are_rejected(reports: JudgeReports, document: dict[str, Any]) -> None:
     """Only a report with the fields the site shows can be published."""
     with pytest.raises(InvalidBenchmarkReportError):
         reports.publish(document)
@@ -156,23 +131,15 @@ def test_malformed_reports_are_rejected(
     assert reports.summaries() == []
 
 
-def test_reading_an_unknown_report_fails(
-    reports: JudgeBenchmarkReports,
-) -> None:
+def test_reading_an_unknown_report_fails(reports: JudgeReports) -> None:
     """A missing identifier is a not-found error, not an empty result."""
     with pytest.raises(UnknownBenchmarkReportError):
         reports.get(str(uuid4()))
 
 
-def test_database_rejects_an_unknown_split(
-    database_factory: sessionmaker[Session],
-) -> None:
+def test_database_rejects_an_unknown_split(database_factory: sessionmaker[Session]) -> None:
     """The database is the last line of defence against a bad split."""
-    with (
-        pytest.raises(IntegrityError),
-        database_factory() as database,
-        database.begin(),
-    ):
+    with pytest.raises(IntegrityError), database_factory() as database, database.begin():
         database.add(
             JudgeBenchmarkReportRow(
                 report_id=str(uuid4()),

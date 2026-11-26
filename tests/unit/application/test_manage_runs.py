@@ -9,10 +9,9 @@ import pytest
 
 from harass.application.connections import ManageConnections
 from harass.application.errors import ApplicationError, ConnectionNotReadyError
-from harass.application.evaluation.parameters import RunParameters
+from harass.application.evaluation.contracts import RunParameters
 from harass.application.evaluation.run_service import ManageRuns
-from harass.application.ports.run_admission import RunAdmission
-from harass.application.ports.run_store import RunStore
+from harass.application.ports.runs import RunAdmission, RunStore
 from harass.domain.evaluation_run import RunStatus
 from harass.domain.target_connection import TargetConnection
 
@@ -27,10 +26,7 @@ def services() -> tuple[ManageRuns, Mock, Mock, Mock]:
     queue = Mock(spec=RunAdmission)
     store = Mock(spec=RunStore)
     use_case = ManageRuns(
-        store,
-        connections,
-        queue=queue,
-        clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+        store, connections, queue=queue, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC)
     )
     return use_case, store, connections, queue
 
@@ -55,7 +51,7 @@ def test_start_persists_job_inputs_without_credentials() -> None:
     assert endpoint == TARGET.base_url
     assert "private-key" not in json.dumps(parameters)
     assert parameters["connection_revision"] == TARGET.connection_revision
-    store.create.assert_not_called()
+    assert not store.method_calls
 
 
 def test_lifecycle_and_evidence_preserve_owner_scope() -> None:

@@ -14,9 +14,7 @@ class ActiveRunError(ConflictError):
 
     def __init__(self, run_id: str) -> None:
         """Retain only the current owner's run identifier."""
-        super().__init__(
-            "Finish or cancel the current evaluation before starting another."
-        )
+        super().__init__("Finish or cancel the current evaluation before starting another.")
         self.run_id = run_id
 
 
@@ -24,16 +22,8 @@ class SeedSourceError(ApplicationError):
     """Raised when seed data cannot be read or violates the seed schema."""
 
 
-class GoldSetError(ApplicationError):
-    """Raised when the judge gold set cannot be read or is inconsistent."""
-
-
 class NoMatchingCasesError(ApplicationError):
     """Raised when no evaluation case satisfies the selection."""
-
-
-class ReportExportError(ApplicationError):
-    """Raised when an evaluation report cannot be written."""
 
 
 class EvaluationEngineError(ApplicationError):
@@ -61,4 +51,4 @@ class UnknownBenchmarkReportError(ApplicationError):
 
 
 class InvalidBenchmarkReportError(ApplicationError):
-    """A judge benchmark report lacks the structure the site displays."""
+    """A benchmark report lacks the structure the site displays."""

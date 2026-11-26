@@ -1,54 +1,30 @@
-/* Dashboard page interactions and error recovery. */
-(() => {
-  'use strict';
-  const api = window.HARASS_API;
-  const view = window.HARASS;
+/* Dashboard: account totals, latest runs and the next step. */
+import { api } from '../core/api-client.js';
+import { start } from '../core/bootstrap.js';
+import { empty, figures, html, link } from '../core/ui.js';
+import { runTable } from '../views/run.js';
 
-  async function dashboardPage () {
-    const container = document.getElementById('overview');
-    const [connections, history] = await Promise.all([
-      api.connectionPage(),
-      api.runPage()
-    ]);
-    const runs = history.items;
-    const ready = connections.counts.connected || 0;
-    const counts = [
-      [connections.total, 'اتصالات محفوظة'],
-      [ready, 'اجتازت اختبار الوصول'],
-      [history.total, 'تقييمات في السجل']
-    ];
-    container.innerHTML =
-      '<div class="section-toolbar">' +
-      view.link('evaluation-setup.html', 'تقييم جديد', true) +
-      view.link('connections.html', 'إدارة الاتصالات') +
-      '</div><div class="overview-strip">' +
-      counts
-        .map(
-          ([count, label]) =>
-            '<div><strong>' +
-            count +
-            '</strong><span>' +
-            label +
-            '</span></div>'
-        )
-        .join('') +
-      '</div>' +
-      (runs.length
-        ? view.runTable(runs.slice(0, 5), 'آخر التقييمات')
-        : connections.total
-          ? view.empty(
-            'ابدأ أول تقييم',
-            'اختر اتصالًا محفوظًا لتقييم النموذج.',
-            'evaluation-setup.html',
-            'تقييم جديد'
-          )
-          : view.empty(
-            'ابدأ بإعداد اتصال نموذج',
-            'احفظ بيانات الاتصال واختبر الوصول.',
-            'model-configuration.html',
-            'إضافة اتصال'
-          ));
-  }
+function nextStep (runs, connectionTotal) {
+  if (runs.length) return runTable(runs.slice(0, 5), 'آخر التقييمات');
+  return connectionTotal
+    ? empty('ابدأ أول تقييم', 'اختر اتصالًا محفوظًا لتقييم النموذج.', 'evaluation-setup.html', 'تقييم جديد')
+    : empty('ابدأ بإعداد اتصال نموذج', 'احفظ بيانات الاتصال واختبر الوصول.', 'model-configuration.html', 'إضافة اتصال');
+}
 
-  Object.assign((window.HARASS_PAGES ||= {}), { dashboard: dashboardPage });
-})();
+async function dashboardPage () {
+  const [connections, history] = await Promise.all([api.connectionPage(), api.runPage()]);
+  const totals = [
+    [connections.total, 'اتصالات محفوظة'],
+    [connections.counts.connected || 0, 'اجتازت اختبار الوصول'],
+    [history.total, 'تقييمات في السجل']
+  ];
+  document.getElementById('overview').innerHTML = html`
+    <div class="section-toolbar">
+      ${link('evaluation-setup.html', 'تقييم جديد', true)}
+      ${link('connections.html', 'إدارة الاتصالات')}
+    </div>
+    <div class="overview-strip">${figures(totals)}</div>
+    ${nextStep(history.items, connections.total)}`;
+}
+
+start(dashboardPage);

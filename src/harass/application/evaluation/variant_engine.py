@@ -8,24 +8,19 @@ from typing import Any
 
 from harass.application.errors import EvaluationEngineError
 from harass.application.evaluation.outcome_codec import read_outcome
-from harass.application.ports.attempt_executor import AttemptExecutor
-from harass.application.ports.evaluation_engine import EvaluationEngine
-from harass.application.ports.evaluation_journal import EvaluationJournal
-from harass.application.ports.run_queue import (
-    EvaluationSuspendedError,
-    EvaluationYieldedError,
+from harass.application.ports.evaluation import (
+    AttemptExecutor,
+    EvaluationEngine,
+    EvaluationJournal,
+    VariantCatalog,
 )
-from harass.application.ports.variant_catalog import VariantCatalog
+from harass.application.ports.runs import EvaluationSuspendedError, EvaluationYieldedError
 from harass.application.reporting.document import outcome_document
 from harass.domain.adaptive_controller import ThompsonController
 from harass.domain.case_outcome import CaseOutcome
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.evaluation_plan import EvaluationPlan
-from harass.domain.prompt_variant import (
-    EvaluationMode,
-    PromptVariant,
-    VariantSelection,
-)
+from harass.domain.prompt_variant import EvaluationMode, PromptVariant, VariantSelection
 from harass.domain.target_connection import TargetConnection
 from harass.domain.taxonomy import Axis, ResponseCategory
 
@@ -34,11 +29,7 @@ class VariantEvaluationEngine(EvaluationEngine):
     """Checkpoint serial attempts and their adaptive feedback."""
 
     def __init__(
-        self,
-        catalog: VariantCatalog,
-        executor: AttemptExecutor,
-        *,
-        quantum_attempts: int = 50,
+        self, catalog: VariantCatalog, executor: AttemptExecutor, *, quantum_attempts: int = 50
     ) -> None:
         """Inject the library and one-attempt execution port."""
         self._catalog = catalog
@@ -83,20 +74,11 @@ class VariantEvaluationEngine(EvaluationEngine):
                     if journal:
                         await asyncio.to_thread(journal.reserve, state)
                     continue
-                reservation = _choose_attempt(
-                    plan, case, remaining, baseline, state, controller
-                )
+                reservation = _choose_attempt(plan, case, remaining, baseline, state, controller)
                 outcome, state = await self._submit(
-                    reservation,
-                    target,
-                    run_identifier,
-                    state,
-                    controller,
-                    journal,
+                    reservation, target, run_identifier, state, controller, journal
                 )
-            outcome, state = _complete(
-                outcome, state, variants, plan, controller
-            )
+            outcome, state = _complete(outcome, state, variants, plan, controller)
             if journal is None:
                 outcomes.append(outcome)
                 continue
@@ -106,36 +88,25 @@ class VariantEvaluationEngine(EvaluationEngine):
                 self._pause_if_needed(state, committed, len(plan.cases))
         if journal is None:
             return outcomes
-        return await asyncio.to_thread(
-            lambda: list(journal.outcomes(lightweight=True))
-        )
+        return await asyncio.to_thread(lambda: list(journal.outcomes(lightweight=True)))
 
-    def _require_recipes(
-        self, plan: EvaluationPlan, selection: VariantSelection
-    ) -> None:
+    def _require_recipes(self, plan: EvaluationPlan, selection: VariantSelection) -> None:
         """Reject a plan in which some case would have nothing to send."""
         if plan.include_baseline:
             return
         for case in plan.cases:
             if not self._catalog.variants(case, selection):
-                raise EvaluationEngineError(
-                    "A selected case has no eligible variants or baseline."
-                )
+                raise EvaluationEngineError("A selected case has no eligible variants or baseline.")
 
-    def _pause_if_needed(
-        self, state: dict[str, Any], committed: int, case_count: int
-    ) -> None:
+    def _pause_if_needed(self, state: dict[str, Any], committed: int, case_count: int) -> None:
         """Suspend on repeated failures or yield after a full quantum."""
         if state.get("technical_failures", 0) >= 3:
             raise EvaluationSuspendedError(
-                "Target or judge repeatedly unavailable; saved "
-                "progress can be resumed."
+                "Target or judge repeatedly unavailable; saved progress can be resumed."
             )
         unfinished = state["case_index"] < case_count
         if committed >= self._quantum_attempts and unfinished:
-            raise EvaluationYieldedError(
-                "Committed work yielded the judge slot."
-            )
+            raise EvaluationYieldedError("Committed work yielded the judge slot.")
 
     async def _submit(
         self,
@@ -175,24 +146,20 @@ def _choose_attempt(
     controller: ThompsonController,
 ) -> CaseOutcome:
     """Select a recipe and retain its pre-observation controller parameters."""
-    context = f"{case.axis.value}:{case.identifier.variety.value}"
+    context = _context(case)
     posterior = None
     if baseline:
         variant = PromptVariant(
             "baseline",
             "baseline",
             case.prompt_text,
-            content_sha256=hashlib.sha256(
-                case.prompt_text.encode("utf-8")
-            ).hexdigest(),
+            content_sha256=hashlib.sha256(case.prompt_text.encode("utf-8")).hexdigest(),
             review_status="dataset",
         )
         number = 0
     else:
         if plan.adaptive_settings.mode is EvaluationMode.ADAPTIVE:
-            arm = controller.choose(
-                context, tuple(v.arm_id for v in remaining)
-            )
+            arm = controller.choose(context, tuple(v.arm_id for v in remaining))
             variant = next(v for v in remaining if v.arm_id == arm)
             posterior = controller.posterior(context, arm)
         else:
@@ -219,40 +186,26 @@ def _complete(
 ) -> tuple[CaseOutcome, dict[str, Any]]:
     """Commit known feedback and determine whether the case stops."""
     state = {**state, "pending": None}
-    failure = bool(
-        outcome.error
-        and outcome.error.startswith(("Attempt failed:", "Attempt exceeded"))
-    )
     state["technical_failures"] = (
-        state.get("technical_failures", 0) + 1 if failure else 0
+        state.get("technical_failures", 0) + 1 if outcome.technical_error else 0
     )
     if outcome.attempt_number == 0:
         state["baseline_done"] = True
         return outcome, state if variants else _next_case(state, controller)
-    context = (
-        f"{outcome.case.axis.value}:{outcome.case.identifier.variety.value}"
-    )
     if outcome.variant is None:
-        raise EvaluationEngineError(
-            "Generated attempts require recipe provenance."
-        )
+        raise EvaluationEngineError("Generated attempts require recipe provenance.")
     defect = _defect(outcome)
-    controller.observe(context, outcome.variant.arm_id, defect)
+    controller.observe(_context(outcome.case), outcome.variant.arm_id, defect)
     exhausted = len(state["used_variants"]) >= len(variants)
     reason = _stop_reason(plan, outcome.attempt_number, defect, exhausted)
     state["controller"] = controller.snapshot()
     if reason:
-        return replace(outcome, stop_reason=reason), _next_case(
-            state, controller
-        )
+        return replace(outcome, stop_reason=reason), _next_case(state, controller)
     return outcome, state
 
 
 def _stop_reason(
-    plan: EvaluationPlan,
-    attempt_number: int,
-    defect: bool | None,
-    exhausted: bool,
+    plan: EvaluationPlan, attempt_number: int, defect: bool | None, exhausted: bool
 ) -> str | None:
     """Name why a case stops after this attempt, or None to continue."""
     if plan.adaptive_settings.mode is not EvaluationMode.ADAPTIVE:
@@ -265,38 +218,34 @@ def _stop_reason(
 
 
 async def _initial_state(
-    plan: EvaluationPlan,
-    target: TargetConnection,
-    journal: EvaluationJournal | None,
+    plan: EvaluationPlan, target: TargetConnection, journal: EvaluationJournal | None
 ) -> dict[str, Any]:
     """Resume the journal checkpoint or start at the first case."""
     saved = (
-        await asyncio.to_thread(
-            journal.initialize, _fingerprint(plan, target), len(plan.cases)
-        )
+        await asyncio.to_thread(journal.initialize, _fingerprint(plan, target), len(plan.cases))
         if journal
         else {}
     )
-    return {
-        "case_index": 0,
-        "baseline_done": False,
-        "used_variants": [],
-        **saved,
-    }
+    return {**_case_start(0), **saved}
 
 
-def _next_case(
-    state: dict[str, Any], controller: ThompsonController
-) -> dict[str, Any]:
+def _next_case(state: dict[str, Any], controller: ThompsonController) -> dict[str, Any]:
     """Advance the checkpoint while retaining controller and failure state."""
     return {
-        "case_index": state["case_index"] + 1,
-        "baseline_done": False,
-        "used_variants": [],
-        "pending": None,
+        **_case_start(state["case_index"] + 1),
         "controller": controller.snapshot(),
         "technical_failures": state.get("technical_failures", 0),
     }
+
+
+def _case_start(case_index: int) -> dict[str, Any]:
+    """Open a case checkpoint before any of its attempts."""
+    return {"case_index": case_index, "baseline_done": False, "used_variants": [], "pending": None}
+
+
+def _context(case: EvaluationCase) -> str:
+    """Key controller feedback by axis and variety, where recipes compare."""
+    return f"{case.axis.value}:{case.identifier.variety.value}"
 
 
 def _fingerprint(plan: EvaluationPlan, target: TargetConnection) -> str:
@@ -315,8 +264,4 @@ def _defect(outcome: CaseOutcome) -> bool | None:
         return None
     if outcome.case.axis is Axis.ADVERSARIAL:
         return outcome.attack_succeeded
-    return (
-        None
-        if outcome.response_category is ResponseCategory.UNCLEAR
-        else outcome.is_refusal
-    )
+    return None if outcome.response_category is ResponseCategory.UNCLEAR else outcome.is_refusal

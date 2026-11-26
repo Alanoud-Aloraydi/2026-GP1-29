@@ -28,12 +28,8 @@ class ThompsonController:
             raise ValueError("At least one eligible arm is required.")
         samples = {}
         for arm in sorted(set(arms)):
-            posterior = self._posteriors.setdefault(
-                (context, arm), _Posterior()
-            )
-            samples[arm] = self._random.betavariate(
-                posterior.successes, posterior.failures
-            )
+            posterior = self._posteriors.setdefault((context, arm), _Posterior())
+            samples[arm] = self._random.betavariate(posterior.successes, posterior.failures)
         return max(samples, key=lambda arm: samples[arm])
 
     def observe(self, context: str, arm: str, defect: bool | None) -> None:
@@ -57,26 +53,19 @@ class ThompsonController:
             "random_state": self._random.getstate(),
             "posteriors": [
                 [context, arm, posterior.successes, posterior.failures]
-                for (context, arm), posterior in sorted(
-                    self._posteriors.items()
-                )
+                for (context, arm), posterior in sorted(self._posteriors.items())
             ],
         }
 
     def restore(self, state: dict[str, object]) -> None:
         """Restore a previously exported JSON-compatible controller state."""
         random_state = state["random_state"]
-        if (
-            not isinstance(random_state, (list, tuple))
-            or len(random_state) != 3
-        ):
+        if not isinstance(random_state, (list, tuple)) or len(random_state) != 3:
             raise ValueError("Invalid controller random state.")
         values = random_state[1]
         if not isinstance(values, (list, tuple)):
             raise ValueError("Invalid controller random state values.")
-        self._random.setstate(
-            (random_state[0], tuple(values), random_state[2])
-        )
+        self._random.setstate((random_state[0], tuple(values), random_state[2]))
         posteriors = state["posteriors"]
         if not isinstance(posteriors, (list, tuple)):
             raise ValueError("Invalid controller posteriors.")
@@ -87,7 +76,5 @@ class ThompsonController:
             successes, failures = int(row[2]), int(row[3])
             if successes < 1 or failures < 1:
                 raise ValueError("Controller posteriors must remain positive.")
-            restored[str(row[0]), str(row[1])] = _Posterior(
-                successes, failures
-            )
+            restored[str(row[0]), str(row[1])] = _Posterior(successes, failures)
         self._posteriors = restored

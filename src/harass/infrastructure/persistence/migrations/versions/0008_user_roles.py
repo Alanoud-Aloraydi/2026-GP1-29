@@ -12,17 +12,8 @@ depends_on = None
 def upgrade() -> None:
     """Grant no extra access to accounts that already exist."""
     with op.batch_alter_table("users") as batch:
-        batch.add_column(
-            sa.Column(
-                "role",
-                sa.String(16),
-                nullable=False,
-                server_default="user",
-            )
-        )
-        batch.create_check_constraint(
-            "ck_users_role", "role IN ('user', 'admin')"
-        )
+        batch.add_column(sa.Column("role", sa.String(16), nullable=False, server_default="user"))
+        batch.create_check_constraint("ck_users_role", "role IN ('user', 'admin')")
 
 
 def downgrade() -> None:

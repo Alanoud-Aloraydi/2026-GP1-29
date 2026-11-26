@@ -13,13 +13,10 @@ from harass.application.errors import (
     ConflictError,
     UnknownRunError,
 )
-from harass.application.ports.evaluation_journal import EvaluationJournal
-from harass.application.ports.run_queue import LeaseLostError, RunJob, RunQueue
-from harass.domain.evaluation_run import EvaluationRun, RunStatus
-from harass.infrastructure.persistence.job_sessions import (
-    job_session,
-    owned_job,
-)
+from harass.application.ports.evaluation import EvaluationJournal
+from harass.application.ports.runs import LeaseLostError, RunJob, RunQueue
+from harass.domain.evaluation_run import ACTIVE_STATUSES, EvaluationRun, RunStatus
+from harass.infrastructure.persistence.job_sessions import job_session, owned_job
 from harass.infrastructure.persistence.row_mapping import new_run_row, read_run
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.sqlalchemy_journal import (
@@ -57,25 +54,17 @@ class SqlAlchemyRunQueue(RunQueue):
         self._lease_seconds = lease_seconds
         self._clock = clock
 
-    def enqueue(
-        self,
-        run: EvaluationRun,
-        parameters: dict[str, Any],
-        target_endpoint: str,
-    ) -> None:
+    def enqueue(self, run: EvaluationRun, parameters: dict[str, Any], target_endpoint: str) -> None:
         """Persist run admission and its durable job atomically."""
         with job_session(self._factory) as session:
             session.scalar(
-                select(UserRow.user_id)
-                .where(UserRow.user_id == run.owner_id)
-                .with_for_update()
+                select(UserRow.user_id).where(UserRow.user_id == run.owner_id).with_for_update()
             )
             active = session.scalar(
                 select(RunRow.run_id)
                 .where(
                     RunRow.owner_id == run.owner_id,
-                    RunRow.status.in_(["pending", "running"])
-                    | RunRow.resumable,
+                    RunRow.status.in_(ACTIVE_STATUSES) | RunRow.resumable,
                 )
                 .limit(1)
             )
@@ -103,8 +92,7 @@ class SqlAlchemyRunQueue(RunQueue):
                 insert_for(session, WorkerPresenceRow)
                 .values(slot_key=self._slot, last_seen=self._clock())
                 .on_conflict_do_update(
-                    index_elements=["slot_key"],
-                    set_={"last_seen": self._clock()},
+                    index_elements=["slot_key"], set_={"last_seen": self._clock()}
                 )
             )
 
@@ -114,11 +102,7 @@ class SqlAlchemyRunQueue(RunQueue):
             row = session.get(WorkerPresenceRow, self._slot)
             if row is None:
                 return False
-            seen = (
-                row.last_seen
-                if row.last_seen.tzinfo
-                else row.last_seen.replace(tzinfo=UTC)
-            )
+            seen = row.last_seen if row.last_seen.tzinfo else row.last_seen.replace(tzinfo=UTC)
             return (self._clock() - seen).total_seconds() < 60
 
     def claim(self, worker_id: str) -> RunJob | None:
@@ -128,9 +112,7 @@ class SqlAlchemyRunQueue(RunQueue):
         with job_session(self._factory) as session:
             acquired = session.scalar(
                 insert_for(session, WorkerSlotRow)
-                .values(
-                    slot_key=self._slot, worker_id=worker_id, lease_until=until
-                )
+                .values(slot_key=self._slot, worker_id=worker_id, lease_until=until)
                 .on_conflict_do_update(
                     index_elements=["slot_key"],
                     set_={"worker_id": worker_id, "lease_until": until},
@@ -144,18 +126,10 @@ class SqlAlchemyRunQueue(RunQueue):
                 select(RunJobRow)
                 .join(RunRow)
                 .where(
-                    RunRow.status.in_(
-                        [RunStatus.PENDING.value, RunStatus.RUNNING.value]
-                    ),
-                    or_(
-                        RunJobRow.worker_id.is_(None),
-                        RunJobRow.lease_until <= now,
-                    ),
+                    RunRow.status.in_(ACTIVE_STATUSES),
+                    or_(RunJobRow.worker_id.is_(None), RunJobRow.lease_until <= now),
                 )
-                .order_by(
-                    func.coalesce(RunJobRow.queued_at, RunRow.created_at),
-                    RunRow.run_id,
-                )
+                .order_by(func.coalesce(RunJobRow.queued_at, RunRow.created_at), RunRow.run_id)
                 .limit(1)
                 .with_for_update(of=RunJobRow, skip_locked=True)
             )
@@ -167,9 +141,7 @@ class SqlAlchemyRunQueue(RunQueue):
                 raise UnknownRunError(row.run_id)
             if row.execution_profile != self._profile:
                 run.status = RunStatus.FAILED.value
-                run.error = (
-                    "Execution configuration changed; create a new run."
-                )
+                run.error = "Execution configuration changed; create a new run."
                 run.finished_at = now
                 self._free_slot(session)
                 return None
@@ -211,22 +183,14 @@ class SqlAlchemyRunQueue(RunQueue):
         with job_session(self._factory) as session:
             released = session.scalar(
                 update(RunJobRow)
-                .where(
-                    RunJobRow.run_id == job.run.run_id,
-                    RunJobRow.worker_id == job.worker_id,
-                )
-                .values(
-                    worker_id=None, lease_until=None, queued_at=self._clock()
-                )
+                .where(RunJobRow.run_id == job.run.run_id, RunJobRow.worker_id == job.worker_id)
+                .values(worker_id=None, lease_until=None, queued_at=self._clock())
                 .returning(RunJobRow.run_id)
             )
             if released is not None:
                 session.execute(
                     update(RunRow)
-                    .where(
-                        RunRow.run_id == released,
-                        RunRow.status == RunStatus.RUNNING.value,
-                    )
+                    .where(RunRow.run_id == released, RunRow.status == RunStatus.RUNNING.value)
                     .values(status=RunStatus.PENDING.value)
                 )
             self._free_slot(session, job.worker_id)
@@ -235,9 +199,7 @@ class SqlAlchemyRunQueue(RunQueue):
         """Complete the owned run while retaining paged evidence."""
         self._finish(job, RunStatus.COMPLETED, document=document)
 
-    def fail(
-        self, job: RunJob, error: str, *, resumable: bool = False
-    ) -> None:
+    def fail(self, job: RunJob, error: str, *, resumable: bool = False) -> None:
         """Preserve partial evidence when a permanently invalid run fails."""
         self._finish(job, RunStatus.FAILED, error=error, resumable=resumable)
 
@@ -255,17 +217,12 @@ class SqlAlchemyRunQueue(RunQueue):
             row = owned_job(session, job, self._clock())
             finished = session.scalar(
                 update(RunJobRow)
-                .where(
-                    RunJobRow.run_id == row.run_id,
-                    RunJobRow.worker_id == job.worker_id,
-                )
+                .where(RunJobRow.run_id == row.run_id, RunJobRow.worker_id == job.worker_id)
                 .values(worker_id=None, lease_until=None)
                 .returning(RunJobRow.run_id)
             )
             if finished is None:
-                raise LeaseLostError(
-                    "The run was reclaimed before completion."
-                )
+                raise LeaseLostError("The run was reclaimed before completion.")
             run = session.get(RunRow, row.run_id)
             if run is None:
                 raise UnknownRunError(row.run_id)
@@ -277,31 +234,16 @@ class SqlAlchemyRunQueue(RunQueue):
                 }
                 session.execute(
                     insert_for(session, ReportRow)
-                    .values(
-                        run_id=row.run_id,
-                        document=document,
-                    )
-                    .on_conflict_do_update(
-                        index_elements=["run_id"], set_={"document": document}
-                    )
+                    .values(run_id=row.run_id, document=document)
+                    .on_conflict_do_update(index_elements=["run_id"], set_={"document": document})
                 )
                 run.target_model = document["target_model"]
-            run.status, run.error, run.finished_at = (
-                status.value,
-                error,
-                self._clock(),
-            )
-            _event(
-                run,
-                "suspended" if resumable else status.value,
-                run.finished_at,
-            )
+            run.status, run.error, run.finished_at = (status.value, error, self._clock())
+            _event(run, "suspended" if resumable else status.value, run.finished_at)
             run.resumable = resumable
             self._free_slot(session, job.worker_id)
 
-    def _free_slot(
-        self, session: Session, worker_id: str | None = None
-    ) -> None:
+    def _free_slot(self, session: Session, worker_id: str | None = None) -> None:
         """Release the judge slot, only if that worker still holds it."""
         condition = WorkerSlotRow.slot_key == self._slot
         if worker_id is not None:
@@ -313,18 +255,10 @@ class SqlAlchemyRunQueue(RunQueue):
         with job_session(self._factory) as session:
             run = _owned_run(session, run_id, owner_id, lock=True)
             job = session.get(RunJobRow, run_id)
-            if (
-                run.status != RunStatus.FAILED.value
-                or not run.resumable
-                or job is None
-            ):
-                raise ApplicationError(
-                    "This run has no resumable suspended state."
-                )
+            if run.status != RunStatus.FAILED.value or not run.resumable or job is None:
+                raise ApplicationError("This run has no resumable suspended state.")
             if job.execution_profile != self._profile:
-                raise ApplicationError(
-                    "Execution configuration changed; create a new run."
-                )
+                raise ApplicationError("Execution configuration changed; create a new run.")
             job.checkpoint = {**job.checkpoint, "technical_failures": 0}
             job.worker_id, job.lease_until = None, None
             job.queued_at = self._clock()
@@ -342,11 +276,7 @@ class SqlAlchemyRunQueue(RunQueue):
         """Fence worker writes while preserving durable attempt state."""
         with job_session(self._factory) as session:
             run = _owned_run(session, run_id, owner_id, lock=True)
-            if (
-                run.status
-                not in {RunStatus.PENDING.value, RunStatus.RUNNING.value}
-                and not run.resumable
-            ):
+            if run.status not in ACTIVE_STATUSES and not run.resumable:
                 raise ConflictError("This evaluation is already finished.")
             job = session.get(RunJobRow, run_id, with_for_update=True)
             if job is not None:
@@ -361,14 +291,10 @@ class SqlAlchemyRunQueue(RunQueue):
         """Bind writes to this run's worker identity."""
         return SqlAlchemyEvaluationJournal(self._factory, job, self._clock)
 
-    def outcome_page(
-        self, run_id: str, owner_id: str, offset: int, limit: int
-    ) -> dict[str, Any]:
+    def outcome_page(self, run_id: str, owner_id: str, offset: int, limit: int) -> dict[str, Any]:
         """Read one bounded evidence page only after validating ownership."""
         if offset < 0 or not 1 <= limit <= 100:
-            raise ValueError(
-                "Evidence pages require offset >= 0 and limit 1-100."
-            )
+            raise ValueError("Evidence pages require offset >= 0 and limit 1-100.")
         with job_session(self._factory) as session:
             _owned_run(session, run_id, owner_id)
             total = (
@@ -381,34 +307,21 @@ class SqlAlchemyRunQueue(RunQueue):
             )
             rows = session.scalars(
                 select(RunOutcomeRow.document)
-                .where(
-                    RunOutcomeRow.run_id == run_id,
-                )
-                .order_by(
-                    RunOutcomeRow.case_index, RunOutcomeRow.attempt_number
-                )
+                .where(RunOutcomeRow.run_id == run_id)
+                .order_by(RunOutcomeRow.case_index, RunOutcomeRow.attempt_number)
                 .offset(offset)
                 .limit(limit)
             )
-            return {
-                "total": total,
-                "offset": offset,
-                "limit": limit,
-                "items": list(rows),
-            }
+            return {"total": total, "offset": offset, "limit": limit, "items": list(rows)}
 
-    def outcome_documents(
-        self, run_id: str, owner_id: str
-    ) -> Iterator[dict[str, Any]]:
+    def outcome_documents(self, run_id: str, owner_id: str) -> Iterator[dict[str, Any]]:
         """Stream committed evidence after validating ownership."""
         with job_session(self._factory) as session:
             _owned_run(session, run_id, owner_id)
         yield from stored_documents(self._factory, run_id)
 
 
-def _owned_run(
-    session: Session, run_id: str, owner_id: str, *, lock: bool = False
-) -> RunRow:
+def _owned_run(session: Session, run_id: str, owner_id: str, *, lock: bool = False) -> RunRow:
     """Load a run of this owner, hiding other owners' runs as unknown."""
     query = select(RunRow).where(RunRow.run_id == run_id)
     run = session.scalar(query.with_for_update() if lock else query)

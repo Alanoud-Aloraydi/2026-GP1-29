@@ -4,7 +4,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
-from harass.application.ports.account_actions import AccountMailer
+from harass.application.ports.accounts import AccountMailer
 from harass.infrastructure.mail.settings import SmtpSettings
 
 
@@ -30,9 +30,7 @@ class SmtpAccountMailer(AccountMailer):
                 server.login(settings.username, settings.password)
                 server.send_message(message)
         else:
-            with smtplib.SMTP(
-                settings.host, settings.port, timeout=10
-            ) as server:
+            with smtplib.SMTP(settings.host, settings.port, timeout=10) as server:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()

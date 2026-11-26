@@ -6,31 +6,24 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from harass.application.ports.authentication import AuthenticationStore
-from harass.domain.authentication import (
-    AuthenticationSession,
-    User,
-    UserRole,
-)
+from harass.application.ports.accounts import AuthenticationStore
+from harass.domain.authentication import AuthenticationSession, User, UserRole
 from harass.infrastructure.persistence.row_mapping import utc_timestamp
 from harass.infrastructure.persistence.session_factory import SessionFactory
-from harass.infrastructure.persistence.tables import (
-    AuthenticationSessionRow,
-    UserRow,
-)
+from harass.infrastructure.persistence.tables import AuthenticationSessionRow, UserRow
 
 
 class SqlAlchemyAuthenticationStore(AuthenticationStore):
     """Enforce unique accounts and atomic refresh-token rotation."""
 
-    def __init__(self, session_factory: SessionFactory) -> None:
-        """Bind the database-session factory."""
-        self._sessions = session_factory
+    def __init__(self, factory: SessionFactory) -> None:
+        """Bind the factory of database sessions."""
+        self._factory = factory
 
     def register(self, user: User, session: AuthenticationSession) -> bool:
         """Commit a unique account and its first session atomically."""
         try:
-            with self._sessions() as database, database.begin():
+            with self._factory() as database, database.begin():
                 database.add(
                     UserRow(
                         user_id=user.user_id,
@@ -48,19 +41,17 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
 
     def find_user(self, email: str) -> User | None:
         """Read an account by canonical email."""
-        with self._sessions() as database:
-            return _user(
-                database.scalar(select(UserRow).where(UserRow.email == email))
-            )
+        with self._factory() as database:
+            return _user(database.scalar(select(UserRow).where(UserRow.email == email)))
 
     def get_user(self, user_id: str) -> User | None:
         """Read an account by immutable identity."""
-        with self._sessions() as database:
+        with self._factory() as database:
             return _user(database.get(UserRow, user_id))
 
     def set_role(self, user_id: str, role: UserRole) -> bool:
         """Change an account's role, reporting whether the account exists."""
-        with self._sessions() as database, database.begin():
+        with self._factory() as database, database.begin():
             changed = database.scalar(
                 update(UserRow)
                 .where(UserRow.user_id == user_id)
@@ -71,7 +62,7 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
 
     def rename_user(self, user_id: str, full_name: str) -> bool:
         """Change an account's display name; false when it is missing."""
-        with self._sessions() as database, database.begin():
+        with self._factory() as database, database.begin():
             changed = database.scalar(
                 update(UserRow)
                 .where(UserRow.user_id == user_id)
@@ -82,7 +73,7 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
 
     def set_password(self, user_id: str, new_hash: str) -> bool:
         """Replace a password and revoke every session of the account."""
-        with self._sessions() as database, database.begin():
+        with self._factory() as database, database.begin():
             changed = database.scalar(
                 update(UserRow)
                 .where(UserRow.user_id == user_id)
@@ -92,17 +83,13 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
             if changed is None:
                 return False
             database.execute(
-                delete(AuthenticationSessionRow).where(
-                    AuthenticationSessionRow.user_id == user_id
-                )
+                delete(AuthenticationSessionRow).where(AuthenticationSessionRow.user_id == user_id)
             )
         return True
 
-    def add_session(
-        self, session: AuthenticationSession, password_hash: str
-    ) -> bool:
+    def add_session(self, session: AuthenticationSession, password_hash: str) -> bool:
         """Insert a session if the authenticated password is unchanged."""
-        with self._sessions() as database, database.begin():
+        with self._factory() as database, database.begin():
             user = database.get(UserRow, session.user_id, with_for_update=True)
             if user is None or user.password_hash != password_hash:
                 return False
@@ -120,12 +107,12 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
 
     def get_session(self, session_id: str) -> AuthenticationSession | None:
         """Read a session with explicit UTC timestamps."""
-        with self._sessions() as database:
+        with self._factory() as database:
             return _session(database.get(AuthenticationSessionRow, session_id))
 
     def revoke_session(self, session_id: str) -> None:
         """Remove a session idempotently."""
-        with self._sessions() as database, database.begin():
+        with self._factory() as database, database.begin():
             database.execute(
                 delete(AuthenticationSessionRow).where(
                     AuthenticationSessionRow.session_id == session_id
@@ -133,17 +120,11 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
             )
 
     def rotate_session(
-        self,
-        session_id: str,
-        digest: str,
-        replacement: str,
-        expires_at: datetime,
+        self, session_id: str, digest: str, replacement: str, expires_at: datetime
     ) -> AuthenticationSession | None:
         """Rotate by compare-and-swap; known replay revokes the session."""
-        with self._sessions() as database, database.begin():
-            row = database.get(
-                AuthenticationSessionRow, session_id, with_for_update=True
-            )
+        with self._factory() as database, database.begin():
+            row = database.get(AuthenticationSessionRow, session_id, with_for_update=True)
             session = _session(row)
             if row is None or session is None:
                 return None
@@ -161,9 +142,7 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
                 )
                 .values(
                     refresh_hash=replacement,
-                    expires_at=min(
-                        expires_at, session.refresh_expires_at or expires_at
-                    ),
+                    expires_at=min(expires_at, session.refresh_expires_at or expires_at),
                     used_refresh_hashes=[*session.used_refresh_hashes, digest],
                 )
                 .returning(AuthenticationSessionRow.session_id)
@@ -175,7 +154,7 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
 
     def list_sessions(self, user_id: str) -> list[AuthenticationSession]:
         """List unexpired account sessions in creation order."""
-        with self._sessions() as database:
+        with self._factory() as database:
             rows = database.scalars(
                 select(AuthenticationSessionRow)
                 .where(
@@ -189,24 +168,16 @@ class SqlAlchemyAuthenticationStore(AuthenticationStore):
                 .order_by(AuthenticationSessionRow.created_at.desc())
                 .limit(100)
             )
-            return [
-                session
-                for row in rows
-                if (session := _session(row)) is not None
-            ]
+            return [session for row in rows if (session := _session(row)) is not None]
 
-    def revoke_user_sessions(
-        self, user_id: str, session_id: str | None = None
-    ) -> None:
+    def revoke_user_sessions(self, user_id: str, session_id: str | None = None) -> None:
         """Revoke only sessions owned by the authenticated account."""
-        with self._sessions() as database, database.begin():
+        with self._factory() as database, database.begin():
             statement = delete(AuthenticationSessionRow).where(
                 AuthenticationSessionRow.user_id == user_id
             )
             if session_id:
-                statement = statement.where(
-                    AuthenticationSessionRow.session_id == session_id
-                )
+                statement = statement.where(AuthenticationSessionRow.session_id == session_id)
             database.execute(statement)
 
 
@@ -254,9 +225,7 @@ def _session_row(session: AuthenticationSession) -> AuthenticationSessionRow:
     )
 
 
-def _session(
-    row: AuthenticationSessionRow | None,
-) -> AuthenticationSession | None:
+def _session(row: AuthenticationSessionRow | None) -> AuthenticationSession | None:
     """Decode session lifetimes and refresh rotation history."""
     if row is None:
         return None

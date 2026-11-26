@@ -1,143 +1,118 @@
-/* Report page interactions and error recovery. */
-(() => {
-  'use strict';
-  const api = window.HARASS_API;
-  const view = window.HARASS;
+/* Evaluation page: live progress while a run works, then its report. */
+import { api } from '../core/api-client.js';
+import { start } from '../core/bootstrap.js';
+import { runBusy } from '../core/forms.js';
+import { clearError, empty, html, link, PAGE_SIZE, showError } from '../core/ui.js';
+import { reportBody } from '../views/report.js';
+import { evidencePage } from '../views/report-evidence.js';
+import { runHeading, runProgress, updateRunProgress } from '../views/run.js';
 
-  function downloadReport (identifier) {
-    const anchor = document.createElement('a');
-    anchor.href = api.reportExportUrl(identifier);
-    anchor.download = 'harass-' + identifier + '.json';
-    anchor.click();
+// Waiting runs change slowly, so they are checked less often.
+const POLL_MS = { pending: 15000, running: 10000 };
+const ACTIVE = ['pending', 'running'];
+
+function downloadReport (runId) {
+  const anchor = document.createElement('a');
+  anchor.href = api.reportExportUrl(runId);
+  anchor.download = `harass-${runId}.json`;
+  anchor.click();
+}
+
+async function reportPage () {
+  const runId = new URLSearchParams(location.search).get('run_id');
+  if (!runId) throw new Error('لم يُحدد التقييم المطلوب.');
+  const container = document.getElementById('report');
+  let active = true;
+  let timer;
+  let evidenceRequest = 0;
+
+  // Only the newest evidence request may draw, so fast paging cannot show an
+  // older page after a newer one.
+  async function loadEvidence (offset) {
+    const request = ++evidenceRequest;
+    try {
+      const page = await api.getOutcomes(runId, offset);
+      if (!active || request !== evidenceRequest) return;
+      document.getElementById('attemptEvidence').innerHTML = evidencePage(page);
+      document.getElementById('evidencePrevious')
+        ?.addEventListener('click', () => loadEvidence(Math.max(0, offset - PAGE_SIZE)));
+      document.getElementById('evidenceNext')?.addEventListener('click', () => loadEvidence(offset + PAGE_SIZE));
+    } catch (error) {
+      showError(error.message);
+    }
   }
 
-  async function reportPage () {
-    const identifier = new URLSearchParams(location.search).get('run_id');
-    const container = document.getElementById('report');
-    if (!identifier) throw new Error('لم يُحدد التقييم المطلوب.');
-    let active = true;
-    let timer;
-    let evidenceRevision = 0;
-    async function loadEvidence (offset) {
-      const revision = ++evidenceRevision;
-      try {
-        const result = await api.getOutcomes(identifier, offset);
-        if (!active || revision !== evidenceRevision) return;
-        document.getElementById('attemptEvidence').innerHTML =
-          view.evidencePage(result);
-        document
-          .getElementById('evidencePrevious')
-          ?.addEventListener('click', () =>
-            loadEvidence(Math.max(0, offset - 50))
-          );
-        document
-          .getElementById('evidenceNext')
-          ?.addEventListener('click', () => loadEvidence(offset + 50));
-      } catch (error) {
-        view.showError(error.message);
-      }
+  function bindRunAction (id, action) {
+    const button = document.getElementById(id);
+    button.addEventListener('click', () => runBusy(button, async () => {
+      await action(runId);
+      await load();
+    }));
+  }
+
+  async function drawRun (run) {
+    container.dataset.status = run.status;
+    const title = run.status === 'completed' ? 'تقرير التقييم' : 'تفاصيل التقييم';
+    document.getElementById('evaluationTitle').textContent = title;
+    document.title = title + ' — HARASS';
+    container.innerHTML = runHeading(run);
+    if (run.status === 'completed') {
+      const report = await api.getReport(runId);
+      if (!active) return;
+      container.insertAdjacentHTML('beforeend', reportBody(report));
+      document.getElementById('exportReport').addEventListener('click', () => downloadReport(runId));
+      if (report.evidence_paged) await loadEvidence(0);
+    } else {
+      container.insertAdjacentHTML('beforeend', runProgress(run));
     }
-    // Waiting runs change slowly, so they are checked less often.
-    function poll (run) {
-      timer = setTimeout(load, run.status === 'pending' ? 15000 : 10000);
+    if (run.status === 'failed') {
+      container.insertAdjacentHTML('beforeend', run.resumable
+        ? html`<p>توقف التقييم بعد أخطاء تقنية متكررة. تحقق من الاتصال وإعدادات المحكّم ثم استأنف.</p>
+            <button type="button" class="btn" id="resumeRun">استئناف التقييم</button>`
+        : empty(
+          'تعذّر إكمال التقييم', 'راجع اتصال النموذج ثم ابدأ تقييمًا جديدًا.', 'evaluation-setup.html', 'تقييم جديد'
+        ));
+      if (run.resumable) bindRunAction('resumeRun', api.resumeRun);
     }
-    function bindRunAction (buttonId, action) {
-      const button = document.getElementById(buttonId);
-      button.addEventListener('click', async () => {
-        view.busy(button, true);
-        try {
-          await action(identifier);
-          await load();
-        } catch (error) {
-          view.showError(error.message);
-          view.busy(button, false);
-        }
-      });
+    if (ACTIVE.includes(run.status) || run.resumable) {
+      container.insertAdjacentHTML('beforeend',
+        html`<button type="button" class="btn btn-secondary" id="cancelRun">إلغاء التقييم</button>`);
+      bindRunAction('cancelRun', api.cancelRun);
     }
-    async function load () {
-      clearTimeout(timer);
-      view.clearError();
-      try {
-        const run = await api.getRun(identifier);
-        if (!active) return;
-        if (
-          ['pending', 'running'].includes(run.status) &&
-          container.dataset.status === run.status &&
-          container.querySelector('#evaluationProgress')
-        ) {
-          view.updateRunProgress(container, run);
-          poll(run);
-          return;
-        }
-        container.dataset.status = run.status;
-        const title =
-          run.status === 'completed' ? 'تقرير التقييم' : 'تفاصيل التقييم';
-        document.getElementById('evaluationTitle').textContent = title;
-        document.title = title + ' — HARASS';
-        const opened = [...container.querySelectorAll('details')].map(
-          (item) => item.open
-        );
-        const focused = container.contains(document.activeElement)
-          ? document.activeElement.id
-          : null;
-        container.innerHTML = view.runHeading(run);
-        if (run.status === 'completed') {
-          const report = await api.getReport(identifier);
-          if (!active) return;
-          container.insertAdjacentHTML('beforeend', view.reportBody(report));
-          if (report.evidence_paged) await loadEvidence(0);
-          document
-            .getElementById('exportReport')
-            .addEventListener('click', () => downloadReport(identifier));
-        } else if (run.status === 'failed') {
-          container.insertAdjacentHTML('beforeend', view.runProgress(run));
-          container.insertAdjacentHTML(
-            'beforeend',
-            run.resumable
-              ? '<p>توقف التقييم بعد أخطاء تقنية متكررة. تحقق من الاتصال وإعدادات المحكّم ثم استأنف.</p><button type="button" class="btn" id="resumeRun">استئناف التقييم</button>'
-              : view.empty(
-                'تعذّر إكمال التقييم',
-                'راجع اتصال النموذج ثم ابدأ تقييمًا جديدًا.',
-                'evaluation-setup.html',
-                'تقييم جديد'
-              )
-          );
-          if (run.resumable) bindRunAction('resumeRun', api.resumeRun);
-        } else {
-          container.insertAdjacentHTML('beforeend', view.runProgress(run));
-          if (run.status !== 'cancelled') poll(run);
-        }
-        if (['pending', 'running'].includes(run.status) || run.resumable) {
-          container.insertAdjacentHTML(
-            'beforeend',
-            '<button type="button" class="btn btn-secondary" id="cancelRun">إلغاء التقييم</button>'
-          );
-          bindRunAction('cancelRun', api.cancelRun);
-        }
-        container.insertAdjacentHTML(
-          'beforeend',
-          view.link('history.html', 'العودة إلى سجل التقييمات')
-        );
-        container.querySelectorAll('details').forEach((item, index) => {
-          item.open = opened[index] || false;
-        });
+    container.insertAdjacentHTML('beforeend', link('history.html', 'العودة إلى سجل التقييمات'));
+  }
+
+  async function load () {
+    clearError();
+    clearTimeout(timer);
+    try {
+      const run = await api.getRun(runId);
+      if (!active) return;
+      const shownProgress = container.querySelector('#evaluationProgress');
+      if (ACTIVE.includes(run.status) && container.dataset.status === run.status && shownProgress) {
+        updateRunProgress(container, run);
+      } else {
+        // Redrawing must not close what the reader opened or move their focus.
+        const opened = [...container.querySelectorAll('details')].map((item) => item.open);
+        const focused = container.contains(document.activeElement) ? document.activeElement.id : null;
+        await drawRun(run);
+        container.querySelectorAll('details').forEach((item, index) => { item.open = opened[index] || false; });
         if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
-      } catch (error) {
-        if (!active) return;
-        view.showError(error.message);
-        container.innerHTML =
-          '<button type="button" class="btn" id="retryReport">إعادة المحاولة</button>';
-        document.getElementById('retryReport').addEventListener('click', load);
       }
+      if (ACTIVE.includes(run.status)) timer = setTimeout(load, POLL_MS[run.status]);
+    } catch (error) {
+      if (!active) return;
+      showError(error.message);
+      container.innerHTML = html`<button type="button" class="btn" id="retryReport">إعادة المحاولة</button>`;
+      document.getElementById('retryReport').addEventListener('click', load);
     }
-    window.addEventListener('pagehide', () => {
-      active = false;
-      clearTimeout(timer);
-    });
-    await load();
   }
 
-  Object.assign((window.HARASS_PAGES ||= {}), {
-    'evaluation-run': reportPage
+  window.addEventListener('pagehide', () => {
+    active = false;
+    clearTimeout(timer);
   });
-})();
+  await load();
+}
+
+start(reportPage);

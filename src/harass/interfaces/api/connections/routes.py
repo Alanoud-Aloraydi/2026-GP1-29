@@ -6,38 +6,26 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from starlette.responses import Response
 
 from harass.application.connections import ManageConnections
-from harass.application.errors import (
-    UnknownConnectionError,
-)
+from harass.application.errors import UnknownConnectionError
 from harass.domain.model_connection import ModelConnection
 from harass.interfaces.api.accounts.dependencies import authenticated_owner
-from harass.interfaces.api.connections.schemas import (
-    ConnectionRequest,
-    ConnectionResponse,
-)
-from harass.interfaces.api.evaluations.mapping import validated_identifier
+from harass.interfaces.api.connections.schemas import ConnectionRequest, ConnectionResponse
+from harass.interfaces.api.identifiers import validated_identifier
 
 
-def install_connection_routes(
-    app: FastAPI, connections: ManageConnections
-) -> None:
+def install_connection_routes(app: FastAPI, connections: ManageConnections) -> None:
     """Register the endpoints with their injected application service."""
 
-    @app.post(
-        "/connections", response_model=ConnectionResponse, status_code=201
-    )
+    @app.post("/connections", response_model=ConnectionResponse, status_code=201)
     def add_connection(
         body: ConnectionRequest, owner: str = Depends(authenticated_owner)
     ) -> ModelConnection:
         """Persist an owned model connection with encrypted credentials."""
         if body.api_key is None:
             raise HTTPException(
-                status_code=400,
-                detail="An API key is required to add a connection.",
+                status_code=400, detail="An API key is required to add a connection."
             )
-        return connections.add(
-            owner, body.base_url, body.model_name, body.api_key
-        )
+        return connections.add(owner, body.base_url, body.model_name, body.api_key)
 
     @app.get("/connections", response_model=list[ConnectionResponse])
     def list_connections(
@@ -56,15 +44,11 @@ def install_connection_routes(
         connection_id: str, owner: str = Depends(authenticated_owner)
     ) -> ModelConnection:
         """Read owned metadata without exposing an API key."""
-        return connections.get(
-            owner, validated_identifier(connection_id, UnknownConnectionError)
-        )
+        return connections.get(owner, validated_identifier(connection_id, UnknownConnectionError))
 
     @app.put("/connections/{connection_id}", response_model=ConnectionResponse)
     def update_connection(
-        connection_id: str,
-        body: ConnectionRequest,
-        owner: str = Depends(authenticated_owner),
+        connection_id: str, body: ConnectionRequest, owner: str = Depends(authenticated_owner)
     ) -> ModelConnection:
         """Replace an owned connection using its expected revision."""
         return connections.update(
@@ -76,10 +60,7 @@ def install_connection_routes(
             expected_revision=body.revision,
         )
 
-    @app.post(
-        "/connections/{connection_id}/verify",
-        response_model=ConnectionResponse,
-    )
+    @app.post("/connections/{connection_id}/verify", response_model=ConnectionResponse)
     async def verify_connection(
         connection_id: str, owner: str = Depends(authenticated_owner)
     ) -> ModelConnection:
