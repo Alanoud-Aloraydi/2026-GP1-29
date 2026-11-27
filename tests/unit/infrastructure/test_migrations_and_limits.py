@@ -149,7 +149,7 @@ def test_generator_rows_gain_their_target_and_axis_and_reverse(database_engine: 
                 "transform_names, content_sha256, reviewer_passed, reviewer_notes, intent_safe, "
                 "attempts, created_at) VALUES (:prompt, 'OR-DIN-VIO-MSA-00001', 'OR', "
                 "'OR-DIN-VIO-MSA', 'homonym', 'C-1', 0, 'w', 'l', 's', '', '[]', 'sha', "
-                "1, '{}', 1, 1, '2026-01-01T00:00:00+00:00')"
+                "TRUE, '{}', TRUE, 1, '2026-01-01T00:00:00+00:00')"
             ),
             {"prompt": prompt},
         )
