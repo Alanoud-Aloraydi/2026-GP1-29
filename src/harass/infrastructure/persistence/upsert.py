@@ -9,9 +9,7 @@ from sqlalchemy.orm import Session
 from harass.infrastructure.persistence.tables import Base
 
 
-def insert_for(
-    session: Session, model: type[Base]
-) -> PostgreSQLInsert | SQLiteInsert:
+def insert_for(session: Session, model: type[Base]) -> PostgreSQLInsert | SQLiteInsert:
     """Select supported dialect-specific conflict handling."""
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":

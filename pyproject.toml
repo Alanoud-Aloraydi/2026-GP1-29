@@ -20,17 +20,15 @@ dependencies = [
     "openpyxl==3.1.5",
     "pyrit==1.1.0",
     "python-dotenv==1.2.4",
-    "pyyaml==6.0.3",
     "PyJWT==2.15.1",
 ]
 
 [project.scripts]
-harass = "harass.bootstrap.cli:main"
 harass-api = "harass.bootstrap.api:run"
 harass-worker = "harass.bootstrap.worker:main"
-harass-review = "harass.bootstrap.review_cli:main"
-harass-judge-benchmark = "harass.bootstrap.judge_benchmark:main"
+harass-reports = "harass.bootstrap.reports:main"
 harass-admin = "harass.bootstrap.administrators:main"
+harass-generate = "harass.bootstrap.generation:main"
 
 [project.optional-dependencies]
 dev = [
@@ -39,7 +37,6 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "ruff==0.17.0",
-    "types-PyYAML==6.0.12.20260906",
     "types-openpyxl==3.1.5.20260807",
 ]
 
@@ -47,15 +44,24 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-harass = ["**/*.yaml", "**/*.mako", "**/*.sha256", "**/migrations/versions/*.py", "**/migrations/env.py"]
+harass = ["**/*.mako", "**/*.sha256", "**/migrations/versions/*.py", "**/migrations/env.py"]
 
 [tool.ruff]
-line-length = 79
+line-length = 100
 target-version = "py313"
 src = ["src", "tests"]
 
+[tool.ruff.format]
+# Short calls and imports stay on one line instead of one item per line.
+skip-magic-trailing-comma = true
+
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "D", "UP", "B", "ANN", "SIM", "RUF"]
+# Arabic alef and heh are real letters in Arabic prompts mixed with digits.
+allowed-confusables = ["ا", "ه"]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

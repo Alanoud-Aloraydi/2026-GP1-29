@@ -1,6 +1,7 @@
 """PyRIT scorers that take their verdicts from the Qwen3Guard server."""
 
 import asyncio
+from abc import abstractmethod
 from collections import OrderedDict
 from time import perf_counter
 
@@ -33,13 +34,11 @@ class GuardModerator:
     def __init__(self, client: httpx.AsyncClient) -> None:
         """Bind the server client."""
         self._client = client
-        self._pending: OrderedDict[
-            tuple[str, str], asyncio.Task[tuple[Moderation, float]]
-        ] = OrderedDict()
+        self._pending: OrderedDict[tuple[str, str], asyncio.Task[tuple[Moderation, float]]] = (
+            OrderedDict()
+        )
 
-    async def moderate(
-        self, request: str, response: str
-    ) -> tuple[Moderation, float]:
+    async def moderate(self, request: str, response: str) -> tuple[Moderation, float]:
         """Return the moderation and the seconds the request took."""
         key = (request, response)
         task = self._pending.get(key)
@@ -50,9 +49,7 @@ class GuardModerator:
                 self._pending.popitem(last=False)
         return await task
 
-    async def _timed(
-        self, request: str, response: str
-    ) -> tuple[Moderation, float]:
+    async def _timed(self, request: str, response: str) -> tuple[Moderation, float]:
         """Moderate once and measure how long the server took."""
         started = perf_counter()
         moderation = await moderate(self._client, request, response)
@@ -65,17 +62,15 @@ class GuardScorer(MessageTrueFalseScorer):
     def __init__(self, *, moderator: GuardModerator) -> None:
         """Bind the shared moderator."""
         self._moderator = moderator
-        super().__init__(
-            validator=ScorerPromptValidator(supported_data_types=["text"])
-        )
+        super().__init__(validator=ScorerPromptValidator(supported_data_types=["text"]))
 
     def _build_identifier(self) -> ComponentIdentifier:
         """Identify the scorer by its class; the server names its model."""
         return self._create_identifier(params={})
 
+    @abstractmethod
     def _verdict(self, moderation: Moderation) -> tuple[bool, str, str]:
         """Return the true or false value, its category and its rationale."""
-        raise NotImplementedError
 
     async def _score_piece_async(
         self, message_piece: MessagePiece, *, objective: str | None = None

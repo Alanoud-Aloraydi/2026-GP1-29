@@ -11,9 +11,7 @@ import pytest
 from harass.application.accounts.administrators import ManageAdministrators
 from harass.application.accounts.errors import UnknownAccountError
 from harass.domain.authentication import User, UserRole
-from harass.interfaces.cli.administrator_command import (
-    run_administrator_command,
-)
+from harass.interfaces.cli.administrator_command import run_administrator_command
 
 USER = User("id-1", "Member", "member@example.test", "hash")
 
@@ -25,9 +23,7 @@ def service(**behaviour: object) -> ManageAdministrators:
 
 def test_grant_reports_the_new_administrator() -> None:
     """A successful grant names the account and exits cleanly."""
-    administrators = service(
-        **{"grant.return_value": replace(USER, role=UserRole.ADMINISTRATOR)}
-    )
+    administrators = service(**{"grant.return_value": replace(USER, role=UserRole.ADMINISTRATOR)})
     output = io.StringIO()
 
     status = run_administrator_command(
@@ -54,11 +50,7 @@ def test_revoke_reports_the_plain_user() -> None:
 def test_unknown_account_is_an_error() -> None:
     """A missing account prints an error and exits with failure."""
     administrators = service(
-        **{
-            "grant.side_effect": UnknownAccountError(
-                "No account has this email."
-            )
-        }
+        **{"grant.side_effect": UnknownAccountError("No account has this email.")}
     )
     output = io.StringIO()
 
@@ -67,9 +59,7 @@ def test_unknown_account_is_an_error() -> None:
     )
 
     assert status == 1
-    assert "Administrator error: No account has this email." in (
-        output.getvalue()
-    )
+    assert "Administrator error: No account has this email." in (output.getvalue())
 
 
 def test_email_is_required() -> None:

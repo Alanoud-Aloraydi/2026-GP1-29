@@ -5,16 +5,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>حَرَس — تقييم سلامة النماذج العربية</title>
-    <meta
-      name="description"
-      content="تقييم مقاومة الاختراق والرفض المفرط في نماذج اللغة العربية.">
-    <link rel="stylesheet" href="assets/css/styles.css?v=47">
-    <script src="assets/js/core/ui.js?v=47" defer></script>
-    <script src="assets/js/core/api-client.js?v=47" defer></script>
-    <script src="assets/js/core/forms.js?v=47" defer></script>
-    <script src="assets/js/core/bootstrap.js?v=47" defer></script>
+    <meta name="description" content="تقييم مقاومة الاختراق والرفض المفرط في نماذج اللغة العربية.">
+    <link rel="stylesheet" href="assets/css/styles.css?v=58">
+    <script type="module" src="assets/js/core/bootstrap.js?v=58"></script>
   </head>
-  <body data-page="home">
+  <body data-page="home" data-public>
     <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
     <div class="page">
       <header data-shell-header></header>
@@ -24,7 +19,7 @@
             <div>
               <span class="hero-badge">تقييم سلامة النماذج اللغوية بالعربية</span>
               <h1 class="hero-title">اختبر سلامة نموذجك بالفصحى <mark>وأربع لهجات</mark></h1>
-              <p class="lead">نقيس أمرين معًا: ألّا يُخدَع نموذجك بطلب ضار، وألّا يرفض طلبًا مشروعًا بلا مبرر. وتصلك النتائج في تقرير مفصّل بالأدلة.</p>
+              <p>نقيس أمرين معًا: ألّا يُخدَع نموذجك بطلب ضار، وألّا يرفض طلبًا مشروعًا بلا مبرر. وتصلك النتائج في تقرير مفصّل بالأدلة.</p>
               <div class="hero-actions">
                 <a class="btn btn-primary" href="signup.html">أنشئ حسابًا وابدأ</a>
                 <a class="btn" href="#how">كيف يعمل التقييم؟</a>
@@ -34,20 +29,20 @@
             <div class="example">
               <figure class="card" aria-label="مثال توضيحي لتقرير تقييم">
                 <div class="report-heading">
-                  <strong class="num">demo-model-a</strong>
+                  <strong class="number">demo-model-a</strong>
                   <span class="status-label status-completed">اكتمل التقييم</span>
                 </div>
                 <div class="metric-grid">
-                  <div class="metric-card attack"><p class="metric-label">نسبة نجاح الاختراق</p><p class="metric-value num">22.0%</p><p class="hint">22 من 100 · الأقل أفضل</p></div>
-                  <div class="metric-card refusal"><p class="metric-label">نسبة الرفض المفرط</p><p class="metric-value num">20.0%</p><p class="hint">40 من 200 · الأقل أفضل</p></div>
+                  <div class="metric-card attack"><p class="metric-label">نسبة نجاح الاختراق</p><p class="metric-value number">22.0%</p><p class="hint">22 من 100 · الأقل أفضل</p></div>
+                  <div class="metric-card refusal"><p class="metric-label">نسبة الرفض المفرط</p><p class="metric-value number">20.0%</p><p class="hint">40 من 200 · الأقل أفضل</p></div>
                 </div>
                 <div>
                   <h3>نجاح الاختراق حسب اللهجة</h3>
-            <div class="bar-row"><span class="bar-label">الفصحى</span><div class="track track-attack"><span data-fill="25.0"></span></div><span class="num">25.0%</span></div>
-            <div class="bar-row"><span class="bar-label">النجدية</span><div class="track track-attack"><span data-fill="23.5"></span></div><span class="num">23.5%</span></div>
-            <div class="bar-row"><span class="bar-label">الحجازية</span><div class="track track-attack"><span data-fill="17.6"></span></div><span class="num">17.6%</span></div>
-            <div class="bar-row"><span class="bar-label">المصرية</span><div class="track track-attack"><span data-fill="23.5"></span></div><span class="num">23.5%</span></div>
-            <div class="bar-row"><span class="bar-label">الشامية</span><div class="track track-attack"><span data-fill="17.6"></span></div><span class="num">17.6%</span></div>
+            <div class="bar-row"><span class="bar-label">الفصحى</span><div class="track track-attack"><span data-fill="25.0"></span></div><span class="number">25.0%</span></div>
+            <div class="bar-row"><span class="bar-label">النجدية</span><div class="track track-attack"><span data-fill="23.5"></span></div><span class="number">23.5%</span></div>
+            <div class="bar-row"><span class="bar-label">الحجازية</span><div class="track track-attack"><span data-fill="17.6"></span></div><span class="number">17.6%</span></div>
+            <div class="bar-row"><span class="bar-label">المصرية</span><div class="track track-attack"><span data-fill="23.5"></span></div><span class="number">23.5%</span></div>
+            <div class="bar-row"><span class="bar-label">الشامية</span><div class="track track-attack"><span data-fill="17.6"></span></div><span class="number">17.6%</span></div>
                 </div>
                 <figcaption class="hint">مثال ببيانات تجريبية</figcaption>
               </figure>
@@ -114,7 +109,7 @@
             </div>
             <div class="card" role="group" aria-label="مثال توضيحي لحالة دليل">
               <div class="report-heading">
-                <strong class="num">DEMO-0001</strong>
+                <strong class="number">DEMO-0001</strong>
                 <span class="chip">مقاومة الاختراق · النجدية</span>
               </div>
               <dl>

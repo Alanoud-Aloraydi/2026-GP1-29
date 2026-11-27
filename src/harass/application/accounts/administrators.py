@@ -4,10 +4,7 @@ from dataclasses import replace
 
 from harass.application.accounts.errors import UnknownAccountError
 from harass.application.accounts.password_policy import PasswordPolicy
-from harass.application.ports.authentication import (
-    AuthenticationSecurity,
-    AuthenticationStore,
-)
+from harass.application.ports.accounts import AuthenticationSecurity, AuthenticationStore
 from harass.domain.authentication import User, UserRole
 
 
@@ -47,9 +44,7 @@ class ManageAdministrators:
         if user is None:
             raise UnknownAccountError("No account has this email.")
         self._passwords.validate(password)
-        if not self._store.set_password(
-            user.user_id, self._security.hash_password(password)
-        ):
+        if not self._store.set_password(user.user_id, self._security.hash_password(password)):
             raise UnknownAccountError("No account has this email.")
         return user
 

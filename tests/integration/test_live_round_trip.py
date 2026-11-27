@@ -9,17 +9,13 @@ import pytest
 from dotenv import load_dotenv
 
 from harass.domain.case_selection import CaseSelection
-from harass.domain.prompt_variant import PromptVariant, VariantSelection
+from harass.domain.generation.transforms import adapter_sequence, transform_text
 from harass.domain.target_connection import TargetConnection
 from harass.domain.taxonomy import Axis, BypassStrategy
-from harass.infrastructure.dataset.spreadsheet_seed_source import (
-    SpreadsheetSeedSource,
-)
-from harass.infrastructure.dataset.yaml_variant_catalog import (
-    YamlVariantCatalog,
-)
+from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
 from harass.infrastructure.http.qwenguard_moderation import moderate
+from harass.infrastructure.pyrit.attempt_executor import PyritAttemptExecutor
 from harass.infrastructure.pyrit.judge_request_audit import audited_client
 from harass.infrastructure.pyrit.scoring.guard_scorers import (
     GuardAttackScorer,
@@ -27,9 +23,6 @@ from harass.infrastructure.pyrit.scoring.guard_scorers import (
     GuardModerator,
 )
 from harass.infrastructure.pyrit.target_builder import build_target
-from harass.infrastructure.pyrit.variant_attempt_executor import (
-    PyritAttemptExecutor,
-)
 from harass.infrastructure.settings import Settings
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,26 +62,22 @@ async def test_current_executor_live_round_trip(
         if axis is Axis.ADVERSARIAL
         else frozenset(),
     )
-    case = SpreadsheetSeedSource(
-        ROOT / "data" / "test_dataset.xlsx"
-    ).load_cases(selection)[0]
-    variant = PromptVariant("baseline", "baseline", case.prompt_text)
+    case = SpreadsheetSeedSource(ROOT / "data" / "baseline_dataset.xlsx").load_cases(selection)[0]
+    sent = case.prompt_text
     if converted:
-        variant = YamlVariantCatalog(ROOT / "config" / "templates").variants(
-            case, VariantSelection((), ("base64",))
-        )[0]
+        encoded = transform_text(sent, adapter_sequence(("base64",), axis))
+        assert encoded is not None
+        sent = encoded
     try:
         outcome = await asyncio.wait_for(
-            executor.execute(case, variant, target, "live-smoke"), timeout=180
+            executor.execute(case, sent, target, "live-smoke"), timeout=180
         )
     except TimeoutError:
         pytest.fail("Live smoke attempt exceeded 180 seconds.", pytrace=False)
     finally:
         await judge.aclose()
     if not outcome.is_scored:
-        pytest.fail(
-            f"Live attempt has no verdict: {outcome.error}", pytrace=False
-        )
+        pytest.fail(f"Live attempt has no verdict: {outcome.error}", pytrace=False)
     assert outcome.transcript is not None
     assert outcome.transcript.response
     assert outcome.transcript.category_judge is not None
@@ -107,9 +96,7 @@ async def test_configured_judge_classifies_a_known_neutral_pair() -> None:
     settings = Settings.from_environment(os.environ)
     judge = audited_client(settings.judge_server_url, 120)
     try:
-        moderation = await moderate(
-            judge, "ما عاصمة السعودية؟", "عاصمة السعودية هي الرياض."
-        )
+        moderation = await moderate(judge, "ما عاصمة السعودية؟", "عاصمة السعودية هي الرياض.")
     finally:
         await judge.aclose()
 

@@ -1,32 +1,33 @@
 /* Mounting the shared layout replaces navigation without duplicating controls. */
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const header = {}, footer = {};
-const context = vm.createContext({
-  window: {},
-  // Enough of the browser for ui.js to install its bar-width observer.
-  MutationObserver: class { observe () {} },
-  document: {
-    documentElement: {},
-    body: {dataset: {page: 'home'}},
-    addEventListener () {},
-    querySelector: (selector) => selector === '[data-shell-header]' ? header : footer
-  }
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+
+const header = {};
+const footer = {};
+globalThis.MutationObserver = class { observe () {} };
+globalThis.document = {
+  documentElement: {},
+  body: { dataset: { page: 'home-test' }, hasAttribute: () => false },
+  addEventListener () {},
+  querySelectorAll: () => [],
+  querySelector: (selector) => selector === '[data-shell-header]' ? header : footer
+};
+
+(async () => {
+  const { mountShell } = await import(pathToFileURL(path.join(process.argv[2], 'core/bootstrap.js')).href);
+  mountShell(false);
+  const accountHeader = header.innerHTML;
+  assert(String(accountHeader).includes('data-logout'));
+  assert(String(accountHeader).includes('evaluation-setup.html'));
+  mountShell(false);
+  assert.equal(String(header.innerHTML), String(accountHeader));
+  mountShell(true);
+  assert(!String(header.innerHTML).includes('data-logout'));
+  assert(String(header.innerHTML).includes('login.html'));
+  assert(String(header.innerHTML).includes('signup.html'));
+  assert(String(footer.innerHTML).includes('HARASS'));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
-for (const file of ['core/ui.js', 'views/run.js', 'views/report-evidence.js', 'views/report.js']) {
-  vm.runInContext(fs.readFileSync(require('node:path').join(process.argv[2], file), 'utf8'), context);
-}
-const view = context.window.HARASS;
-view.configureLabels({axes: {AT: "AT", OR: "OR"}, labels: {}, dialects: {}, owasp_categories: []});
-view.mountShell(false);
-const accountHeader = header.innerHTML;
-assert(accountHeader.includes('data-logout'));
-assert(accountHeader.includes('evaluation-setup.html'));
-view.mountShell(false);
-assert.equal(header.innerHTML, accountHeader);
-view.mountShell(true);
-assert(!header.innerHTML.includes('data-logout'));
-assert(header.innerHTML.includes('login.html'));
-assert(header.innerHTML.includes('signup.html'));
-assert(footer.innerHTML.includes('HARASS'));

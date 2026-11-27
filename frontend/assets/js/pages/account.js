@@ -1,146 +1,91 @@
-/* Profile, activity summary and owner-scoped session management. */
-(() => {
-  'use strict';
-  const api = window.HARASS_API;
-  const view = window.HARASS;
-  const element = (id) => document.getElementById(id);
+/* Profile, activity summary and the account's sessions. */
+import { api } from '../core/api-client.js';
+import { start } from '../core/bootstrap.js';
+import { bindSubmit, runBusy } from '../core/forms.js';
+import { date, figures, html, table } from '../core/ui.js';
 
-  // Runs a button's action; the button is re-enabled only when it fails.
-  async function act (button, action) {
-    view.busy(button, true);
-    try {
-      await action();
-    } catch (error) {
-      view.showError(error.message);
-      view.busy(button, false);
-    }
+const element = (id) => document.getElementById(id);
+const runLink = (run) => 'evaluation-run.html?run_id=' + encodeURIComponent(run.run_id);
+
+const sessionColumns = [
+  { title: 'الجلسة', cell: (session) => session.current ? 'الجلسة الحالية' : 'جلسة أخرى' },
+  { title: 'أُنشئت', cell: (session) => date(session.created_at) },
+  { title: 'تنتهي', cell: (session) => date(session.expires_at) },
+  {
+    title: 'الإجراء',
+    cell: (session) => session.current
+      ? '—'
+      : html`<button class="btn btn-sm" type="button" data-revoke="${session.session_id}">إنهاء الجلسة</button>`
   }
+];
 
-  async function sessionList () {
-    const container = element('sessions');
-    async function loadSessions () {
-      const sessions = await api.sessions();
-      container.innerHTML = view.table(
-        'جلسات حسابك',
-        ['الجلسة', 'أُنشئت', 'تنتهي', 'الإجراء'],
-        sessions.map((session) =>
-          view.tableRow(session.current ? 'الجلسة الحالية' : 'جلسة أخرى', [
-            view.escape(view.date(session.created_at)),
-            view.escape(view.date(session.expires_at)),
-            session.current
-              ? '—'
-              : '<button class="btn btn-sm" data-revoke="' +
-                view.escape(session.session_id) +
-                '">إنهاء الجلسة</button>'
-          ])
-        )
-      );
-    }
-    container.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-revoke]');
-      if (!button) return;
-      act(button, async () => {
+async function sessions () {
+  const container = element('sessions');
+  const load = async () => {
+    container.innerHTML = table('جلسات حسابك', sessionColumns, await api.sessions());
+  };
+  container.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-revoke]');
+    if (button) {
+      runBusy(button, async () => {
         await api.revokeSession(button.dataset.revoke);
-        await loadSessions();
+        await load();
       });
-    });
-    element('logoutAll').addEventListener('click', (event) =>
-      act(event.currentTarget, async () => {
-        await api.logoutAll();
-        location.href = 'login.html';
-      })
-    );
-    await loadSessions();
-  }
-
-  function nameEditor (user) {
-    const form = element('nameForm');
-    const editButton = element('editName');
-    const input = element('fullName');
-    function toggle (editing) {
-      form.hidden = !editing;
-      editButton.hidden = editing;
-      if (editing) {
-        input.value = user.full_name;
-        input.focus();
-      } else {
-        editButton.focus();
-      }
     }
-    editButton.addEventListener('click', () => toggle(true));
-    element('cancelName').addEventListener('click', () => toggle(false));
-    window.HARASS_FORMS.bindSubmit(form, async () => {
-      await api.updateProfile({ full_name: input.value });
-      location.reload();
-    });
-  }
+  });
+  element('logoutAll').addEventListener('click', (event) => runBusy(event.currentTarget, async () => {
+    await api.logoutAll();
+    location.href = 'login.html';
+  }));
+  await load();
+}
 
-  function verification (user, verifiable) {
-    const button = element('sendVerification');
-    button.hidden = !verifiable || user.email_verified;
-    button.addEventListener('click', () =>
-      act(button, async () => {
-        await api.requestVerification();
-        button.textContent = 'أُرسل رابط التحقق إلى بريدك';
-      })
-    );
-  }
+function nameEditor (user) {
+  const form = element('nameForm');
+  const editButton = element('editName');
+  const input = element('fullName');
+  const toggle = (editing) => {
+    form.hidden = !editing;
+    editButton.hidden = editing;
+    if (editing) input.value = user.full_name;
+    (editing ? input : editButton).focus();
+  };
+  editButton.addEventListener('click', () => toggle(true));
+  element('cancelName').addEventListener('click', () => toggle(false));
+  bindSubmit(form, async () => {
+    await api.updateProfile({ full_name: input.value });
+    location.reload();
+  });
+}
 
-  async function identity () {
-    const [user, features] = await Promise.all([api.me(), api.features()]);
-    const verifiable = features.account_email_enabled;
-    element('profileEmail').textContent = user.email;
-    const badges = [];
-    if (user.role === 'admin') badges.push('مسؤول');
-    if (verifiable) {
-      badges.push(user.email_verified ? 'البريد موثّق' : 'البريد غير موثّق');
-    }
-    element('profileBadges').innerHTML = badges
-      .map((label) => '<span class="chip">' + view.escape(label) + '</span>')
-      .join('');
-    if (user.created_at) {
-      element('profileSince').textContent =
-        'عضو منذ ' + view.date(user.created_at);
-    }
-    nameEditor(user);
-    verification(user, verifiable);
-  }
+async function identity () {
+  const [user, features] = await Promise.all([api.me(), api.features()]);
+  const verifiable = features.account_email_enabled;
+  const badges = [
+    user.role === 'admin' && 'مسؤول',
+    verifiable && (user.email_verified ? 'البريد موثّق' : 'البريد غير موثّق')
+  ].filter(Boolean);
+  element('profileEmail').textContent = user.email;
+  element('profileBadges').innerHTML = html`${badges.map((badge) => html`<span class="chip">${badge}</span>`)}`;
+  if (user.created_at) element('profileSince').textContent = 'عضو منذ ' + date(user.created_at);
+  nameEditor(user);
+  const verify = element('sendVerification');
+  verify.hidden = !verifiable || user.email_verified;
+  verify.addEventListener('click', () => runBusy(verify, async () => {
+    await api.requestVerification();
+    verify.textContent = 'أُرسل رابط التحقق إلى بريدك';
+  }));
+}
 
-  async function activity () {
-    const [connections, history] = await Promise.all([
-      api.connectionPage(),
-      api.runPage()
-    ]);
-    const latest = history.items[0];
-    const figures = [
-      [connections.total, 'اتصالات محفوظة'],
-      [history.total, 'تقييمات في السجل'],
-      [
-        latest
-          ? '<a href="evaluation-run.html?run_id=' +
-            view.escape(encodeURIComponent(latest.run_id)) +
-            '">' +
-            view.escape(view.date(latest.created_at)) +
-            '</a>'
-          : '—',
-        'آخر تقييم'
-      ]
-    ];
-    element('activity').innerHTML = figures
-      .map(
-        ([value, label]) =>
-          '<div><strong>' +
-          (typeof value === 'number' ? view.escape(value) : value) +
-          '</strong><span>' +
-          label +
-          '</span></div>'
-      )
-      .join('');
-  }
+async function activity () {
+  const [connections, history] = await Promise.all([api.connectionPage(), api.runPage()]);
+  const latest = history.items[0];
+  const activityFigures = [
+    [connections.total, 'اتصالات محفوظة'],
+    [history.total, 'تقييمات في السجل'],
+    [latest ? html`<a href="${runLink(latest)}">${date(latest.created_at)}</a>` : '—', 'آخر تقييم']
+  ];
+  element('activity').innerHTML = html`${figures(activityFigures)}`;
+}
 
-  async function accountPage () {
-    await Promise.all([identity(), activity(), sessionList()]);
-  }
-
-  Object.assign((window.HARASS_PAGES ||= {}), { account: accountPage });
-})();
+start(() => Promise.all([identity(), activity(), sessions()]));

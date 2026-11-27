@@ -1,6 +1,7 @@
 {
   "name": "harass-frontend",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "check": "pnpm run check:javascript && pnpm run check:html && pnpm run check:css",

@@ -39,6 +39,4 @@ class ModelConnection:
         """Reject connections that could not address a model."""
         validate_endpoint(self.base_url, self.model_name)
         if self.status is ConnectionStatus.FAILED and not self.failure_reason:
-            raise InvalidTargetConnectionError(
-                "A failed connection must state why it failed."
-            )
+            raise InvalidTargetConnectionError("A failed connection must state why it failed.")

@@ -8,9 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.accounts.errors import AuthenticationError
 from harass.domain.authentication import User, UserRole
-from harass.interfaces.api.accounts.cookies import (
-    COOKIE_NAME,
-)
+from harass.interfaces.api.accounts.cookies import COOKIE_NAME
 
 
 async def authenticated_owner(request: Request) -> str:
@@ -27,17 +25,14 @@ async def administrator(request: Request) -> User:
     """
     user = await authenticated_user(request)
     if user.role is not UserRole.ADMINISTRATOR:
-        raise HTTPException(
-            status_code=403, detail="Administrator access required."
-        )
+        raise HTTPException(status_code=403, detail="Administrator access required.")
     return user
 
 
 async def authenticated_user(request: Request) -> User:
     """Resolve a live account through a signed revocable cookie."""
     authentication = cast(
-        ManageAuthentication | None,
-        getattr(request.app.state, "authentication", None),
+        ManageAuthentication | None, getattr(request.app.state, "authentication", None)
     )
     token = request.cookies.get(COOKIE_NAME)
     if authentication is None or token is None:
@@ -45,6 +40,4 @@ async def authenticated_user(request: Request) -> User:
     try:
         return await run_in_threadpool(authentication.authenticate, token)
     except AuthenticationError as error:
-        raise HTTPException(
-            status_code=401, detail="Session is invalid or expired."
-        ) from error
+        raise HTTPException(status_code=401, detail="Session is invalid or expired.") from error

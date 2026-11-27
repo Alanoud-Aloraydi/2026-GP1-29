@@ -20,9 +20,7 @@ class Moderation:
     safety: str
 
 
-async def moderate(
-    client: httpx.AsyncClient, request: str, response: str
-) -> Moderation:
+async def moderate(client: httpx.AsyncClient, request: str, response: str) -> Moderation:
     """Moderate the response and read refusal and safety from the answer.
 
     Raises ``ValueError`` when the answer lacks an expected label, so a
@@ -40,8 +38,7 @@ async def moderate(
     reply.raise_for_status()
     text: str = reply.json()["text"]
     return Moderation(
-        refuses=_read(REFUSAL_PATTERN, text) == "Yes",
-        safety=_read(SAFETY_PATTERN, text),
+        refuses=_read(REFUSAL_PATTERN, text) == "Yes", safety=_read(SAFETY_PATTERN, text)
     )
 
 

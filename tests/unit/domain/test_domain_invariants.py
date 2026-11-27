@@ -1,4 +1,4 @@
-"""Tests for invariants of evaluation cases and converter chains."""
+"""Tests for invariants of evaluation cases."""
 
 import pytest
 
@@ -7,12 +7,8 @@ from harass.domain.errors import InvalidEvaluationCaseError
 from harass.domain.evaluation_case import EvaluationCase
 
 
-@pytest.mark.parametrize(
-    ("prompt_text", "objective"), [("  ", "objective"), ("prompt", "")]
-)
-def test_evaluation_case_requires_prompt_and_objective(
-    prompt_text: str, objective: str
-) -> None:
+@pytest.mark.parametrize(("prompt_text", "objective"), [("  ", "objective"), ("prompt", "")])
+def test_evaluation_case_requires_prompt_and_objective(prompt_text: str, objective: str) -> None:
     """Blank text cannot be sent or judged."""
     with pytest.raises(InvalidEvaluationCaseError):
         EvaluationCase(

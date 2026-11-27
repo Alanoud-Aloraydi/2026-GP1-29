@@ -11,34 +11,18 @@ depends_on = None
 
 def upgrade() -> None:
     """Preserve existing sessions while adding nullable refresh credentials."""
+    op.add_column("authentication_sessions", sa.Column("created_at", sa.DateTime(timezone=True)))
+    op.add_column(
+        "authentication_sessions", sa.Column("refresh_expires_at", sa.DateTime(timezone=True))
+    )
+    op.add_column("authentication_sessions", sa.Column("refresh_hash", sa.String(64)))
     op.add_column(
         "authentication_sessions",
-        sa.Column("created_at", sa.DateTime(timezone=True)),
-    )
-    op.add_column(
-        "authentication_sessions",
-        sa.Column("refresh_expires_at", sa.DateTime(timezone=True)),
-    )
-    op.add_column(
-        "authentication_sessions", sa.Column("refresh_hash", sa.String(64))
-    )
-    op.add_column(
-        "authentication_sessions",
-        sa.Column(
-            "used_refresh_hashes",
-            sa.JSON(),
-            nullable=False,
-            server_default="[]",
-        ),
+        sa.Column("used_refresh_hashes", sa.JSON(), nullable=False, server_default="[]"),
     )
 
 
 def downgrade() -> None:
     """Remove refresh metadata while retaining accounts and evaluations."""
-    for column in (
-        "used_refresh_hashes",
-        "refresh_hash",
-        "refresh_expires_at",
-        "created_at",
-    ):
+    for column in ("used_refresh_hashes", "refresh_hash", "refresh_expires_at", "created_at"):
         op.drop_column("authentication_sessions", column)

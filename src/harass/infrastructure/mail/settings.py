@@ -34,36 +34,26 @@ class SmtpSettings:
             or not self.username
             or not self.password
         ):
-            raise SettingsError(
-                "A valid authenticated TLS SMTP setup is required."
-            )
+            raise SettingsError("A valid authenticated TLS SMTP setup is required.")
         if (
             not parsed.hostname
             or parsed.username
             or parsed.password
             or parsed.query
             or parsed.fragment
-            or not (
-                parsed.scheme == "https" or (parsed.scheme == "http" and local)
-            )
+            or not (parsed.scheme == "https" or (parsed.scheme == "http" and local))
         ):
-            raise SettingsError(
-                "HARASS_PUBLIC_URL must be a trusted HTTPS URL."
-            )
+            raise SettingsError("HARASS_PUBLIC_URL must be a trusted HTTPS URL.")
 
     @classmethod
     def from_environment(cls, values: Mapping[str, str]) -> "SmtpSettings":
         """Load required provider settings without reflecting secret values."""
         names = ("HOST", "FROM", "USERNAME", "PASSWORD")
-        settings = {
-            name: values.get("HARASS_SMTP_" + name, "") for name in names
-        }
+        settings = {name: values.get("HARASS_SMTP_" + name, "") for name in names}
         try:
             port = int(values.get("HARASS_SMTP_PORT", "587"))
         except ValueError as error:
-            raise SettingsError(
-                "HARASS_SMTP_PORT must be an integer."
-            ) from error
+            raise SettingsError("HARASS_SMTP_PORT must be an integer.") from error
         return cls(
             settings["HOST"],
             port,

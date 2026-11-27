@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from harass.application.ports.account_actions import AccountActionStore
+from harass.application.ports.accounts import AccountActionStore
 from harass.domain.account_action import AccountAction, AccountActionPurpose
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import (
@@ -21,18 +21,18 @@ class SqlAlchemyAccountActionStore(AccountActionStore):
     """Serialize account changes and enforce single-use token consumption."""
 
     def __init__(self, factory: SessionFactory) -> None:
-        """Bind the database-session factory."""
+        """Bind the factory of database sessions."""
         self._factory = factory
 
     def issue(self, action: AccountAction) -> bool:
         """Replace an earlier action only for unchanged account credentials."""
-        with self._factory() as database, database.begin():
-            user = database.get(UserRow, action.user_id, with_for_update=True)
+        with self._factory() as session, session.begin():
+            user = session.get(UserRow, action.user_id, with_for_update=True)
             if user is None or not hmac.compare_digest(
                 _fingerprint(user.password_hash), action.credential_hash
             ):
                 return False
-            database.execute(
+            session.execute(
                 delete(AccountActionRow).where(
                     (AccountActionRow.expires_at <= datetime.now(UTC))
                     | (
@@ -41,7 +41,7 @@ class SqlAlchemyAccountActionStore(AccountActionStore):
                     )
                 )
             )
-            database.add(
+            session.add(
                 AccountActionRow(
                     action_id=action.action_id,
                     user_id=action.user_id,
@@ -57,13 +57,9 @@ class SqlAlchemyAccountActionStore(AccountActionStore):
         """Consume verification and persist the verified-email state."""
         return self._consume(digest, now, AccountActionPurpose.VERIFY_EMAIL)
 
-    def reset_password(
-        self, digest: str, password_hash: str, now: datetime
-    ) -> bool:
+    def reset_password(self, digest: str, password_hash: str, now: datetime) -> bool:
         """Change credentials and revoke sessions in the token transaction."""
-        return self._consume(
-            digest, now, AccountActionPurpose.RESET_PASSWORD, password_hash
-        )
+        return self._consume(digest, now, AccountActionPurpose.RESET_PASSWORD, password_hash)
 
     def _consume(
         self,
@@ -73,31 +69,28 @@ class SqlAlchemyAccountActionStore(AccountActionStore):
         password_hash: str | None = None,
     ) -> bool:
         """Lock the owner before claiming a purpose-bound token by deletion."""
-        with self._factory() as database, database.begin():
-            owner = database.scalar(
-                select(AccountActionRow.user_id).where(
-                    AccountActionRow.token_hash == digest
-                )
+        with self._factory() as session, session.begin():
+            owner = session.scalar(
+                select(AccountActionRow.user_id).where(AccountActionRow.token_hash == digest)
             )
             if owner is None:
                 return False
-            user = database.get(UserRow, owner, with_for_update=True)
+            user = session.get(UserRow, owner, with_for_update=True)
             if user is None:
                 return False
-            claimed = database.scalar(
+            claimed = session.scalar(
                 delete(AccountActionRow)
                 .where(
                     AccountActionRow.token_hash == digest,
                     AccountActionRow.purpose == purpose.value,
                     AccountActionRow.expires_at > now,
-                    AccountActionRow.credential_hash
-                    == _fingerprint(user.password_hash),
+                    AccountActionRow.credential_hash == _fingerprint(user.password_hash),
                 )
                 .returning(AccountActionRow.action_id)
             )
             if claimed is None:
                 return False
-            return _update_account(database, user, password_hash)
+            return _update_account(session, user, password_hash)
 
 
 def _fingerprint(password_hash: str) -> str:
@@ -105,16 +98,11 @@ def _fingerprint(password_hash: str) -> str:
     return hashlib.sha256(password_hash.encode()).hexdigest()
 
 
-def _update_account(
-    database: Session, user: UserRow, password_hash: str | None
-) -> bool:
+def _update_account(session: Session, user: UserRow, password_hash: str | None) -> bool:
     """Apply a guarded account change and revoke reset-related state."""
-    changed = database.scalar(
+    changed = session.scalar(
         update(UserRow)
-        .where(
-            UserRow.user_id == user.user_id,
-            UserRow.password_hash == user.password_hash,
-        )
+        .where(UserRow.user_id == user.user_id, UserRow.password_hash == user.password_hash)
         .values(
             {"password_hash": password_hash}
             if password_hash is not None
@@ -125,14 +113,8 @@ def _update_account(
     if changed is None:
         return False
     if password_hash is not None:
-        database.execute(
-            delete(AuthenticationSessionRow).where(
-                AuthenticationSessionRow.user_id == user.user_id
-            )
+        session.execute(
+            delete(AuthenticationSessionRow).where(AuthenticationSessionRow.user_id == user.user_id)
         )
-        database.execute(
-            delete(AccountActionRow).where(
-                AccountActionRow.user_id == user.user_id
-            )
-        )
+        session.execute(delete(AccountActionRow).where(AccountActionRow.user_id == user.user_id))
     return True

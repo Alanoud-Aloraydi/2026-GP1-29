@@ -12,7 +12,7 @@ from uuid import UUID
 import jwt
 
 from harass.application.accounts.errors import AuthenticationError
-from harass.application.ports.authentication import AuthenticationSecurity
+from harass.application.ports.accounts import AuthenticationSecurity
 from harass.domain.authentication import AuthenticationSession
 
 _PASSWORD_WORK = BoundedSemaphore(2)
@@ -26,33 +26,20 @@ class JwtAuthenticationSecurity(AuthenticationSecurity):
     key is independent of Fernet.
     """
 
-    def __init__(
-        self, signing_key: str, *, previous_keys: tuple[str, ...] = ()
-    ) -> None:
+    def __init__(self, signing_key: str, *, previous_keys: tuple[str, ...] = ()) -> None:
         """Require at least 32 UTF-8 bytes of signing-key material."""
         if len(signing_key.encode()) < 32:
-            raise ValueError(
-                "HARASS_JWT_SECRET must contain at least 32 bytes."
-            )
+            raise ValueError("HARASS_JWT_SECRET must contain at least 32 bytes.")
         self._signing_key = signing_key
-        if len(previous_keys) > 2 or any(
-            len(key.encode()) < 32 for key in previous_keys
-        ):
-            raise ValueError(
-                "Use at most two previous JWT keys of at least 32 bytes."
-            )
+        if len(previous_keys) > 2 or any(len(key.encode()) < 32 for key in previous_keys):
+            raise ValueError("Use at most two previous JWT keys of at least 32 bytes.")
         self._verification_keys = (signing_key, *previous_keys)
 
     def hash_password(self, password: str) -> str:
         """Derive a 32-byte hash with a fresh 16-byte salt."""
         salt = secrets.token_bytes(16)
         digest = self._derive(password, salt)
-        return (
-            "scrypt$"
-            + base64.b64encode(salt).decode()
-            + "$"
-            + base64.b64encode(digest).decode()
-        )
+        return "scrypt$" + base64.b64encode(salt).decode() + "$" + base64.b64encode(digest).decode()
 
     def verify_password(self, password: str, stored_hash: str) -> bool:
         """Verify with constant-time hash comparison."""
@@ -89,38 +76,16 @@ class JwtAuthenticationSecurity(AuthenticationSecurity):
 
     def decode_session(self, token: str) -> AuthenticationSession:
         """Validate access-token signatures, claims and identity fields."""
+        invalid = AuthenticationError("Session is invalid or expired.")
         try:
             claims = self._decode(token)
-            if not isinstance(claims["sub"], str) or not claims["sub"]:
-                raise AuthenticationError("Session is invalid or expired.")
-            if not isinstance(claims["jti"], str) or not claims["jti"]:
-                raise AuthenticationError("Session is invalid or expired.")
-            if any(
-                type(claims[name]) is not int for name in ("exp", "iat", "nbf")
-            ):
-                raise AuthenticationError("Session is invalid or expired.")
-            expiry, issued = cast(int, claims["exp"]), cast(int, claims["iat"])
-            if (
-                claims["token_type"] != "access"
-                or not 0 < expiry - issued <= 86400
-            ):
-                raise AuthenticationError("Session is invalid or expired.")
-            for name in ("sub", "jti"):
-                claims[name] = str(UUID(str(claims[name])))
-            return AuthenticationSession(
-                claims["jti"],
-                claims["sub"],
-                datetime.fromtimestamp(expiry, UTC),
-            )
-        except (
-            jwt.InvalidTokenError,
-            ValueError,
-            OverflowError,
-            OSError,
-        ) as error:
-            raise AuthenticationError(
-                "Session is invalid or expired."
-            ) from error
+            if not _valid_claims(claims):
+                raise invalid
+            session_id, user_id = (str(UUID(str(claims[name]))) for name in ("jti", "sub"))
+            expiry = datetime.fromtimestamp(cast(int, claims["exp"]), UTC)
+            return AuthenticationSession(session_id, user_id, expiry)
+        except (jwt.InvalidTokenError, ValueError, OverflowError, OSError) as error:
+            raise invalid from error
 
     def _decode(self, token: str) -> dict[str, object]:
         """Allow a bounded rotation window while retaining all claim checks."""
@@ -133,34 +98,26 @@ class JwtAuthenticationSecurity(AuthenticationSecurity):
                     issuer="harass",
                     audience="harass-web",
                     options={
-                        "require": [
-                            "sub",
-                            "jti",
-                            "exp",
-                            "iat",
-                            "nbf",
-                            "iss",
-                            "aud",
-                            "token_type",
-                        ]
+                        "require": ["sub", "jti", "exp", "iat", "nbf", "iss", "aud", "token_type"]
                     },
                 )
             except jwt.InvalidSignatureError:
                 continue
-        raise jwt.InvalidSignatureError(
-            "No configured key verifies this token."
-        )
+        raise jwt.InvalidSignatureError("No configured key verifies this token.")
 
     @staticmethod
     def _derive(password: str, salt: bytes) -> bytes:
         """Derive a bounded-memory salted password hash using scrypt."""
         with _PASSWORD_WORK:
             return hashlib.scrypt(
-                password.encode(),
-                salt=salt,
-                n=131072,
-                r=8,
-                p=1,
-                dklen=32,
-                maxmem=256 * 1024 * 1024,
+                password.encode(), salt=salt, n=131072, r=8, p=1, dklen=32, maxmem=256 * 1024 * 1024
             )
+
+
+def _valid_claims(claims: dict[str, object]) -> bool:
+    """Require non-empty identities, integer times and a bounded access lifetime."""
+    identities = all(isinstance(claims[name], str) and claims[name] for name in ("sub", "jti"))
+    times = all(type(claims[name]) is int for name in ("exp", "iat", "nbf"))
+    if not identities or not times or claims["token_type"] != "access":
+        return False
+    return 0 < cast(int, claims["exp"]) - cast(int, claims["iat"]) <= 86400

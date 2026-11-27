@@ -18,14 +18,8 @@ def install_security_headers(app: FastAPI, secure_cookie: bool) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=()"
-        )
-        if request.url.path not in {
-            "/docs",
-            "/redoc",
-            "/docs/oauth2-redirect",
-        }:
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if request.url.path not in {"/docs", "/redoc", "/docs/oauth2-redirect"}:
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; "
                 "style-src 'self'; img-src 'self' data:; "
@@ -33,6 +27,10 @@ def install_security_headers(app: FastAPI, secure_cookie: bool) -> None:
                 "object-src 'none'; base-uri 'self'; "
                 "form-action 'self'"
             )
+        # Pages and the modules they import carry no version in every URL,
+        # so the browser must revalidate them rather than guess a lifetime.
+        # Responses that set their own policy, such as no-store, keep it.
+        response.headers.setdefault("Cache-Control", "no-cache")
         if secure_cookie:
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response

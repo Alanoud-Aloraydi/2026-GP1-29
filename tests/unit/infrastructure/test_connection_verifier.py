@@ -4,13 +4,9 @@ import httpx
 import pytest
 
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.http.openai_connection_verifier import (
-    OpenAIConnectionVerifier,
-)
+from harass.infrastructure.http.openai_connection_verifier import OpenAIConnectionVerifier
 
-TARGET = TargetConnection(
-    base_url="https://api.invalid/v1", model_name="model", api_key="k"
-)
+TARGET = TargetConnection(base_url="https://api.invalid/v1", model_name="model", api_key="k")
 
 
 def verifier_with(handler: object) -> OpenAIConnectionVerifier:
@@ -38,9 +34,7 @@ async def test_served_model_passes() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer k"
         if request.method == "POST":
-            return httpx.Response(
-                200, json={"choices": [{"message": {"content": "Hello"}}]}
-            )
+            return httpx.Response(200, json={"choices": [{"message": {"content": "Hello"}}]})
         return httpx.Response(200, json={"data": [{"id": "model"}]})
 
     assert await run(handler) is None
@@ -56,9 +50,7 @@ async def test_unauthorized_is_reported() -> None:
 
 async def test_absent_model_is_reported() -> None:
     """A reachable endpoint that lacks the model fails with a clear reason."""
-    result = await run(
-        lambda request: httpx.Response(200, json={"data": [{"id": "other"}]})
-    )
+    result = await run(lambda request: httpx.Response(200, json={"data": [{"id": "other"}]}))
 
     assert result is not None and "model" in result
 
@@ -80,9 +72,7 @@ def test_public_targets_require_https_and_disable_redirects() -> None:
 
     with pytest.raises(httpx.ConnectError):
         EndpointPolicy().transport("http://target.example/v1")
-    transport = EndpointPolicy(("localhost",)).transport(
-        "http://localhost:9000/v1"
-    )
+    transport = EndpointPolicy(("localhost",)).transport("http://localhost:9000/v1")
     assert transport is not None
 
 
@@ -113,8 +103,6 @@ async def test_dns_policy_blocks_mixed_addresses_and_pins_public_ip(
     with pytest.raises(httpcore.ConnectError, match="denied"):
         await backend.connect_tcp("target.example", 443)
     connect.assert_not_awaited()
-    resolve.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
-    ]
+    resolve.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
     await backend.connect_tcp("target.example", 443)
     assert connect.call_args.args[:2] == ("8.8.8.8", 443)

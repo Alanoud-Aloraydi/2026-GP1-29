@@ -21,15 +21,10 @@ class ConnectionRow(Base):
 
     __tablename__ = "connections"
     __table_args__ = (
-        UniqueConstraint(
-            "connection_id", "owner_id", name="uq_connections_identity_owner"
-        ),
-        ForeignKeyConstraint(
-            ["owner_id"], ["users.user_id"], name="fk_connections_owner"
-        ),
+        UniqueConstraint("connection_id", "owner_id", name="uq_connections_identity_owner"),
+        ForeignKeyConstraint(["owner_id"], ["users.user_id"], name="fk_connections_owner"),
         CheckConstraint(
-            "status IN ('not_tested', 'connected', 'failed')",
-            name="ck_connections_status",
+            "status IN ('not_tested', 'connected', 'failed')", name="ck_connections_status"
         ),
         CheckConstraint("revision >= 0", name="ck_connections_revision"),
     )
@@ -40,16 +35,8 @@ class ConnectionRow(Base):
     model_name: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16))
     failure_reason: Mapped[str | None] = mapped_column(Text, default=None)
-    last_tested_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     encrypted_api_key: Mapped[str] = mapped_column(Text)
-    revision: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0"
-    )
-    created_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

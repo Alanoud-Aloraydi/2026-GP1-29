@@ -12,13 +12,7 @@ depends_on: str | None = None
 def upgrade() -> None:
     """Apply this schema revision."""
     op.add_column(
-        "runs",
-        sa.Column(
-            "resumable",
-            sa.Boolean(),
-            server_default=sa.false(),
-            nullable=False,
-        ),
+        "runs", sa.Column("resumable", sa.Boolean(), server_default=sa.false(), nullable=False)
     )
     op.create_table(
         "worker_slots",
@@ -39,18 +33,10 @@ def upgrade() -> None:
         sa.Column("worker_id", sa.String(length=64), nullable=True),
         sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("queued_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["run_id"],
-            ["runs.run_id"],
-        ),
+        sa.ForeignKeyConstraint(["run_id"], ["runs.run_id"]),
         sa.PrimaryKeyConstraint("run_id"),
     )
-    op.create_index(
-        op.f("ix_run_jobs_lease_until"),
-        "run_jobs",
-        ["lease_until"],
-        unique=False,
-    )
+    op.create_index(op.f("ix_run_jobs_lease_until"), "run_jobs", ["lease_until"], unique=False)
     op.create_table(
         "run_outcomes",
         sa.Column("run_id", sa.String(length=64), nullable=False),
@@ -58,32 +44,17 @@ def upgrade() -> None:
         sa.Column("attempt_number", sa.Integer(), nullable=False),
         sa.Column("document", sa.JSON(), nullable=False),
         sa.Column("metric_document", sa.JSON(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["run_id"],
-            ["runs.run_id"],
-        ),
+        sa.ForeignKeyConstraint(["run_id"], ["runs.run_id"]),
         sa.PrimaryKeyConstraint("run_id", "case_index", "attempt_number"),
     )
     op.add_column(
-        "runs",
-        sa.Column(
-            "total_cases", sa.Integer(), server_default="0", nullable=False
-        ),
+        "runs", sa.Column("total_cases", sa.Integer(), server_default="0", nullable=False)
     )
     op.add_column(
-        "runs",
-        sa.Column(
-            "completed_cases", sa.Integer(), server_default="0", nullable=False
-        ),
+        "runs", sa.Column("completed_cases", sa.Integer(), server_default="0", nullable=False)
     )
     op.add_column(
-        "runs",
-        sa.Column(
-            "completed_attempts",
-            sa.Integer(),
-            server_default="0",
-            nullable=False,
-        ),
+        "runs", sa.Column("completed_attempts", sa.Integer(), server_default="0", nullable=False)
     )
 
 

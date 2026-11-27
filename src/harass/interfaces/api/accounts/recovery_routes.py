@@ -7,10 +7,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from harass.application.accounts.errors import (
-    InvalidAccountActionError,
-    PasswordRejectedError,
-)
+from harass.application.accounts.errors import InvalidAccountActionError, PasswordRejectedError
 from harass.application.accounts.recovery import AccountRecovery
 from harass.interfaces.api.accounts.cookies import SessionCookies
 from harass.interfaces.api.accounts.dependencies import authenticated_user
@@ -38,31 +35,21 @@ def install_recovery_routes(
     service = recovery
 
     @app.exception_handler(InvalidAccountActionError)
-    async def invalid_action(
-        _: Request, error: InvalidAccountActionError
-    ) -> JSONResponse:
+    async def invalid_action(_: Request, error: InvalidAccountActionError) -> JSONResponse:
         """Keep expired, invalid and consumed token failures identical."""
-        return JSONResponse(
-            status_code=400, content={"code": "account_link_invalid"}
-        )
+        return JSONResponse(status_code=400, content={"code": "account_link_invalid"})
 
     @app.post("/auth/password/forgot", status_code=202)
-    def forgot_password(
-        body: RecoveryEmailRequest, background: BackgroundTasks
-    ) -> dict[str, str]:
+    def forgot_password(body: RecoveryEmailRequest, background: BackgroundTasks) -> dict[str, str]:
         """Acknowledge requests before account lookup or mail delivery."""
         background.add_task(_deliver, service.request_reset, body.email)
         return {"status": "accepted"}
 
     @app.post("/auth/email/request-verification", status_code=202)
-    async def request_verification(
-        request: Request, background: BackgroundTasks
-    ) -> dict[str, str]:
+    async def request_verification(request: Request, background: BackgroundTasks) -> dict[str, str]:
         """Deliver only to the authenticated account's registered email."""
         user = await authenticated_user(request)
-        background.add_task(
-            _deliver, service.request_verification, user.user_id
-        )
+        background.add_task(_deliver, service.request_verification, user.user_id)
         return {"status": "accepted"}
 
     @app.post("/auth/email/verify", status_code=204)
@@ -75,13 +62,9 @@ def install_recovery_routes(
     async def reset_password(body: PasswordResetRequest) -> Response:
         """Change the password and require a subsequent explicit login."""
         try:
-            await run_in_threadpool(
-                service.reset, body.token, body.new_password
-            )
+            await run_in_threadpool(service.reset, body.token, body.new_password)
         except PasswordRejectedError:
-            return JSONResponse(
-                status_code=400, content={"code": "password_rejected"}
-            )
+            return JSONResponse(status_code=400, content={"code": "password_rejected"})
         return cookies.clear()
 
 

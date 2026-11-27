@@ -20,9 +20,7 @@ class SeedGroup:
     @property
     def missing_varieties(self) -> frozenset[ArabicVariety]:
         """Expose incomplete groups without manufacturing translations."""
-        return frozenset(ArabicVariety) - {
-            case.identifier.variety for case in self.cases
-        }
+        return frozenset(ArabicVariety) - {case.identifier.variety for case in self.cases}
 
 
 def group_seeds(cases: Sequence[EvaluationCase]) -> tuple[SeedGroup, ...]:

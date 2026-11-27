@@ -1,70 +1,92 @@
-/* Account initialization and page-controller dispatch. */
-(() => {
-  'use strict';
+/* Shared page layout, account initialization and page-controller start. */
+import { api } from './api-client.js';
+import { runBusy } from './forms.js';
+import { configureCatalogue, html, link, showError } from './ui.js';
 
-  const api = window.HARASS_API;
-  const view = window.HARASS;
-  const page = document.body.dataset.page;
-  const publicPages = ['home', 'login', 'signup', 'forgot-password', 'reset-password', 'verify-email'];
-  const section =
-    {
-      'model-configuration': 'connections'
-    }[page] || page;
+const page = document.body.dataset.page;
+const isPublic = document.body.hasAttribute('data-public');
 
-  function initializeNavigation () {
-    document.querySelectorAll('.main-nav a').forEach((anchor) => {
-      if (anchor.getAttribute('href') === section + '.html') {
-        anchor.setAttribute(
-          'aria-current',
-          section === page ? 'page' : 'location'
-        );
-      }
-    });
-    window.addEventListener('pageshow', (event) => {
-      if (event.persisted) location.reload();
-    });
+const publicNavigation = [
+  ['#measure', 'ماذا نقيس'], ['#dialects', 'اللهجات'], ['#how', 'كيف يعمل'], ['#evidence', 'التقرير']
+];
+const accountNavigation = [
+  ['dashboard.html', 'نظرة عامة'], ['connections.html', 'اتصالات النماذج'],
+  ['evaluation-setup.html', 'تقييم جديد'], ['history.html', 'سجل التقييمات']
+];
+// The server enforces the role; this only decides whether to offer the links.
+const adminNavigation = [['judges.html', 'مقارنة المحكّمين']];
+// A page that belongs to another section marks that section's link.
+const section = { 'model-configuration': 'connections' }[page] || page;
+
+const navigationLink = ([path, label]) => {
+  const current = path === section + '.html' && (section === page ? 'page' : 'location');
+  return html`<a href="${path}" ${current && html`aria-current="${current}"`}>${label}</a>`;
+};
+
+const accountActions = html`
+  <a class="user-link" href="account.html" aria-label="أمان الحساب">
+    <span class="avatar" data-user-initial aria-hidden="true"></span><span data-user-name></span>
+  </a>
+  <button class="btn btn-sm" data-logout type="button">تسجيل الخروج</button>`;
+
+export function mountShell (publicPage) {
+  const header = document.querySelector('[data-shell-header]');
+  if (!header) return;
+  const showMenu = !publicPage || page === 'home';
+  header.className = publicPage ? 'public-header' : 'app-header';
+  header.innerHTML = html`
+    <div class="container">
+      <a class="brand" href="${publicPage ? 'index.html' : 'dashboard.html'}">
+        <img src="assets/images/harass-logo.png" alt="HARASS">
+      </a>
+      ${showMenu && html`<nav class="main-nav" aria-label="التنقل الرئيسي">${
+        (publicPage ? publicNavigation : accountNavigation).map(navigationLink)
+      }</nav>`}
+      <div class="header-actions">${publicPage
+        ? [link('login.html', 'تسجيل الدخول'), link('signup.html', 'إنشاء حساب', true)]
+        : accountActions}</div>
+    </div>`;
+  document.querySelector('[data-shell-footer]').innerHTML = html`
+    <div class="container"><p>حَرَس · تقييم سلامة النماذج العربية</p><p>© 2026 HARASS</p></div>`;
+}
+
+async function initializeAccount () {
+  const user = await api.me();
+  if (user.role === 'admin') {
+    document.querySelector('.main-nav')?.insertAdjacentHTML('beforeend', html`${adminNavigation.map(navigationLink)}`);
   }
+  document.querySelectorAll('[data-user-name]').forEach((element) => { element.textContent = user.full_name; });
+  document.querySelectorAll('[data-user-initial]').forEach((element) => {
+    element.textContent = user.full_name.trim().charAt(0);
+  });
+  document.querySelectorAll('[data-logout]').forEach((button) => button.addEventListener('click', () =>
+    runBusy(button, async () => {
+      await api.logout();
+      location.href = 'login.html';
+    })
+  ));
+  configureCatalogue(await api.options());
+}
 
-  async function initializeAccount () {
-    const user = await api.me();
-    view.showAdminNavigation(user);
-    document.querySelectorAll('[data-user-name]').forEach((element) => {
-      element.textContent = user.full_name;
-    });
-    document.querySelectorAll('[data-user-initial]').forEach((element) => {
-      element.textContent = user.full_name.trim().charAt(0);
-    });
-    document.querySelectorAll('[data-logout]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        view.busy(button, true);
-        try {
-          await api.logout();
-          location.href = 'login.html';
-        } catch {
-          view.showError('تعذّر تسجيل الخروج. أعد المحاولة.');
-          view.busy(button, false);
-        }
-      });
-    });
+/**
+ * Mount the layout, load the account on private pages, then run the page
+ * controller. Forms are blocked first so no field can be submitted natively
+ * while initialization is pending.
+ */
+export async function start (controller) {
+  document.querySelectorAll('form').forEach((form) => {
+    form.addEventListener('submit', (event) => event.preventDefault());
+  });
+  mountShell(isPublic);
+  // A page restored from the back-forward cache would show stale data.
+  window.addEventListener('pageshow', (event) => { if (event.persisted) location.reload(); });
+  try {
+    if (!isPublic) await initializeAccount();
+    await controller?.();
+  } catch (error) {
+    showError(error.message || 'تعذّر تحميل الصفحة. أعد تحميلها للمحاولة مجددًا.');
   }
+}
 
-  async function start () {
-    // Prevent native form submission while account and page initialization are pending.
-    document.querySelectorAll('form').forEach((form) => {
-      form.addEventListener('submit', (event) => event.preventDefault());
-    });
-    view.mountShell(publicPages.includes(page));
-    initializeNavigation();
-    if (page === 'home') return;
-    if (publicPages.includes(page)) { return window.HARASS_PAGES[page](); }
-    await initializeAccount();
-    view.configureLabels(await api.options());
-    await window.HARASS_PAGES[page]?.();
-  }
-
-  start().catch((error) =>
-    view.showError(
-      error.message || 'تعذّر تحميل الصفحة. أعد تحميلها للمحاولة مجددًا.'
-    )
-  );
-})();
+// The home page has no controller of its own, so it loads this module alone.
+if (page === 'home') start();

@@ -3,6 +3,7 @@
 from harass.infrastructure.persistence.tables.accounts import (
     AccountActionRow,
     AuthenticationSessionRow,
+    RequestLimitRow,
     UserRow,
 )
 from harass.infrastructure.persistence.tables.base import ENTITY_ID, Base
@@ -15,16 +16,13 @@ from harass.infrastructure.persistence.tables.evaluations import (
     WorkerPresenceRow,
     WorkerSlotRow,
 )
-from harass.infrastructure.persistence.tables.judge_benchmarks import (
-    JudgeBenchmarkReportRow,
+from harass.infrastructure.persistence.tables.generation import (
+    GeneratorCardRow,
+    GeneratorLessonRow,
+    GeneratorOutcomeRow,
+    GeneratorPromptRow,
 )
-from harass.infrastructure.persistence.tables.request_limits import (
-    RequestLimitRow,
-)
-from harass.infrastructure.persistence.tables.research import (
-    GeneratedPromptRow,
-    PromptFindingRow,
-)
+from harass.infrastructure.persistence.tables.judge_reports import JudgeBenchmarkReportRow
 
 __all__ = [
     "ENTITY_ID",
@@ -32,9 +30,11 @@ __all__ = [
     "AuthenticationSessionRow",
     "Base",
     "ConnectionRow",
-    "GeneratedPromptRow",
+    "GeneratorCardRow",
+    "GeneratorLessonRow",
+    "GeneratorOutcomeRow",
+    "GeneratorPromptRow",
     "JudgeBenchmarkReportRow",
-    "PromptFindingRow",
     "ReportRow",
     "RequestLimitRow",
     "RunJobRow",

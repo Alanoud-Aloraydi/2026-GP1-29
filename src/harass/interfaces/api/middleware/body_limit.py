@@ -16,9 +16,7 @@ class RequestBodyLimit:
         self.app = app
         self.max_bytes = max_bytes
 
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Reject oversized bodies before application handlers run."""
         if scope["type"] != "http" or scope["method"] not in BODY_METHODS:
             await self.app(scope, receive, send)
@@ -32,9 +30,9 @@ class RequestBodyLimit:
             chunk = message.get("body", b"")
             size += len(chunk)
             if size > self.max_bytes:
-                await JSONResponse(
-                    {"detail": "Request body is too large."}, status_code=413
-                )(scope, receive, send)
+                await JSONResponse({"detail": "Request body is too large."}, status_code=413)(
+                    scope, receive, send
+                )
                 return
             chunks.append(chunk)
             if not message.get("more_body", False):
@@ -46,11 +44,7 @@ class RequestBodyLimit:
             nonlocal replayed
             if not replayed:
                 replayed = True
-                return {
-                    "type": "http.request",
-                    "body": b"".join(chunks),
-                    "more_body": False,
-                }
+                return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
             return await receive()
 
         await self.app(scope, replay, send)

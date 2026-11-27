@@ -4,9 +4,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from harass.application.errors import SecretCipherError
-from harass.infrastructure.security.fernet_secret_cipher import (
-    FernetSecretCipher,
-)
+from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
 
 SECRET = "sk-test-placeholder"
 
@@ -30,15 +28,16 @@ def test_token_does_not_contain_the_secret(cipher: FernetSecretCipher) -> None:
 def test_altered_token_is_rejected(cipher: FernetSecretCipher) -> None:
     """Fernet authenticates tokens, so any change is detected."""
     token = cipher.encrypt(SECRET)
-    altered = token[:-2] + ("A" if token[-2] != "A" else "B") + token[-1]
+    # The last characters before the padding carry unused bits, so a change
+    # there can decode to the same bytes; a middle character always matters.
+    middle = len(token) // 2
+    altered = token[:middle] + ("A" if token[middle] != "A" else "B") + token[middle + 1 :]
 
     with pytest.raises(SecretCipherError):
         cipher.decrypt(altered)
 
 
-def test_token_from_another_key_is_rejected(
-    cipher: FernetSecretCipher,
-) -> None:
+def test_token_from_another_key_is_rejected(cipher: FernetSecretCipher) -> None:
     """A token is readable only with the key that produced it."""
     other = FernetSecretCipher(Fernet.generate_key().decode("ascii"))
 

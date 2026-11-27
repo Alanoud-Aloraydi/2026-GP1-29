@@ -26,54 +26,34 @@ from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from harass.application.accounts.authentication import (
-    ManageAuthentication,
-)
+from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.connections import ManageConnections
+from harass.application.evaluation.baseline_engine import BaselineEngine
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.evaluation.variant_engine import (
-    VariantEvaluationEngine,
-)
 from harass.application.evaluation.worker import ProcessRuns
-from harass.application.ports.connection_verifier import ConnectionVerifier
-from harass.application.ports.seed_source import SeedSource
+from harass.application.ports.connections import ConnectionVerifier
+from harass.application.ports.evaluation import SeedSource
 from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.dataset.spreadsheet_seed_source import (
-    SpreadsheetSeedSource,
-)
-from harass.infrastructure.dataset.yaml_variant_catalog import (
-    YamlVariantCatalog,
-)
+from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.persistence.sqlalchemy_connections import (
-    SqlAlchemyConnectionStore,
-)
-from harass.infrastructure.persistence.sqlalchemy_jobs import (
-    SqlAlchemyRunQueue,
-)
-from harass.infrastructure.persistence.sqlalchemy_runs import (
-    SqlAlchemyRunStore,
-)
+from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_generation import SqlAlchemyGeneratedEvidence
+from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
+from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
 from harass.infrastructure.persistence.tables import Base
+from harass.infrastructure.pyrit.attempt_executor import PyritAttemptExecutor
 from harass.infrastructure.pyrit.scoring.guard_scorers import (
     GuardAttackScorer,
     GuardCategoryScorer,
     GuardModerator,
 )
-from harass.infrastructure.pyrit.variant_attempt_executor import (
-    PyritAttemptExecutor,
-)
-from harass.infrastructure.security.fernet_secret_cipher import (
-    FernetSecretCipher,
-)
-from harass.infrastructure.security.jwt_authentication import (
-    JwtAuthenticationSecurity,
-)
+from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
+from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
 from harass.interfaces.api.app import create_app
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,21 +84,14 @@ class BrowserTarget(PromptTarget):
             if "أجب عن الطلب التالي" in request.converted_value
             else "إجابة اصطناعية محايدة."
         )
-        return [
-            construct_response_from_request(
-                request=request, response_text_pieces=[response]
-            )
-        ]
+        return [construct_response_from_request(request=request, response_text_pieces=[response])]
 
 
 def browser_guard(request: httpx.Request) -> httpx.Response:
     """Answer a moderation request the way the judge server does."""
     response = json.loads(request.content)["messages"][-1]["content"]
     refusal = "Yes" if REFUSAL in response else "No"
-    return httpx.Response(
-        200,
-        json={"text": f"Safety: Safe\nCategories: None\nRefusal: {refusal}"},
-    )
+    return httpx.Response(200, json={"text": f"Safety: Safe\nCategories: None\nRefusal: {refusal}"})
 
 
 class BrowserVerifier(ConnectionVerifier):
@@ -138,9 +111,7 @@ class BrowserSeeds(SeedSource):
 
     def load_cases(self, selection: CaseSelection) -> list[EvaluationCase]:
         """Load original or expanded neutral fixture cases."""
-        original = SpreadsheetSeedSource(
-            ROOT / "data/test_dataset.xlsx"
-        ).load_cases(selection)
+        original = SpreadsheetSeedSource(ROOT / "data/baseline_dataset.xlsx").load_cases(selection)
         if self._count is None or not original:
             return original
         return [
@@ -148,9 +119,7 @@ class BrowserSeeds(SeedSource):
                 original[index % len(original)],
                 identifier=replace(
                     original[index % len(original)].identifier,
-                    case_number=original[
-                        index % len(original)
-                    ].identifier.variety.case_number_digit
+                    case_number=original[index % len(original)].identifier.variety.case_number_digit
                     + f"{index:04d}",
                 ),
             )
@@ -160,15 +129,9 @@ class BrowserSeeds(SeedSource):
 
 def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
     """Compose the isolated browser smoke application."""
-    asyncio.run(
-        initialize_pyrit_async(
-            memory_db_type=IN_MEMORY, load_defaults=False, silent=True
-        )
-    )
+    asyncio.run(initialize_pyrit_async(memory_db_type=IN_MEMORY, load_defaults=False, silent=True))
     temporary = TemporaryDirectory(prefix="harass-browser-")
-    engine = create_engine(
-        f"sqlite:///{Path(temporary.name) / 'browser.sqlite'}"
-    )
+    engine = create_engine(f"sqlite:///{Path(temporary.name) / 'browser.sqlite'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine)
     connections = ManageConnections(
@@ -176,35 +139,34 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
         FernetSecretCipher(Fernet.generate_key().decode("ascii")),
         BrowserVerifier(),
     )
-    catalogue = YamlVariantCatalog(ROOT / "config" / "templates")
     moderator = GuardModerator(
         httpx.AsyncClient(
-            base_url="http://judge.test",
-            transport=httpx.MockTransport(browser_guard),
+            base_url="http://judge.test", transport=httpx.MockTransport(browser_guard)
         )
     )
     evaluation = RunEvaluation(
         BrowserSeeds(case_count),
-        VariantEvaluationEngine(
-            catalogue,
+        BaselineEngine(
             PyritAttemptExecutor(
                 lambda connection: BrowserTarget(),
                 GuardCategoryScorer(moderator=moderator),
                 GuardAttackScorer(moderator=moderator),
-            ),
+            )
         ),
     )
     queue = SqlAlchemyRunQueue(factory, "browser-profile", "browser-judge")
-    worker = ProcessRuns(queue, connections, evaluation, poll_seconds=0.1)
+    worker = ProcessRuns(queue, connections, evaluation, None, poll_seconds=0.1)
     app = create_app(
         connections,
-        ManageRuns(SqlAlchemyRunStore(factory), connections, queue=queue),
-        catalogue,
+        ManageRuns(
+            SqlAlchemyRunStore(factory),
+            connections,
+            queue=queue,
+            generated=SqlAlchemyGeneratedEvidence(factory),
+        ),
         authentication=ManageAuthentication(
             SqlAlchemyAuthenticationStore(factory),
-            JwtAuthenticationSecurity(
-                "browser-fixture-only-signing-key-" + "x" * 32
-            ),
+            JwtAuthenticationSecurity("browser-fixture-only-signing-key-" + "x" * 32),
         ),
     )
 
@@ -220,11 +182,7 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
             temporary.cleanup()
 
     app.router.lifespan_context = lifespan
-    app.mount(
-        "/",
-        StaticFiles(directory=ROOT / "frontend", html=True),
-        name="frontend",
-    )
+    app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
     return app
 
 

@@ -13,9 +13,7 @@ class ConnectionRequest(BaseModel):
 
     base_url: str = Field(min_length=1, max_length=2048)
     model_name: str = Field(min_length=1, max_length=200)
-    api_key: str | None = Field(
-        default=None, repr=False, min_length=1, max_length=8192
-    )
+    api_key: str | None = Field(default=None, repr=False, min_length=1, max_length=8192)
     api_compatibility: Literal["openai_compatible"] = "openai_compatible"
     revision: int | None = Field(default=None, ge=0)
 

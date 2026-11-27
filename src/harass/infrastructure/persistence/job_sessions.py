@@ -9,11 +9,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from harass.application.errors import ConflictError
-from harass.application.ports.run_queue import (
-    LeaseLostError,
-    RunJob,
-    StorageUnavailableError,
-)
+from harass.application.ports.runs import LeaseLostError, RunJob, StorageUnavailableError
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import RunJobRow
 
@@ -25,26 +21,17 @@ def job_session(factory: SessionFactory) -> Iterator[Session]:
         with factory() as session, session.begin():
             yield session
     except IntegrityError as error:
-        constraint = getattr(
-            getattr(error.orig, "diag", None), "constraint_name", None
-        )
-        if constraint == "uq_runs_active_owner" or "runs.owner_id" in str(
-            error.orig
-        ):
+        constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+        if constraint == "uq_runs_active_owner" or "runs.owner_id" in str(error.orig):
             raise ConflictError(
-                "Finish or cancel the current evaluation "
-                "before starting another."
+                "Finish or cancel the current evaluation before starting another."
             ) from error
         raise
     except OperationalError as error:
-        raise StorageUnavailableError(
-            "Run storage is temporarily unavailable."
-        ) from error
+        raise StorageUnavailableError("Run storage is temporarily unavailable.") from error
 
 
-def owned_job(
-    session: Session, job: RunJob, now: datetime | None = None
-) -> RunJobRow:
+def owned_job(session: Session, job: RunJob, now: datetime | None = None) -> RunJobRow:
     """Lock a valid lease and reject expired or superseded workers."""
     row = session.scalar(
         select(RunJobRow)

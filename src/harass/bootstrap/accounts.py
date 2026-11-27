@@ -14,11 +14,19 @@ from harass.infrastructure.persistence.sqlalchemy_account_actions import (
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
-from harass.infrastructure.security.jwt_authentication import (
-    JwtAuthenticationSecurity,
-)
+from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
 from harass.infrastructure.security.password_blocklist import password_hashes
 from harass.infrastructure.settings import BackendSettings
+
+
+def password_security(backend: BackendSettings) -> JwtAuthenticationSecurity:
+    """Return the token signer and password hasher with the configured keys."""
+    return JwtAuthenticationSecurity(backend.jwt_secret, previous_keys=backend.previous_jwt_secrets)
+
+
+def blocked_passwords() -> PasswordPolicy:
+    """Return the password policy with the built-in and configured blocklists."""
+    return PasswordPolicy(password_hashes(os.environ.get("HARASS_PASSWORD_BLOCKLIST_PATH")))
 
 
 def build_accounts(
@@ -26,26 +34,24 @@ def build_accounts(
 ) -> tuple[ManageAuthentication, AccountRecovery | None]:
     """Construct mail delivery only when its feature flag is enabled."""
     store = SqlAlchemyAuthenticationStore(factory)
-    security = JwtAuthenticationSecurity(
-        backend.jwt_secret, previous_keys=backend.previous_jwt_secrets
-    )
-    blocked = password_hashes(os.environ.get("HARASS_PASSWORD_BLOCKLIST_PATH"))
+    security = password_security(backend)
+    passwords = blocked_passwords()
     authentication = ManageAuthentication(
         store,
         security,
         backend.session_seconds,
         refresh_seconds=backend.refresh_seconds,
-        blocked_password_hashes=blocked,
+        passwords=passwords,
     )
-    recovery = None
-    if backend.account_email_enabled:
-        settings = SmtpSettings.from_environment(os.environ)
-        recovery = AccountRecovery(
-            store,
-            SqlAlchemyAccountActionStore(factory),
-            security,
-            SmtpAccountMailer(settings),
-            PasswordPolicy(blocked),
-            settings.public_url,
-        )
+    if not backend.account_email_enabled:
+        return authentication, None
+    settings = SmtpSettings.from_environment(os.environ)
+    recovery = AccountRecovery(
+        store,
+        SqlAlchemyAccountActionStore(factory),
+        security,
+        SmtpAccountMailer(settings),
+        passwords,
+        settings.public_url,
+    )
     return authentication, recovery

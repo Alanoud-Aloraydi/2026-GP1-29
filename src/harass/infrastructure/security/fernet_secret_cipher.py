@@ -3,7 +3,7 @@
 from cryptography.fernet import Fernet, InvalidToken
 
 from harass.application.errors import SecretCipherError
-from harass.application.ports.secret_cipher import SecretCipher
+from harass.application.ports.connections import SecretCipher
 
 
 class FernetSecretCipher(SecretCipher):
@@ -19,8 +19,7 @@ class FernetSecretCipher(SecretCipher):
             self._fernet = Fernet(key.encode("ascii"))
         except (ValueError, UnicodeEncodeError) as error:
             raise SecretCipherError(
-                "The encryption key must be a URL-safe "
-                "base64-encoded 32-byte Fernet key."
+                "The encryption key must be a URL-safe base64-encoded 32-byte Fernet key."
             ) from error
 
     def encrypt(self, secret: str) -> str:
@@ -32,6 +31,4 @@ class FernetSecretCipher(SecretCipher):
         try:
             return self._fernet.decrypt(token.encode("ascii")).decode("utf-8")
         except (InvalidToken, UnicodeEncodeError) as error:
-            raise SecretCipherError(
-                "The stored secret cannot be decrypted."
-            ) from error
+            raise SecretCipherError("The stored secret cannot be decrypted.") from error

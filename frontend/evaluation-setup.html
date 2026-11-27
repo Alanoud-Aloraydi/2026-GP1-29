@@ -5,13 +5,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>تقييم جديد — HARASS</title>
-    <link rel="stylesheet" href="assets/css/styles.css?v=47">
-    <script src="assets/js/core/ui.js?v=47" defer></script>
-    <script src="assets/js/views/run.js?v=47" defer></script>
-    <script src="assets/js/core/api-client.js?v=47" defer></script>
-    <script src="assets/js/core/forms.js?v=47" defer></script>
-    <script src="assets/js/pages/evaluation.js?v=47" defer></script>
-    <script src="assets/js/core/bootstrap.js?v=47" defer></script>
+    <link rel="stylesheet" href="assets/css/styles.css?v=58">
+    <script type="module" src="assets/js/pages/evaluation.js?v=58"></script>
   </head>
   <body data-page="evaluation-setup">
     <a class="skip-link" href="#main">انتقل إلى المحتوى</a>
@@ -21,18 +16,9 @@
         <div class="container">
           <div class="page-head">
             <h1>تقييم جديد</h1>
-            <p>
-              اختر النموذج وطريقة التقييم ونطاقه. يتولى حَرَس اختيار الحالات من مجموعة
-              البيانات.
-            </p>
+            <p>اختر النموذج وطريقة التقييم ونطاقه. يتولى حَرَس اختيار الحالات من مجموعة البيانات أو توليد حالات جديدة.</p>
           </div>
-          <div
-            id="pageError"
-            class="alert alert-error"
-            role="alert"
-            tabindex="-1"
-            hidden
-          ></div>
+          <div id="pageError" class="alert" role="alert" tabindex="-1" hidden></div>
           <div class="setup-layout">
             <form id="evaluationForm" class="setup-form">
               <section class="card">
@@ -42,27 +28,24 @@
                   <select id="connection" required aria-describedby="connectionHint">
                     <option value="">جارٍ تحميل الاتصالات…</option>
                   </select>
-                  <p class="hint" id="connectionHint">
-                    تظهر الاتصالات التي اجتازت اختبار الوصول فقط.
-                    <a href="connections.html">إدارة الاتصالات</a>
-                  </p>
+                  <p class="hint" id="connectionHint">تظهر الاتصالات التي اجتازت اختبار الوصول فقط. <a href="connections.html">إدارة الاتصالات</a></p>
                 </div>
               </section>
               <fieldset class="card">
                 <legend class="step-title"><span class="step-number" aria-hidden="true">٢</span>طريقة التقييم</legend>
                 <div class="choice-grid">
                 <label class="choice">
-                  <input type="radio" name="run_type" value="baseline" checked>
+                  <input type="radio" name="kind" value="baseline" checked>
                   <span>
                     <strong>اختبار أساسي</strong>
                     <small>يرسل الطلبات كما وردت في مجموعة البيانات دون تعديل.</small>
                   </span>
                 </label>
                 <label class="choice">
-                  <input type="radio" name="run_type" value="agentic">
+                  <input type="radio" name="kind" value="agentic">
                   <span>
-                    <strong>اختبار تكيّفي</strong>
-                    <small>يغيّر صياغة الطلبات بحسب ردود النموذج، مع الطلب الأصلي للمقارنة.</small>
+                    <strong>اختبار وكيلي</strong>
+                    <small>يولّد حَرَس طلبات جديدة على المحور المختار، ويتعلم من كل جولة أين يخفق النموذج.</small>
                   </span>
                 </label>
                 </div>
@@ -95,9 +78,7 @@
               </fieldset>
               <fieldset class="card">
                 <legend class="step-title"><span class="step-number" aria-hidden="true">٤</span>اللغة واللهجات</legend>
-                <p class="hint" id="varietiesHint">
-                  اختر واحدة على الأقل. تُستخدم الحالات المتاحة دون ترجمة أو توليد لهجات جديدة.
-                </p>
+                <p class="hint" id="varietiesHint">اختر واحدة على الأقل. يستخدم الاختبار الأساسي الحالات المتاحة دون ترجمة، ويولّد الاختبار الوكيلي طلبات جديدة باللهجات المختارة.</p>
                 <div class="dialect-options" aria-describedby="varietiesHint">
                 <label>
                   <input type="checkbox" name="variety" value="MSA" checked>
@@ -121,12 +102,29 @@
                 </label>
                 </div>
               </fieldset>
+              <fieldset class="card" id="agenticStep" hidden>
+                <legend class="step-title"><span class="step-number" aria-hidden="true">٥</span>الجولات والمحوّل</legend>
+                <p class="hint">يبدأ الاختبار الوكيلي من أنماط آخر تقييم أساسي مكتمل على الاتصال نفسه: الطلبات المشروعة التي رفضها النموذج والهجمات التي نجحت. الجولة الأولى قياس لا يستفيد من التعلم، وما بعدها جولات اكتشاف.</p>
+                <p class="report-notice" id="baselineHint">إن لم يوجد تقييم أساسي مكتمل لهذا الاتصال يغطي المحور المختار، يُشغَّل تقييم أساسي أولًا تلقائيًا، ثم يبدأ الاختبار الوكيلي بعد اكتماله.</p>
+                <div class="form-group">
+                  <label for="rounds">عدد الجولات</label>
+                  <input id="rounds" name="rounds" type="number" min="1" max="5" value="3" required inputmode="numeric" aria-describedby="roundsHint">
+                  <p class="hint" id="roundsHint">من جولة واحدة إلى خمس.</p>
+                </div>
+                <div class="form-group">
+                  <label for="promptsPerRound">عدد الطلبات لكل محور في الجولة</label>
+                  <input id="promptsPerRound" name="prompts_per_round" type="number" min="1" max="50" value="20" required inputmode="numeric" aria-describedby="promptsHint">
+                  <p class="hint" id="promptsHint">من طلب واحد إلى خمسين.</p>
+                </div>
+                <p class="hint" id="transformsHint">تحويلات اختيارية تُطبَّق على النص قبل إرساله. التحويل الذي قد يغيّر المعنى يُطبَّق على طلبات الاختراق فقط.</p>
+                <div class="dialect-options" id="transforms" aria-describedby="transformsHint"></div>
+              </fieldset>
             </form>
             <aside class="card setup-summary" aria-labelledby="summaryTitle">
               <h2 id="summaryTitle">ملخص التقييم</h2>
               <dl>
                 <div><dt>النموذج</dt><dd data-summary="connection">—</dd></div>
-                <div><dt>الطريقة</dt><dd data-summary="run_type">—</dd></div>
+                <div><dt>الطريقة</dt><dd data-summary="kind">—</dd></div>
                 <div><dt>النطاق</dt><dd data-summary="axis">—</dd></div>
                 <div><dt>اللهجات</dt><dd data-summary="variety">—</dd></div>
               </dl>

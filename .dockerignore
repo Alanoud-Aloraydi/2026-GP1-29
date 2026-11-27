@@ -7,8 +7,6 @@
 !src/**
 !frontend/
 !frontend/**
-!config/
-!config/**
 !data/
 !data/**
 **/__pycache__/

@@ -21,9 +21,7 @@ def build_target(
         temperature=generation.temperature,
         max_completion_tokens=generation.max_completion_tokens,
         max_requests_per_minute=connection.max_requests_per_minute,
-        httpx_client_kwargs={
-            "http_client": endpoint_policy.client(connection.base_url)
-        }
+        httpx_client_kwargs={"http_client": endpoint_policy.client(connection.base_url)}
         if endpoint_policy
         else None,
     )
@@ -37,8 +35,5 @@ async def close_target(target: PromptTarget) -> None:
     compatibility hook here. Caller-supplied non-OpenAI scripted targets have
     no network client to dispose.
     """
-    if (
-        isinstance(target, OpenAIChatTarget)
-        and target._async_client is not None
-    ):
+    if isinstance(target, OpenAIChatTarget) and target._async_client is not None:
         await target._async_client.close()

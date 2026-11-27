@@ -22,23 +22,16 @@ class EndpointPolicy:
     def client(self, endpoint: str) -> httpx.AsyncClient:
         """Build a client without implicit proxies or cross-host redirects."""
         return httpx.AsyncClient(
-            transport=self.transport(endpoint),
-            trust_env=False,
-            follow_redirects=False,
+            transport=self.transport(endpoint), trust_env=False, follow_redirects=False
         )
 
     def transport(self, endpoint: str) -> httpx.AsyncHTTPTransport:
         """Validate endpoint schemes before sending credentials."""
         parsed = urlsplit(endpoint)
         host = (parsed.hostname or "").lower()
-        if (
-            parsed.scheme != "https"
-            and not self.allow_http
-            and host not in self.private_hosts
-        ):
+        if parsed.scheme != "https" and not self.allow_http and host not in self.private_hosts:
             raise httpx.ConnectError(
-                "HTTP model endpoints require an explicit "
-                "private-host allowance."
+                "HTTP model endpoints require an explicit private-host allowance."
             )
         transport = httpx.AsyncHTTPTransport(trust_env=False)
         # HTTPX 0.28 has no public network-backend argument; confine its pinned
@@ -73,17 +66,13 @@ class RestrictedNetwork(httpcore.AsyncNetworkBackend):
                     host, port, type=socket.SOCK_STREAM
                 )
         except (TimeoutError, OSError) as error:
-            raise httpcore.ConnectError(
-                "Endpoint address resolution failed."
-            ) from error
+            raise httpcore.ConnectError("Endpoint address resolution failed.") from error
         ips = [str(address[4][0]) for address in addresses]
         if not ips or (
             host.lower() not in self._private_hosts
             and any(not ipaddress.ip_address(ip).is_global for ip in ips)
         ):
-            raise httpcore.ConnectError(
-                "Endpoint network policy denied this address."
-            )
+            raise httpcore.ConnectError("Endpoint network policy denied this address.")
         for ip in list(dict.fromkeys(ips))[:8]:
             remaining = deadline - perf_counter()
             if remaining <= 0:
@@ -94,9 +83,7 @@ class RestrictedNetwork(httpcore.AsyncNetworkBackend):
                 )
             except (httpcore.ConnectError, httpcore.ConnectTimeout):
                 continue
-        raise httpcore.ConnectError(
-            "Could not connect to a permitted endpoint address."
-        )
+        raise httpcore.ConnectError("Could not connect to a permitted endpoint address.")
 
     async def connect_unix_socket(
         self,

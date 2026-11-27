@@ -1,16 +1,11 @@
 """Criteria for selecting evaluation cases."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from harass.domain.errors import InvalidCaseSelectionError
 from harass.domain.evaluation_case import EvaluationCase
-from harass.domain.taxonomy import (
-    ArabicVariety,
-    Axis,
-    BypassStrategy,
-    RiskCategory,
-    SubjectDomain,
-)
+from harass.domain.taxonomy import ArabicVariety, Axis, BypassStrategy, RiskCategory, SubjectDomain
 
 
 @dataclass(frozen=True)
@@ -28,6 +23,24 @@ class CaseSelection:
     varieties: frozenset[ArabicVariety] = frozenset()
     strategies: frozenset[BypassStrategy] = frozenset()
 
+    @classmethod
+    def from_codes(
+        cls,
+        axis: str | None = None,
+        subject_domains: Iterable[str] = (),
+        risk_categories: Iterable[str] = (),
+        varieties: Iterable[str] = (),
+        strategies: Iterable[str] = (),
+    ) -> "CaseSelection":
+        """Build a selection from taxonomy codes, rejecting unknown ones."""
+        return cls(
+            axis=Axis(axis) if axis else None,
+            subject_domains=frozenset(map(SubjectDomain, subject_domains)),
+            risk_categories=frozenset(map(RiskCategory, risk_categories)),
+            varieties=frozenset(map(ArabicVariety, varieties)),
+            strategies=frozenset(map(BypassStrategy, strategies)),
+        )
+
     def __post_init__(self) -> None:
         """Reject strategy filters restricted to over-refusal cases."""
         if self.axis is Axis.OVER_REFUSAL and self.strategies:
@@ -40,15 +53,9 @@ class CaseSelection:
         identifier = case.identifier
         if self.axis is not None and identifier.axis is not self.axis:
             return False
-        if (
-            self.subject_domains
-            and identifier.subject_domain not in self.subject_domains
-        ):
+        if self.subject_domains and identifier.subject_domain not in self.subject_domains:
             return False
-        if (
-            self.risk_categories
-            and identifier.risk_category not in self.risk_categories
-        ):
+        if self.risk_categories and identifier.risk_category not in self.risk_categories:
             return False
         if self.varieties and identifier.variety not in self.varieties:
             return False

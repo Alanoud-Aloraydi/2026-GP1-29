@@ -3,25 +3,15 @@
 import hashlib
 import re
 import secrets
-from collections.abc import Collection
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from harass.application.accounts.errors import (
-    AuthenticationError,
-    RegistrationError,
-)
+from harass.application.accounts.errors import AuthenticationError, RegistrationError
 from harass.application.accounts.password_policy import PasswordPolicy
-from harass.application.ports.authentication import (
-    AuthenticationSecurity,
-    AuthenticationStore,
-)
-from harass.domain.authentication import (
-    AuthenticatedLogin,
-    AuthenticationSession,
-    User,
-)
+from harass.application.ports.accounts import AuthenticationSecurity, AuthenticationStore
+from harass.domain.authentication import AuthenticatedLogin, AuthenticationSession, User
 
 
 class ManageAuthentication:
@@ -33,29 +23,25 @@ class ManageAuthentication:
         security: AuthenticationSecurity,
         session_seconds: int = 900,
         *,
-        blocked_password_hashes: Collection[str] = (),
+        passwords: PasswordPolicy | None = None,
         refresh_seconds: int = 28800,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         """Configure authentication storage, cryptography and lifetimes."""
         if not 60 <= session_seconds <= 86400:
-            raise ValueError(
-                "Authentication session lifetime must be 60-86400 seconds."
-            )
+            raise ValueError("Authentication session lifetime must be 60-86400 seconds.")
         if not session_seconds <= refresh_seconds <= 604800:
-            raise ValueError(
-                "Refresh lifetime must cover access expiry and remain bounded."
-            )
+            raise ValueError("Refresh lifetime must cover access expiry and remain bounded.")
+        self.session_seconds = session_seconds
         self.refresh_seconds = refresh_seconds
         self._store = store
         self._security = security
-        self.session_seconds = session_seconds
-        self._passwords = PasswordPolicy(blocked_password_hashes)
+        self._passwords = passwords or PasswordPolicy()
+        self._clock = clock
         # Unknown users follow the same expensive password verification path.
         self._dummy_hash = security.hash_password(uuid4().hex)
 
-    def signup(
-        self, full_name: str, email: str, password: str
-    ) -> AuthenticatedLogin:
+    def signup(self, full_name: str, email: str, password: str) -> AuthenticatedLogin:
         """Register validated details and begin a session."""
         name = valid_name(full_name)
         canonical_email = email.strip().lower()
@@ -66,21 +52,12 @@ class ManageAuthentication:
         ):
             raise RegistrationError("A valid email address is required.")
         self._passwords.validate(password)
-        user = User(
-            str(uuid4()),
-            name,
-            canonical_email,
-            self._security.hash_password(password),
-        )
+        user = User(str(uuid4()), name, canonical_email, self._security.hash_password(password))
         session, refresh = self._session(user)
         token = self._security.encode_session(session)
         if not self._store.register(user, session):
-            raise RegistrationError(
-                "Unable to create an account with these details."
-            )
-        return AuthenticatedLogin(
-            user, token, refresh, session.refresh_expires_at
-        )
+            raise RegistrationError("Unable to create an account with these details.")
+        return AuthenticatedLogin(user, token, refresh, session.refresh_expires_at)
 
     def login(self, email: str, password: str) -> AuthenticatedLogin:
         """Authenticate without revealing whether an account exists."""
@@ -97,7 +74,7 @@ class ManageAuthentication:
         session = self._store.get_session(decoded.session_id)
         if session is None or session.user_id != decoded.user_id:
             raise AuthenticationError("Session is invalid or expired.")
-        if session.expires_at <= datetime.now(UTC):
+        if session.expires_at <= self._clock():
             self._store.revoke_session(session.session_id)
             raise AuthenticationError("Session is invalid or expired.")
         user = self._store.get_user(session.user_id)
@@ -121,7 +98,7 @@ class ManageAuthentication:
             identifier,
             digest,
             hashlib.sha256(secret.encode()).hexdigest(),
-            datetime.now(UTC) + timedelta(seconds=self.session_seconds),
+            self._clock() + timedelta(seconds=self.session_seconds),
         )
         if session is None:
             raise AuthenticationError("Session is invalid or expired.")
@@ -143,9 +120,7 @@ class ManageAuthentication:
         """List sessions only after authenticating their account owner."""
         return self._store.list_sessions(self.authenticate(token).user_id)
 
-    def revoke_sessions(
-        self, token: str, session_id: str | None = None
-    ) -> None:
+    def revoke_sessions(self, token: str, session_id: str | None = None) -> None:
         """Revoke an owned session or sign the account out everywhere."""
         user = self.authenticate(token)
         if session_id is not None:
@@ -170,10 +145,7 @@ class ManageAuthentication:
         except AuthenticationError:
             return
         session = self._store.get_session(identifier)
-        if session and (
-            session.refresh_hash == digest
-            or digest in session.used_refresh_hashes
-        ):
+        if session and (session.refresh_hash == digest or digest in session.used_refresh_hashes):
             self._store.revoke_session(identifier)
 
     def _login(self, user: User) -> AuthenticatedLogin:
@@ -182,15 +154,12 @@ class ManageAuthentication:
         if not self._store.add_session(session, user.password_hash):
             raise AuthenticationError("Credentials changed; sign in again.")
         return AuthenticatedLogin(
-            user,
-            self._security.encode_session(session),
-            refresh,
-            session.refresh_expires_at,
+            user, self._security.encode_session(session), refresh, session.refresh_expires_at
         )
 
     def _session(self, user: User) -> tuple[AuthenticationSession, str]:
         """Create a short access session and a hashed opaque refresh secret."""
-        now = datetime.now(UTC)
+        now = self._clock()
         identifier, secret = str(uuid4()), secrets.token_urlsafe(32)
         return AuthenticationSession(
             identifier,
@@ -206,9 +175,7 @@ def valid_name(full_name: str) -> str:
     """Trim a display name and require 2-100 printable characters."""
     name = full_name.strip()
     if not 2 <= len(name) <= 100 or any(ord(c) < 32 for c in name):
-        raise RegistrationError(
-            "Full name must contain 2-100 printable characters."
-        )
+        raise RegistrationError("Full name must contain 2-100 printable characters.")
     return name
 
 

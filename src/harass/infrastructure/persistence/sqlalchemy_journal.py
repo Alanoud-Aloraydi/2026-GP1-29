@@ -9,28 +9,19 @@ from sqlalchemy.orm import Session
 
 from harass.application.errors import EvaluationEngineError
 from harass.application.evaluation.outcome_codec import read_outcome
-from harass.application.ports.evaluation_journal import EvaluationJournal
-from harass.application.ports.run_queue import LeaseLostError, RunJob
+from harass.application.ports.evaluation import EvaluationJournal
+from harass.application.ports.runs import LeaseLostError, RunJob
 from harass.application.reporting.document import outcome_document
 from harass.domain.case_outcome import CaseOutcome
-from harass.infrastructure.persistence.job_sessions import (
-    job_session,
-    owned_job,
-)
-from harass.infrastructure.persistence.prompt_archive import archive_findings
+from harass.infrastructure.persistence.job_sessions import job_session, owned_job
 from harass.infrastructure.persistence.session_factory import SessionFactory
-from harass.infrastructure.persistence.tables import (
-    RunJobRow,
-    RunOutcomeRow,
-    RunRow,
-)
+from harass.infrastructure.persistence.tables import RunJobRow, RunOutcomeRow, RunRow
 from harass.infrastructure.persistence.upsert import insert_for
 
 # Metric reads never need request or response text, so it stays out of them.
 TEXT_FREE_FIELDS = {
     "original_prompt": "Stored request",
     "objective": "Stored request",
-    "variant": None,
     "transcript": None,
     "judge_requests": (),
 }
@@ -39,14 +30,11 @@ TEXT_FREE_FIELDS = {
 class SqlAlchemyEvaluationJournal(EvaluationJournal):
     """Recover progress without repeating uncertain submissions."""
 
-    def __init__(
-        self,
-        factory: SessionFactory,
-        job: RunJob,
-        clock: Callable[[], datetime],
-    ) -> None:
+    def __init__(self, factory: SessionFactory, job: RunJob, clock: Callable[[], datetime]) -> None:
         """Bind journal operations to the leased run."""
-        self._factory, self._job, self._clock = factory, job, clock
+        self._factory = factory
+        self._job = job
+        self._clock = clock
         self._revision: int | None = None
         self._case_index = 0
 
@@ -55,9 +43,7 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
         with job_session(self._factory) as session:
             row = owned_job(session, self._job, self._clock())
             if row.plan_fingerprint not in {None, fingerprint}:
-                raise EvaluationEngineError(
-                    "Evaluation inputs changed after checkpoint creation."
-                )
+                raise EvaluationEngineError("Evaluation inputs changed after checkpoint creation.")
             row.plan_fingerprint = fingerprint
             run = session.get(RunRow, row.run_id)
             if run is None:
@@ -72,23 +58,17 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
         self._save(checkpoint)
 
     def commit(self, outcome: CaseOutcome, checkpoint: dict[str, Any]) -> None:
-        """Commit evidence, progress and adaptive feedback atomically."""
+        """Commit evidence and progress atomically."""
         self._save(checkpoint, outcome)
 
-    def _save(
-        self, checkpoint: dict[str, Any], outcome: CaseOutcome | None = None
-    ) -> None:
+    def _save(self, checkpoint: dict[str, Any], outcome: CaseOutcome | None = None) -> None:
         """Commit a checkpoint and optional evidence under the lease."""
         if self._revision is None:
-            raise EvaluationEngineError(
-                "The journal must be initialized before writes."
-            )
+            raise EvaluationEngineError("The journal must be initialized before writes.")
         with job_session(self._factory) as session:
             row = owned_job(session, self._job, self._clock())
             if row.revision != self._revision:
-                raise LeaseLostError(
-                    "The checkpoint was already advanced by another writer."
-                )
+                raise LeaseLostError("The checkpoint was already advanced by another writer.")
             changed = session.scalar(
                 update(RunJobRow)
                 .where(
@@ -100,9 +80,7 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
                 .returning(RunJobRow.run_id)
             )
             if changed is None:
-                raise LeaseLostError(
-                    "The checkpoint was concurrently advanced."
-                )
+                raise LeaseLostError("The checkpoint was concurrently advanced.")
             run = session.get(RunRow, row.run_id)
             if run is None:
                 raise LeaseLostError("The run no longer exists.")
@@ -112,9 +90,7 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
         self._revision += 1
         self._case_index = checkpoint["case_index"]
 
-    def _record(
-        self, session: Session, run: RunRow, outcome: CaseOutcome
-    ) -> None:
+    def _record(self, session: Session, run: RunRow, outcome: CaseOutcome) -> None:
         """Store one attempt once, with a text-free copy for metrics."""
         document = outcome_document(outcome)
         metric = {**document, **TEXT_FREE_FIELDS}
@@ -123,21 +99,11 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
             .values(
                 run_id=run.run_id,
                 case_index=self._case_index,
-                attempt_number=outcome.attempt_number,
                 document=document,
                 metric_document=metric,
             )
-            .on_conflict_do_nothing(
-                index_elements=["run_id", "case_index", "attempt_number"]
-            )
+            .on_conflict_do_nothing(index_elements=["run_id", "case_index"])
         )
-        run.completed_attempts += 1
-        findings = {
-            "outcomes": [document],
-            "target_model": run.target_model,
-            "target_endpoint": self._job.target_endpoint,
-        }
-        archive_findings(session, run, findings)
 
     def outcomes(self, *, lightweight: bool = False) -> Iterator[CaseOutcome]:
         """Read at most 100 stored attempt documents into memory at a time."""
@@ -151,37 +117,20 @@ def stored_documents(
     factory: SessionFactory, run_id: str, *, lightweight: bool = False
 ) -> Iterator[dict[str, Any]]:
     """Export evidence with keyset pagination and bounded database sessions."""
-    last_case, last_attempt = -1, -1
+    last_case = -1
     while True:
         with job_session(factory) as session:
-            column = (
-                RunOutcomeRow.metric_document
-                if lightweight
-                else RunOutcomeRow.document
-            )
+            column = RunOutcomeRow.metric_document if lightweight else RunOutcomeRow.document
             rows = list(
                 session.execute(
-                    select(
-                        RunOutcomeRow.case_index,
-                        RunOutcomeRow.attempt_number,
-                        column,
-                    )
-                    .where(
-                        RunOutcomeRow.run_id == run_id,
-                        (RunOutcomeRow.case_index > last_case)
-                        | (
-                            (RunOutcomeRow.case_index == last_case)
-                            & (RunOutcomeRow.attempt_number > last_attempt)
-                        ),
-                    )
-                    .order_by(
-                        RunOutcomeRow.case_index, RunOutcomeRow.attempt_number
-                    )
+                    select(RunOutcomeRow.case_index, column)
+                    .where(RunOutcomeRow.run_id == run_id, RunOutcomeRow.case_index > last_case)
+                    .order_by(RunOutcomeRow.case_index)
                     .limit(100)
                 )
             )
         if not rows:
             return
-        for case_index, attempt_number, document in rows:
-            last_case, last_attempt = case_index, attempt_number
+        for case_index, document in rows:
+            last_case = case_index
             yield document

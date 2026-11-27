@@ -1,4 +1,4 @@
-"""Behavioral tests for the product's two fixed evaluation protocols."""
+"""Behavioral tests for the evaluation request protocol and browser contracts."""
 
 import re
 import shutil
@@ -8,41 +8,29 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from harass.domain.prompt_variant import EvaluationMode, VariantSelection
 from harass.domain.taxonomy import ArabicVariety, Axis
 from harass.interfaces.api.connections.schemas import ConnectionRequest
 from harass.interfaces.api.evaluations.mapping import run_parameters
 from harass.interfaces.api.evaluations.schemas import RunRequest
 
 
-def test_baseline_preserves_selected_axes_and_varieties() -> None:
-    """Verify baseline preserves selected axes and varieties."""
+def test_a_run_request_keeps_the_selected_axis_and_varieties() -> None:
+    """Verify the chosen axis and varieties reach the run parameters."""
     body = RunRequest(
         connection_id="connection",
-        run_type="baseline",
         selection={"axis": "OR", "varieties": ["NAJ"]},  # type: ignore[arg-type]
-        include_baseline=False,
-        attempt_budget=99,
-        template_names=["or_plain"],
     )
     parameters = run_parameters(body)
-    assert parameters.include_baseline
     assert parameters.selection.axis is Axis.OVER_REFUSAL
     assert parameters.selection.varieties == {ArabicVariety.NAJDI}
-    assert parameters.variant_selection == VariantSelection((), ())
-    assert parameters.adaptive_settings.mode is EvaluationMode.STATIC
 
 
-def test_agentic_uses_matched_controls_and_fixed_budget() -> None:
-    """Verify agentic uses matched controls and fixed budget."""
-    parameters = run_parameters(
-        RunRequest(connection_id="connection", run_type="agentic")
-    )
-    assert parameters.selection.axis is None
-    assert parameters.include_baseline
-    assert parameters.variant_selection == VariantSelection()
-    assert parameters.adaptive_settings.mode is EvaluationMode.ADAPTIVE
-    assert parameters.adaptive_settings.attempt_budget == 8
+def test_an_agentic_request_defaults_to_three_rounds_of_twenty() -> None:
+    """Verify an agentic request carries its rounds and bounds them."""
+    body = RunRequest(connection_id="connection", kind="agentic")
+    assert (body.agentic.rounds, body.agentic.prompts_per_round) == (3, 20)
+    with pytest.raises(ValidationError):
+        RunRequest(connection_id="connection", kind="agentic", agentic={"rounds": 6})  # type: ignore[arg-type]
 
 
 def test_unsupported_connection_protocol_is_rejected() -> None:
@@ -58,17 +46,15 @@ def test_unsupported_connection_protocol_is_rejected() -> None:
 def test_connection_form_disables_unsupported_protocols() -> None:
     """Verify connection form disables unsupported protocols."""
     root = Path(__file__).resolve().parents[3]
-    markup = (root / "frontend" / "model-configuration.html").read_text(
-        encoding="utf-8"
-    )
+    markup = (root / "frontend" / "model-configuration.html").read_text(encoding="utf-8")
     options = re.findall(r"<option\b([^>]*)>", markup)
     assert len(options) == 2
     assert 'value="openai_compatible"' in options[0]
     assert "disabled" in options[1]
 
 
-def test_browser_report_escapes_evidence_and_separates_control_rates() -> None:
-    """Verify browser report escapes evidence and separates control rates."""
+def test_browser_report_escapes_evidence() -> None:
+    """Verify the browser report escapes evidence and shows run progress."""
     _run_frontend_contract("report")
 
 
@@ -77,9 +63,7 @@ def test_browser_prevents_native_submission_before_account_loads() -> None:
     _run_frontend_contract("initialization")
 
 
-def test_shared_header_switches_between_public_and_account_navigation() -> (
-    None
-):
+def test_shared_header_switches_between_public_and_account_navigation() -> None:
     """Verify shared header switches between public and account navigation."""
     _run_frontend_contract("shell")
 
@@ -91,11 +75,7 @@ def _run_frontend_contract(name: str) -> None:
         pytest.skip("Frontend contract checks require Node.js.")
     root = Path(__file__).resolve().parents[3]
     result = subprocess.run(
-        [
-            node,
-            str(root / "tests/frontend" / (name + ".cjs")),
-            str(root / "frontend/assets/js"),
-        ],
+        [node, str(root / "tests/frontend" / (name + ".cjs")), str(root / "frontend/assets/js")],
         capture_output=True,
         text=True,
     )
