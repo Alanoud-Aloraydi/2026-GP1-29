@@ -1,4 +1,4 @@
-"""Tests for invariants of evaluation cases and converter chains."""
+"""Tests for invariants of evaluation cases."""
 
 import pytest
 

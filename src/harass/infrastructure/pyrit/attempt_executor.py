@@ -19,7 +19,6 @@ from harass.application.ports.evaluation import AttemptExecutor
 from harass.domain.case_outcome import AttemptTranscript, CaseOutcome
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.owasp_scenario import OwaspScenario, scenario_for
-from harass.domain.prompt_variant import PromptVariant
 from harass.domain.target_connection import TargetConnection
 from harass.domain.taxonomy import Axis
 from harass.infrastructure.pyrit.attempt_outcome import read_result
@@ -51,18 +50,14 @@ class PyritAttemptExecutor(AttemptExecutor):
         self._attempt_timeout_seconds = attempt_timeout_seconds
 
     async def execute(
-        self,
-        case: EvaluationCase,
-        variant: PromptVariant,
-        target: TargetConnection,
-        run_identifier: str,
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
     ) -> CaseOutcome:
         """Bound target and judge calls without inventing verdicts."""
         requests: list[dict[str, object]] = []
         token = JUDGE_REQUESTS.set(requests)
         started = perf_counter()
         try:
-            outcome = await self._execute_attempt(case, variant, target, run_identifier)
+            outcome = await self._execute_attempt(case, sent_prompt, target, run_identifier)
             return replace(
                 outcome,
                 elapsed_seconds=round(perf_counter() - started, 3),
@@ -75,17 +70,13 @@ class PyritAttemptExecutor(AttemptExecutor):
             JUDGE_REQUESTS.reset(token)
 
     async def _execute_attempt(
-        self,
-        case: EvaluationCase,
-        variant: PromptVariant,
-        target: TargetConnection,
-        run_identifier: str,
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
     ) -> CaseOutcome:
         """Execute one isolated request with scenario-appropriate scoring."""
         scenario = scenario_for(case, run_identifier)
         scorer, auxiliary = self._scorers(case, scenario)
         objective_target: PromptTarget | None = None
-        context = _attack_context(case, variant, scenario, run_identifier)
+        context = _attack_context(case, sent_prompt, scenario, run_identifier)
         try:
             objective_target = self._target_factory(target)
             attack = PromptSendingAttack(
@@ -99,22 +90,18 @@ class PyritAttemptExecutor(AttemptExecutor):
                 timeout=self._attempt_timeout_seconds,
             )
             if result.last_response is None:
-                return CaseOutcome(
-                    case, variant.variant_id, error="The target gave no response.", variant=variant
-                )
-            return read_result(case, variant, scenario, result)
+                return CaseOutcome(case, error="The target gave no response.")
+            return read_result(case, sent_prompt, scenario, result)
         except Exception as error:
             # Do not return provider exception text, which may echo client
             # credentials.
             return CaseOutcome(
                 case,
-                variant.variant_id,
                 error="Attempt exceeded its configured execution timeout."
                 if isinstance(error, TimeoutError)
                 else f"Attempt failed: {type(error).__name__}.",
-                variant=variant,
                 scenario_name=scenario.name,
-                transcript=_recover_response(context.conversation_id, variant.sent_prompt),
+                transcript=_recover_response(context.conversation_id, sent_prompt),
                 technical_error=technical_error(error),
             )
         finally:
@@ -177,7 +164,7 @@ def technical_error(error: BaseException) -> str:
 
 
 def _attack_context(
-    case: EvaluationCase, variant: PromptVariant, scenario: OwaspScenario, run_identifier: str
+    case: EvaluationCase, sent_prompt: str, scenario: OwaspScenario, run_identifier: str
 ) -> SingleTurnAttackContext[AttackParameters]:
     """Construct isolated target history and stable research correlation."""
     attempt_label = str(uuid.uuid4())
@@ -186,7 +173,7 @@ def _attack_context(
             objective=case.objective
             if case.axis is Axis.OVER_REFUSAL
             else (f"Criterion: {scenario.criterion}\nOriginal request: {case.objective}"),
-            next_message=Message.from_prompt(prompt=variant.sent_prompt, role="user"),
+            next_message=Message.from_prompt(prompt=sent_prompt, role="user"),
             prepended_conversation=[
                 Message.from_prompt(prompt=scenario.system_prompt, role="system")
             ]
@@ -195,7 +182,6 @@ def _attack_context(
             memory_labels={
                 "harass_run": run_identifier,
                 "harass_case": str(case.identifier),
-                "harass_variant": variant.variant_id,
                 "harass_attempt": attempt_label,
             },
         )

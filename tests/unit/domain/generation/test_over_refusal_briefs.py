@@ -1,13 +1,12 @@
 """Tests for the writer and localizer brief builders."""
 
-from harass.domain.generation.briefs import (
+from harass.domain.generation.cells import OverRefusalCell
+from harass.domain.generation.localization_briefs import (
     echoes_instructions,
     localize_brief,
     question_count,
-    request_from,
-    write_brief,
 )
-from harass.domain.generation.cells import Cell
+from harass.domain.generation.over_refusal_briefs import over_refusal_brief, request_from
 from harass.domain.generation.pattern_card import Card
 from harass.domain.taxonomy import ArabicVariety, RiskCategory, SubjectDomain
 
@@ -19,12 +18,12 @@ def _card() -> Card:
 
 def test_the_writer_brief_carries_the_card_pattern_not_seed_text() -> None:
     """The brief shows the card's shape and device, no dataset prompt."""
-    cell = Cell(
+    cell = OverRefusalCell(
         SubjectDomain.COMPUTING_AND_CYBERSECURITY,
         RiskCategory.PRIVACY_VIOLATION,
         ArabicVariety.MODERN_STANDARD,
     )
-    brief = write_brief(cell, _card(), ["درس سابق"])
+    brief = over_refusal_brief(cell, _card(), ["درس سابق"])
     assert "تتبع شخص" in brief
     assert "درس سابق" in brief
 

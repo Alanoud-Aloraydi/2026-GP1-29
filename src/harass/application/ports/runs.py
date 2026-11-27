@@ -8,6 +8,7 @@ from typing import Any
 from harass.application.errors import ApplicationError
 from harass.application.ports.evaluation import EvaluationJournal
 from harass.domain.evaluation_run import EvaluationRun
+from harass.domain.taxonomy import Axis
 
 
 class RunStore(ABC):
@@ -34,6 +35,16 @@ class RunStore(ABC):
     @abstractmethod
     def counts_for_owner(self, owner_id: str) -> dict[str, int]:
         """Count the owner's runs in each status."""
+
+    @abstractmethod
+    def baselines(
+        self, owner_id: str, connection_id: str
+    ) -> list[tuple[EvaluationRun, Axis | None]]:
+        """Return the owner's baseline runs on a connection that completed or may still.
+
+        Each comes with the axis it was limited to, None when it covered both,
+        newest first. Cancelled and permanently failed runs are left out.
+        """
 
 
 class RunAdmission(ABC):

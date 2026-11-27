@@ -14,13 +14,18 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
     false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from harass.infrastructure.persistence.tables.base import ENTITY_ID, Base
+
+# Only an agentic run waits for a baseline run. A run still waiting does not
+# hold the owner's single active slot, so the baseline it waits for can run;
+# the wait is cleared once the baseline completes.
+AWAITING_RUN = "awaits_run_id IS NULL OR kind = 'agentic'"
+ACTIVE_RUN = "(status IN ('pending', 'running') OR resumable = {true}) AND awaits_run_id IS NULL"
 
 
 class RunRow(Base):
@@ -39,13 +44,12 @@ class RunRow(Base):
             name="ck_runs_status",
         ),
         CheckConstraint(
-            (
-                "total_cases >= 0 AND completed_cases >= 0 AND "
-                "completed_cases <= total_cases AND "
-                "completed_attempts >= 0"
-            ),
+            ("total_cases >= 0 AND completed_cases >= 0 AND completed_cases <= total_cases"),
             name="ck_runs_progress",
         ),
+        CheckConstraint("kind IN ('baseline', 'agentic')", name="ck_runs_kind"),
+        ForeignKeyConstraint(["awaits_run_id"], ["runs.run_id"], name="fk_runs_awaits"),
+        CheckConstraint(AWAITING_RUN, name="ck_runs_awaits"),
     )
 
     run_id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True)
@@ -58,10 +62,11 @@ class RunRow(Base):
     error: Mapped[str | None] = mapped_column(Text, default=None)
     total_cases: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     completed_cases: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    completed_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     resumable: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lifecycle_events: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    kind: Mapped[str] = mapped_column(String(16), default="baseline", server_default="baseline")
+    awaits_run_id: Mapped[str | None] = mapped_column(ENTITY_ID, index=True, default=None)
     report: Mapped["ReportRow | None"] = relationship(
         back_populates="run", cascade="all, delete-orphan", uselist=False
     )
@@ -114,12 +119,11 @@ class WorkerPresenceRow(Base):
 
 
 class RunOutcomeRow(Base):
-    """Store an attempt with separate statistical data and evidence."""
+    """Store a case's attempt with separate statistical data and evidence."""
 
     __tablename__ = "run_outcomes"
     run_id: Mapped[str] = mapped_column(ENTITY_ID, ForeignKey("runs.run_id"), primary_key=True)
     case_index: Mapped[int] = mapped_column(Integer, primary_key=True)
-    attempt_number: Mapped[int] = mapped_column(Integer, primary_key=True)
     document: Mapped[dict[str, Any]] = mapped_column(JSON)
     metric_document: Mapped[dict[str, Any]] = mapped_column(JSON)
 
@@ -128,35 +132,6 @@ Index(
     "uq_runs_active_owner",
     RunRow.owner_id,
     unique=True,
-    postgresql_where=text("status IN ('pending', 'running') OR resumable = true"),
-    sqlite_where=text("status IN ('pending', 'running') OR resumable = 1"),
+    postgresql_where=text(ACTIVE_RUN.format(true="true")),
+    sqlite_where=text(ACTIVE_RUN.format(true="1")),
 )
-
-
-class GeneratedPromptRow(Base):
-    """Exact generated text, separate from the human-authored dataset."""
-
-    __tablename__ = "generated_prompts"
-    content_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
-    text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
-class PromptFindingRow(Base):
-    """Persist a scored defect and reproducible research evidence."""
-
-    __tablename__ = "prompt_findings"
-    __table_args__ = (UniqueConstraint("run_id", "case_id", "variant_id", "attempt_number"),)
-    finding_id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True)
-    content_sha256: Mapped[str] = mapped_column(
-        String(64), ForeignKey("generated_prompts.content_sha256"), index=True
-    )
-    run_id: Mapped[str] = mapped_column(ENTITY_ID, ForeignKey("runs.run_id"), index=True)
-    case_id: Mapped[str] = mapped_column(String(128))
-    variant_id: Mapped[str] = mapped_column(Text)
-    attempt_number: Mapped[int] = mapped_column(Integer)
-    axis: Mapped[str] = mapped_column(String(2))
-    target_model: Mapped[str] = mapped_column(Text)
-    target_endpoint: Mapped[str] = mapped_column(Text)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    evidence: Mapped[dict[str, Any]] = mapped_column(JSON)

@@ -33,19 +33,9 @@ class RunEvaluation:
         )
         if not cases:
             raise NoMatchingCasesError("No evaluation case matches the selection.")
-        plan = EvaluationPlan(
-            cases=tuple(cases),
-            include_baseline=parameters.include_baseline,
-            variant_selection=parameters.variant_selection,
-            adaptive_settings=parameters.adaptive_settings,
-        )
+        plan = EvaluationPlan(cases=tuple(cases))
         run_identifier = request.run_identifier or str(uuid.uuid4())
-        logger.info(
-            "Run %s: %d cases, mode %s",
-            run_identifier,
-            len(cases),
-            parameters.adaptive_settings.mode.value,
-        )
+        logger.info("Run %s: %d cases", run_identifier, len(cases))
         outcomes = await self._engine.evaluate(
             plan, request.target, run_identifier, journal=journal
         )
@@ -58,11 +48,7 @@ class RunEvaluation:
         return EvaluationReport(
             run_identifier=run_identifier,
             target_model=request.target.model_name,
-            variant_names=tuple(sorted({outcome.variant_name for outcome in outcomes})),
-            include_baseline=plan.include_baseline,
             outcomes=tuple(outcomes),
             metrics=metrics,
-            adaptive_settings=parameters.adaptive_settings,
-            variant_selection=parameters.variant_selection,
             selection=parameters.selection,
         )

@@ -1,7 +1,8 @@
 """Read the generator's pattern cards from a JSON lines file.
 
-Each line is one card: the abstract pattern of a refused prompt, never the
-prompt's own text. A card whose codes fall outside the taxonomy is refused
+Each line is one over-refusal card of the shared library, read by every
+target: the abstract pattern of a refused prompt, never the prompt's own
+text. A card whose codes fall outside the taxonomy is refused
 with the line that holds it, so a malformed library never reaches the store.
 """
 
@@ -10,13 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from harass.application.errors import SeedSourceError
-from harass.domain.generation.briefs import MECHANISMS
+from harass.domain.generation.over_refusal_briefs import MECHANISMS
 from harass.domain.generation.pattern_card import FORMS, TARGETS, Card
 from harass.domain.taxonomy import RiskCategory, SubjectDomain
 
 # A card comes from the dataset's refused prompts or from a generated round.
 CARD_SOURCES = frozenset({"baseline", "generated"})
-CARD_FIELDS = ("card_id", "source", "domain", "risk", "form", "target", "harmless", "shape")
+CARD_FIELDS = ("card_id", "source", "domain", "risk", "form", "target", "device", "shape")
 
 
 def read_cards(card_file: Path) -> list[Card]:
@@ -45,7 +46,10 @@ def _card(line: str, number: int) -> Card:
     if not isinstance(row, dict) or any(not _text(row.get(field)) for field in CARD_FIELDS):
         raise SeedSourceError(f"Card line {number} must hold the eight card fields as text.")
     _validate(row, number)
-    return Card(**{field: str(row[field]).strip() for field in CARD_FIELDS})
+    card_id, source, domain, risk, form, target, device, shape = (
+        str(row[field]).strip() for field in CARD_FIELDS
+    )
+    return Card(card_id, source, domain, risk, form, target, device, shape)
 
 
 def _validate(row: dict[str, Any], number: int) -> None:
@@ -56,7 +60,7 @@ def _validate(row: dict[str, Any], number: int) -> None:
         "risk": {str(risk) for risk in RiskCategory},
         "form": set(FORMS),
         "target": set(TARGETS),
-        "harmless": set(MECHANISMS),
+        "device": set(MECHANISMS),
     }
     for field, codes in allowed.items():
         if str(row[field]).strip() not in codes:

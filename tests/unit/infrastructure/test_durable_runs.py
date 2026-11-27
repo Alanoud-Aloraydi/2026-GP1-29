@@ -18,10 +18,10 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 
 from harass.application.connections import ManageConnections
 from harass.application.errors import EvaluationEngineError, UnknownRunError
+from harass.application.evaluation.baseline_engine import BaselineEngine
 from harass.application.evaluation.contracts import RunParameters
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.evaluation.variant_engine import VariantEvaluationEngine
 from harass.application.evaluation.worker import ProcessRuns
 from harass.application.ports.connections import ConnectionVerifier
 from harass.application.ports.evaluation import AttemptExecutor, EvaluationJournal, SeedSource
@@ -31,17 +31,11 @@ from harass.domain.case_outcome import AttemptTranscript, CaseOutcome
 from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.evaluation_plan import EvaluationPlan
-from harass.domain.evaluation_run import EvaluationRun, RunStatus
-from harass.domain.prompt_variant import (
-    AdaptiveSettings,
-    EvaluationMode,
-    PromptVariant,
-    VariantSelection,
-)
+from harass.domain.evaluation_run import EvaluationRun, RunKind, RunStatus
 from harass.domain.target_connection import TargetConnection
 from harass.domain.taxonomy import ResponseCategory
-from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
 from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_generation import SqlAlchemyGeneratedEvidence
 from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
 from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
 from harass.infrastructure.persistence.tables import Base, ConnectionRow, RunOutcomeRow, UserRow
@@ -49,7 +43,6 @@ from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCiph
 from harass.interfaces.api.accounts.dependencies import authenticated_owner
 from harass.interfaces.api.app import create_app
 
-ROOT = Path(__file__).resolve().parents[3]
 TARGET = TargetConnection("http://target.invalid/v1", "target", "test-only")
 
 
@@ -133,8 +126,12 @@ def enqueue(
     storage: Storage,
     run_id: str = "10000000-0000-4000-8000-000000000001",
     owner: str = "20000000-0000-4000-8000-000000000001",
+    awaits_run_id: str | None = None,
 ) -> None:
-    """Enqueue a neutral run without persisting target credentials."""
+    """Enqueue a neutral run without persisting target credentials.
+
+    A run that awaits another is an agentic run waiting for that baseline.
+    """
     storage.queue.enqueue(
         EvaluationRun(
             run_id,
@@ -145,6 +142,8 @@ def enqueue(
             "target",
             RunStatus.PENDING,
             storage.clock.now,
+            kind=RunKind.AGENTIC if awaits_run_id else RunKind.BASELINE,
+            awaits_run_id=awaits_run_id,
         ),
         RunParameters().document(),
         TARGET.base_url,
@@ -171,20 +170,14 @@ class Executor(AttemptExecutor):
         self.seen: list[str] = []
 
     async def execute(
-        self,
-        case: EvaluationCase,
-        variant: PromptVariant,
-        target: TargetConnection,
-        run_identifier: str,
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
     ) -> CaseOutcome:
-        """Exercise execute."""
-        self.seen.append(variant.variant_id)
+        """Record the case and answer it without a network call."""
+        self.seen.append(str(case.identifier))
         return CaseOutcome(
             case,
-            variant.variant_id,
             ResponseCategory.FULL_COMPLIANCE,
-            transcript=AttemptTranscript(variant.sent_prompt, "Synthetic response"),
-            variant=variant,
+            transcript=AttemptTranscript(sent_prompt, "Synthetic response"),
         )
 
 
@@ -219,18 +212,19 @@ async def test_api_admission_worker_quanta_and_full_streamed_export(storage: Sto
 
     resolver = connections(storage)
     executor = Executor()
-    manager = ManageRuns(storage.runs, resolver, queue=storage.queue)
+    manager = ManageRuns(
+        storage.runs,
+        resolver,
+        queue=storage.queue,
+        generated=SqlAlchemyGeneratedEvidence(storage.factory),
+    )
     app = create_app(resolver, manager)
     app.dependency_overrides[authenticated_owner] = lambda: "20000000-0000-4000-8000-000000000001"
     worker = ProcessRuns(
         storage.queue,
         resolver,
-        RunEvaluation(
-            Source(),
-            VariantEvaluationEngine(
-                YamlVariantCatalog(ROOT / "config/templates"), executor, quantum_attempts=2
-            ),
-        ),
+        RunEvaluation(Source(), BaselineEngine(executor, quantum_attempts=2)),
+        None,
     )
     with TestClient(app) as client:
         connection = client.post(
@@ -242,7 +236,7 @@ async def test_api_admission_worker_quanta_and_full_streamed_export(storage: Sto
             },
         ).json()["connection_id"]
         assert client.post(f"/connections/{connection}/verify").status_code == 200
-        created = client.post("/runs", json={"connection_id": connection, "run_type": "baseline"})
+        created = client.post("/runs", json={"connection_id": connection})
         assert created.status_code == 201 and created.json()["status"] == "pending"
         identifier = created.json()["run_id"]
         assert executor.seen == []
@@ -274,53 +268,41 @@ class UnavailableExecutor(Executor):
         self.available = False
 
     async def execute(
-        self,
-        case: EvaluationCase,
-        variant: PromptVariant,
-        target: TargetConnection,
-        run_identifier: str,
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
     ) -> CaseOutcome:
         """Return a technical failure or delegate after service recovery."""
         if self.available:
-            return await super().execute(case, variant, target, run_identifier)
-        self.seen.append(variant.variant_id)
+            return await super().execute(case, sent_prompt, target, run_identifier)
+        self.seen.append(str(case.identifier))
         return CaseOutcome(
-            case,
-            variant.variant_id,
-            error="Attempt failed: ConnectionError.",
-            variant=variant,
-            technical_error="connection",
+            case, error="Attempt failed: ConnectionError.", technical_error="connection"
         )
 
 
-async def test_repeated_failures_suspend_and_resume_without_resetting_budget(
-    storage: Storage,
-) -> None:
-    """Verify repeated failures suspend and resume without resetting budget."""
+async def test_repeated_failures_suspend_and_resume_from_the_checkpoint(storage: Storage) -> None:
+    """Verify repeated failures suspend and a resumed run skips committed cases."""
     resolver = connections(storage)
     connection = resolver.add(
         "20000000-0000-4000-8000-000000000001", TARGET.base_url, TARGET.model_name, TARGET.api_key
     )
     await resolver.verify("20000000-0000-4000-8000-000000000001", connection.connection_id)
-    manager = ManageRuns(storage.runs, resolver, queue=storage.queue)
+    manager = ManageRuns(
+        storage.runs,
+        resolver,
+        queue=storage.queue,
+        generated=SqlAlchemyGeneratedEvidence(storage.factory),
+    )
     run = manager.start(
-        "20000000-0000-4000-8000-000000000001",
-        connection.connection_id,
-        RunParameters(variant_selection=VariantSelection((), ())),
+        "20000000-0000-4000-8000-000000000001", connection.connection_id, RunParameters()
     )
     executor = UnavailableExecutor()
     worker = ProcessRuns(
-        storage.queue,
-        resolver,
-        RunEvaluation(
-            Source(),
-            VariantEvaluationEngine(YamlVariantCatalog(ROOT / "config/templates"), executor),
-        ),
+        storage.queue, resolver, RunEvaluation(Source(), BaselineEngine(executor)), None
     )
     assert await worker.once()
     failed = manager.get("20000000-0000-4000-8000-000000000001", run.run_id)
     assert failed.status is RunStatus.FAILED and failed.resumable
-    assert failed.completed_attempts == 3
+    assert failed.completed_cases == 3
     with pytest.raises(UnknownRunError):
         manager.resume("20000000-0000-4000-8000-000000000003", run.run_id)
     executor.available = True
@@ -391,61 +373,47 @@ def test_worker_leases_fence_expired_owners_and_preserve_queue_fairness(storage:
     assert recovered is not None and recovered.run.run_id == "10000000-0000-4000-8000-000000000002"
 
 
-async def test_restart_preserves_random_choices_and_committed_feedback(storage: Storage) -> None:
-    """Verify restart preserves random choices and committed feedback."""
-    catalogue = YamlVariantCatalog(ROOT / "config/templates")
-    plan = EvaluationPlan(
-        cases(),
-        True,
-        VariantSelection(transform_names=()),
-        AdaptiveSettings(EvaluationMode.ADAPTIVE, 3, 19),
-    )
-    expected = await VariantEvaluationEngine(catalogue, Executor()).evaluate(
-        plan, TARGET, "reference"
-    )
+async def test_restart_resumes_after_the_last_committed_case(storage: Storage) -> None:
+    """Verify a restarted worker continues where the committed checkpoint ends."""
+    plan = EvaluationPlan(cases(4))
     enqueue(storage)
     first = storage.queue.claim("first")
     assert first is not None
     executor = Executor()
     with pytest.raises(RuntimeError, match="Simulated worker"):
-        await VariantEvaluationEngine(catalogue, executor).evaluate(
+        await BaselineEngine(executor).evaluate(
             plan,
             TARGET,
             "10000000-0000-4000-8000-000000000001",
-            journal=InterruptedJournal(storage.queue.journal(first), commit=3),
+            journal=InterruptedJournal(storage.queue.journal(first), commit=2),
         )
     storage.queue.release(first)
     second = storage.queue.claim("second")
     assert second is not None
-    actual = await VariantEvaluationEngine(catalogue, executor).evaluate(
+    outcomes = await BaselineEngine(executor).evaluate(
         plan, TARGET, "10000000-0000-4000-8000-000000000001", journal=storage.queue.journal(second)
     )
-    assert [(o.variant_name, o.posterior_before, o.stop_reason) for o in actual] == [
-        (o.variant_name, o.posterior_before, o.stop_reason) for o in expected
+    assert [outcome.case.identifier for outcome in outcomes] == [
+        case.identifier for case in plan.cases
     ]
-    assert len(executor.seen) == len(expected)
+    assert executor.seen == [str(case.identifier) for case in plan.cases]
     assert (
         storage.runs.get(
             "10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001"
         ).completed_cases
-        == 2
+        == 4
     )
 
 
-async def test_ambiguous_submission_is_not_resent_or_learned(storage: Storage) -> None:
-    """Verify ambiguous submission is not resent or learned."""
-    plan = EvaluationPlan(
-        cases(1),
-        True,
-        VariantSelection(transform_names=()),
-        AdaptiveSettings(EvaluationMode.ADAPTIVE, 3, 19),
-    )
-    catalogue, executor = (YamlVariantCatalog(ROOT / "config/templates"), Executor())
+async def test_ambiguous_submission_is_not_resent(storage: Storage) -> None:
+    """Verify an attempt reserved before a crash is recorded but never resent."""
+    plan = EvaluationPlan(cases(4))
+    executor = Executor()
     enqueue(storage)
     first = storage.queue.claim("first")
     assert first is not None
     with pytest.raises(RuntimeError):
-        await VariantEvaluationEngine(catalogue, executor).evaluate(
+        await BaselineEngine(executor).evaluate(
             plan,
             TARGET,
             "10000000-0000-4000-8000-000000000001",
@@ -454,12 +422,12 @@ async def test_ambiguous_submission_is_not_resent_or_learned(storage: Storage) -
     storage.queue.release(first)
     second = storage.queue.claim("second")
     assert second is not None
-    outcomes = await VariantEvaluationEngine(catalogue, executor).evaluate(
+    outcomes = await BaselineEngine(executor).evaluate(
         plan, TARGET, "10000000-0000-4000-8000-000000000001", journal=storage.queue.journal(second)
     )
     uncertain = [o for o in outcomes if o.submission_uncertain]
     assert len(uncertain) == 1 and not uncertain[0].is_scored
-    assert uncertain[0].variant_name not in executor.seen
+    assert str(uncertain[0].case.identifier) not in executor.seen
     assert len(outcomes) == 4 and len(executor.seen) == 3
 
 
@@ -479,27 +447,16 @@ def test_changed_plan_and_evidence_ownership_are_rejected(storage: Storage) -> N
 
 
 @pytest.mark.scale
-@pytest.mark.parametrize("mode", ["baseline", "agentic"])
 async def test_ten_thousand_cases_checkpoint_and_complete_in_bounded_quanta(
-    storage: Storage, mode: str
+    storage: Storage,
 ) -> None:
     """Verify ten thousand cases checkpoint and complete in bounded quanta."""
     enqueue(storage)
-    selection = VariantSelection((), ()) if mode == "baseline" else VariantSelection()
-    plan = EvaluationPlan(
-        cases(10000),
-        True,
-        selection,
-        AdaptiveSettings(
-            EvaluationMode.STATIC if mode == "baseline" else EvaluationMode.ADAPTIVE, 8, 19
-        ),
-    )
+    plan = EvaluationPlan(cases(10000))
     executor = Executor()
-    engine = VariantEvaluationEngine(
-        YamlVariantCatalog(ROOT / "config/templates"), executor, quantum_attempts=1000
-    )
+    engine = BaselineEngine(executor, quantum_attempts=1000)
     outcomes: list[CaseOutcome] = []
-    total = 10000 if mode == "baseline" else 90000
+    total = 10000
     for index in range(total // 1000):
         job = storage.queue.claim(f"worker-{index}")
         assert job is not None
@@ -522,8 +479,7 @@ async def test_ten_thousand_cases_checkpoint_and_complete_in_bounded_quanta(
     run = storage.runs.get(
         "10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001"
     )
-    assert run.completed_cases == run.total_cases == 10000
-    assert run.completed_attempts == total
+    assert run.completed_cases == run.total_cases == total
     assert (
         len(
             storage.queue.outcome_page(
@@ -560,6 +516,47 @@ def test_cancellation_fences_worker_and_releases_account_budget(storage: Storage
     assert storage.queue.claim("new-worker") is not None
 
 
+@pytest.mark.parametrize("settled", ["completed", "cancelled", "suspended"])
+def test_a_run_waiting_for_a_baseline_starts_only_after_it_completes(
+    storage: Storage, settled: str
+) -> None:
+    """Verify a waiting run sits beside its baseline and follows how the baseline settles."""
+    from harass.application.errors import ActiveRunError
+
+    baseline, waiting = (
+        "10000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000002",
+    )
+    owner = "20000000-0000-4000-8000-000000000001"
+    enqueue(storage, baseline)
+    enqueue(storage, waiting, awaits_run_id=baseline)
+    with pytest.raises(ActiveRunError):
+        enqueue(storage, "10000000-0000-4000-8000-000000000003")
+    job = storage.queue.claim("worker")
+    assert job is not None and job.run.run_id == baseline
+    storage.queue.release(job)
+    job = storage.queue.claim("worker")
+    assert job is not None and job.run.run_id == baseline
+    if settled == "completed":
+        storage.queue.finish(job, {"target_model": "target"})
+    elif settled == "cancelled":
+        storage.queue.release(job)
+        storage.queue.cancel(baseline, owner)
+    else:
+        storage.queue.fail(job, "Suspended.", resumable=True)
+    after = storage.runs.get(waiting, owner)
+    next_job = storage.queue.claim("worker")
+    if settled == "completed":
+        assert after.awaits_run_id is None and after.status is RunStatus.PENDING
+        assert next_job is not None and next_job.run.run_id == waiting
+    elif settled == "cancelled":
+        assert after.status is RunStatus.FAILED and after.awaits_run_id == baseline
+        assert next_job is None
+    else:
+        assert after.status is RunStatus.PENDING and after.awaits_run_id == baseline
+        assert next_job is None
+
+
 def test_postgresql_rejects_cross_account_connection_and_invalid_progress(storage: Storage) -> None:
     """Verify postgresql rejects cross account connection."""
     from sqlalchemy import insert
@@ -573,7 +570,6 @@ def test_postgresql_rejects_cross_account_connection_and_invalid_progress(storag
         {"connection_id": "30000000-0000-4000-8000-000000000002"},
         {"status": "unknown"},
         {"total_cases": 1, "completed_cases": 2},
-        {"completed_attempts": -1},
     ]
     for invalid in invalid_values:
         values = dict(

@@ -14,7 +14,6 @@ from harass.application.ports.runs import LeaseLostError, RunJob
 from harass.application.reporting.document import outcome_document
 from harass.domain.case_outcome import CaseOutcome
 from harass.infrastructure.persistence.job_sessions import job_session, owned_job
-from harass.infrastructure.persistence.prompt_archive import archive_findings
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import RunJobRow, RunOutcomeRow, RunRow
 from harass.infrastructure.persistence.upsert import insert_for
@@ -23,7 +22,6 @@ from harass.infrastructure.persistence.upsert import insert_for
 TEXT_FREE_FIELDS = {
     "original_prompt": "Stored request",
     "objective": "Stored request",
-    "variant": None,
     "transcript": None,
     "judge_requests": (),
 }
@@ -60,7 +58,7 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
         self._save(checkpoint)
 
     def commit(self, outcome: CaseOutcome, checkpoint: dict[str, Any]) -> None:
-        """Commit evidence, progress and adaptive feedback atomically."""
+        """Commit evidence and progress atomically."""
         self._save(checkpoint, outcome)
 
     def _save(self, checkpoint: dict[str, Any], outcome: CaseOutcome | None = None) -> None:
@@ -101,19 +99,11 @@ class SqlAlchemyEvaluationJournal(EvaluationJournal):
             .values(
                 run_id=run.run_id,
                 case_index=self._case_index,
-                attempt_number=outcome.attempt_number,
                 document=document,
                 metric_document=metric,
             )
-            .on_conflict_do_nothing(index_elements=["run_id", "case_index", "attempt_number"])
+            .on_conflict_do_nothing(index_elements=["run_id", "case_index"])
         )
-        run.completed_attempts += 1
-        findings = {
-            "outcomes": [document],
-            "target_model": run.target_model,
-            "target_endpoint": self._job.target_endpoint,
-        }
-        archive_findings(session, run, findings)
 
     def outcomes(self, *, lightweight: bool = False) -> Iterator[CaseOutcome]:
         """Read at most 100 stored attempt documents into memory at a time."""
@@ -127,27 +117,20 @@ def stored_documents(
     factory: SessionFactory, run_id: str, *, lightweight: bool = False
 ) -> Iterator[dict[str, Any]]:
     """Export evidence with keyset pagination and bounded database sessions."""
-    last_case, last_attempt = -1, -1
+    last_case = -1
     while True:
         with job_session(factory) as session:
             column = RunOutcomeRow.metric_document if lightweight else RunOutcomeRow.document
             rows = list(
                 session.execute(
-                    select(RunOutcomeRow.case_index, RunOutcomeRow.attempt_number, column)
-                    .where(
-                        RunOutcomeRow.run_id == run_id,
-                        (RunOutcomeRow.case_index > last_case)
-                        | (
-                            (RunOutcomeRow.case_index == last_case)
-                            & (RunOutcomeRow.attempt_number > last_attempt)
-                        ),
-                    )
-                    .order_by(RunOutcomeRow.case_index, RunOutcomeRow.attempt_number)
+                    select(RunOutcomeRow.case_index, column)
+                    .where(RunOutcomeRow.run_id == run_id, RunOutcomeRow.case_index > last_case)
+                    .order_by(RunOutcomeRow.case_index)
                     .limit(100)
                 )
             )
         if not rows:
             return
-        for case_index, attempt_number, document in rows:
-            last_case, last_attempt = case_index, attempt_number
+        for case_index, document in rows:
+            last_case = case_index
             yield document

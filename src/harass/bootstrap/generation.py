@@ -10,17 +10,24 @@ import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
 from harass.application.connections import ManageConnections
+from harass.application.generation.agentic_run import RunAgenticEvaluation
+from harass.application.generation.attack_drafting import AttackDraftPipeline
 from harass.application.generation.contracts import GenerationRequest, RoundReport
-from harass.application.generation.drafting import DraftPipeline
 from harass.application.generation.generation_service import GenerateRound
 from harass.application.generation.librarian import Librarian
+from harass.application.generation.localization import VarietyLocalizer
+from harass.application.generation.over_refusal_drafting import OverRefusalDraftPipeline
+from harass.application.generation.seeding import SeedFromBaseline
 from harass.application.ports.evaluation import AttemptExecutor
+from harass.application.ports.runs import RunAdmission
 from harass.bootstrap.database import database_sessions, load_environment
 from harass.bootstrap.evaluation import DATASET_FILE, build_attempt_executor
+from harass.domain.generation.attack_briefs import ATTACK_ECHO_PHRASES
 from harass.infrastructure.dataset.card_file import read_cards
 from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
 from harass.infrastructure.http.generation_judges import (
-    ModelFormReviewer,
+    ModelAttackReviewer,
+    ModelOverRefusalReviewer,
     ModelPatternReader,
     ModelSafetyJudge,
 )
@@ -33,6 +40,7 @@ from harass.infrastructure.http.model_gateway import (
 from harass.infrastructure.http.openai_connection_verifier import OpenAIConnectionVerifier
 from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
 from harass.infrastructure.persistence.sqlalchemy_generation import SqlAlchemyGenerationStore
+from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
 from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
 from harass.infrastructure.settings import (
     BackendSettings,
@@ -42,15 +50,18 @@ from harass.infrastructure.settings import (
 )
 from harass.interfaces.cli.generation_command import RoundArguments, run_generation_command
 
-# Drafting samples widely so subjects stay new; rewriting into a variety must
-# not wander; every judgment is greedy, or the same prompt passes one round
-# and fails the next.
+# Drafting samples widely so subjects stay new (attacks wider still, so the
+# technique varies); rewriting into a variety must not wander; every judgment
+# is greedy, or the same prompt passes one round and fails the next.
 WRITER_TEMPERATURE = 0.7
+ATTACKER_TEMPERATURE = 0.9
 LOCALIZER_TEMPERATURE = 0.5
 JUDGING_TEMPERATURE = 0.0
 WRITING_TOKENS = 400
+ATTACK_TOKENS = 1500
 LESSON_TOKENS = 120
 REVIEW_TOKENS = 600
+ATTACK_REVIEW_TOKENS = 700
 JUDGEMENT_TOKENS = 400
 # The reviewing models hide their answer behind reasoning tokens unless the
 # effort is low: at the default they returned reasoning and no content.
@@ -85,20 +96,66 @@ def _service(
     generation: GenerationSettings,
     executor: AttemptExecutor,
 ) -> GenerateRound:
-    """Assemble the generation service from its adapters."""
+    """Assemble the generation service of both axes from its adapters."""
     judging = JudgingGateway(gateway)
+    over_refusal = OverRefusalDraftPipeline(
+        _writer(gateway, generation.writer, WRITER_TEMPERATURE, WRITING_TOKENS),
+        VarietyLocalizer(
+            _writer(gateway, generation.localizer, LOCALIZER_TEMPERATURE, WRITING_TOKENS)
+        ),
+        ModelOverRefusalReviewer(judging, _judge(generation.reviewer, REVIEW_TOKENS)),
+    )
     return GenerateRound(
         store=SqlAlchemyGenerationStore(factory),
-        drafting=DraftPipeline(
-            _writer(gateway, generation.writer, WRITER_TEMPERATURE, WRITING_TOKENS),
-            _writer(gateway, generation.localizer, LOCALIZER_TEMPERATURE, WRITING_TOKENS),
-            ModelFormReviewer(judging, _judge(generation.reviewer, REVIEW_TOKENS)),
-        ),
         safety=ModelSafetyJudge(judging, _judge(generation.safety_judge, JUDGEMENT_TOKENS)),
-        patterns=ModelPatternReader(judging, _judge(generation.reviewer, JUDGEMENT_TOKENS)),
-        librarian=Librarian(_writer(gateway, generation.writer, WRITER_TEMPERATURE, LESSON_TOKENS)),
         executor=executor,
         seeds=SpreadsheetSeedSource(DATASET_FILE),
+        over_refusal=over_refusal,
+        patterns=ModelPatternReader(judging, _judge(generation.reviewer, JUDGEMENT_TOKENS)),
+        librarian=Librarian(_writer(gateway, generation.writer, WRITER_TEMPERATURE, LESSON_TOKENS)),
+        attack=_attack(gateway, judging, generation),
+    )
+
+
+def build_agentic(
+    factory: sessionmaker[Session],
+    gateway: ModelGateway,
+    generation: GenerationSettings,
+    executor: AttemptExecutor,
+    evidence: RunAdmission,
+) -> RunAgenticEvaluation | None:
+    """Assemble the agentic run, or None when no attacker is configured.
+
+    An agentic run plays both axes, so it needs the attack writer too.
+    ``evidence`` reads the baseline run whose outcomes seed the cards.
+    """
+    if generation.attacker is None:
+        return None
+    store = SqlAlchemyGenerationStore(factory)
+    reader = ModelPatternReader(
+        JudgingGateway(gateway), _judge(generation.reviewer, JUDGEMENT_TOKENS)
+    )
+    return RunAgenticEvaluation(
+        _service(factory, gateway, generation, executor),
+        SeedFromBaseline(store, reader, evidence),
+        store,
+        SqlAlchemyRunStore(factory),
+    )
+
+
+def _attack(
+    gateway: ModelGateway, judging: JudgingGateway, generation: GenerationSettings
+) -> AttackDraftPipeline | None:
+    """Assemble the attack pipeline, or None when no attacker is configured."""
+    if generation.attacker is None:
+        return None
+    return AttackDraftPipeline(
+        _writer(gateway, generation.attacker, ATTACKER_TEMPERATURE, ATTACK_TOKENS),
+        VarietyLocalizer(
+            _writer(gateway, generation.attacker, LOCALIZER_TEMPERATURE, WRITING_TOKENS),
+            echo_phrases=ATTACK_ECHO_PHRASES,
+        ),
+        ModelAttackReviewer(judging, _judge(generation.reviewer, ATTACK_REVIEW_TOKENS)),
     )
 
 
@@ -137,9 +194,11 @@ async def _generate(arguments: RoundArguments) -> RoundReport:
                 return await service.execute(
                     GenerationRequest(
                         target=target,
+                        axis=arguments.axis,
                         round_index=arguments.round_index,
                         count=arguments.count,
                         send_to_target=arguments.send_to_target,
+                        transform_names=arguments.transform_names,
                     )
                 )
             finally:

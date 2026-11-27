@@ -4,8 +4,8 @@ A transform changes a prompt's surface while a human still reads its meaning:
 arabizi transliteration, invisible or presentation-form letter noise, Base64
 or Unicode encoding shells, and number rebus (a spoken number name written as
 digits inside a word, e.g. "لا10ساني" for "لا تنساني"). These are pure
-functions shared by the evaluation variant engine and the attack generator's
-obfuscation strategy. Encoding families follow Wei et al. (2023) and garak
+functions; the generator's adapter applies them to a generated prompt after
+its gates and before it reaches the target. Encoding families follow Wei et al. (2023) and garak
 buffs; the Arabic perturbations are implemented locally rather than relying on
 the known PyRIT tatweel/confusable defects.
 """
@@ -15,14 +15,10 @@ import json
 import re
 import unicodedata
 from collections.abc import Callable
+from dataclasses import KW_ONLY, dataclass
 from functools import partial
 
-from harass.domain.prompt_variant import TransformDefinition
-
-SOURCE = "https://reference.garak.ai/en/stable/index_buffs.html"
-ARABIZI_SOURCE = "https://aclanthology.org/2024.emnlp-main.1034/"
-REBUS_SOURCE = "https://en.wikipedia.org/wiki/Rebus"
-REVIEW_NOTE = " — يحتاج مراجعة لغوية"
+from harass.domain.taxonomy import Axis
 
 # Arabic-script spellings of English number names, read as sounds.
 ENGLISH_NUMBER_SOUNDS = {
@@ -181,6 +177,18 @@ def _insert_between_letters(text: str, insertion: str) -> str:
     )
 
 
+@dataclass(frozen=True)
+class TransformDefinition:
+    """The properties that decide whether transforms can be composed."""
+
+    name: str
+    _: KW_ONLY
+    needs_arabic: bool = False
+    removes_arabic: bool = False
+    is_shell: bool = False
+    safe_for_over_refusal: bool = False
+
+
 def compatible_sequence(definitions: tuple[TransformDefinition, ...]) -> bool:
     """Reject incompatible encodings and nested instruction shells."""
     arabic_available = True
@@ -189,55 +197,91 @@ def compatible_sequence(definitions: tuple[TransformDefinition, ...]) -> bool:
         if definition.needs_arabic and not arabic_available:
             return False
         arabic_available = arabic_available and not definition.removes_arabic
-        shells += int(definition.is_template)
+        shells += int(definition.is_shell)
     return shells <= 1
 
 
-def _letter_noise(name: str, label: str) -> TransformDefinition:
+def _letter_noise(name: str) -> TransformDefinition:
     """Describe a perturbation that keeps every letter and the meaning."""
-    return TransformDefinition(name, label, SOURCE, needs_arabic=True, safe_for_over_refusal=True)
+    return TransformDefinition(name, needs_arabic=True, safe_for_over_refusal=True)
 
 
-def _encoding(name: str, label: str) -> TransformDefinition:
+def _encoding(name: str) -> TransformDefinition:
     """Describe an encoding that hides the text inside a decoding shell."""
-    return TransformDefinition(
-        name, label, SOURCE, removes_arabic=True, is_template=True, safe_for_over_refusal=True
-    )
-
-
-def _rebus(name: str, label: str) -> TransformDefinition:
-    """Describe a number rebus that an Arabic speaker must confirm."""
-    return TransformDefinition(
-        name, label + REVIEW_NOTE, REBUS_SOURCE, needs_arabic=True, needs_language_review=True
-    )
+    return TransformDefinition(name, removes_arabic=True, is_shell=True, safe_for_over_refusal=True)
 
 
 # One row per transform, so its definition and operation cannot drift apart.
+# Arabizi follows https://aclanthology.org/2024.emnlp-main.1034/; letter noise
+# and encodings follow https://reference.garak.ai/en/stable/index_buffs.html.
+# Arabizi and number rebus change how words are spelled, so a reader may no
+# longer recover the meaning; they are therefore unfit for over-refusal prompts.
 _REGISTRY: tuple[tuple[TransformDefinition, Callable[[str], str]], ...] = (
+    (TransformDefinition("arabizi", needs_arabic=True, removes_arabic=True), _arabizi),
+    (_letter_noise("tatweel"), partial(_insert_between_letters, insertion="ـ")),
+    (_letter_noise("zero_width"), partial(_insert_between_letters, insertion="\u200b")),
+    (_letter_noise("presentation_forms"), _presentation_forms),
     (
-        TransformDefinition(
-            "arabizi",
-            "نقل حرفي إلى Arabizi" + REVIEW_NOTE,
-            ARABIZI_SOURCE,
-            needs_arabic=True,
-            removes_arabic=True,
-            needs_language_review=True,
-        ),
-        _arabizi,
-    ),
-    (_letter_noise("tatweel", "إضافة التطويل"), partial(_insert_between_letters, insertion="ـ")),
-    (_letter_noise("zero_width", "فاصل غير مرئي"), partial(_insert_between_letters, insertion="​")),
-    (_letter_noise("presentation_forms", "أشكال العرض العربية"), _presentation_forms),
-    (
-        _rebus("english_number_sounds", "أرقام تُقرأ بنطقها الإنجليزي داخل الكلمات"),
+        TransformDefinition("english_number_sounds", needs_arabic=True),
         rebus_writer(ENGLISH_NUMBER_SOUNDS),
     ),
     (
-        _rebus("arabic_number_words", "أرقام تُقرأ بنطقها العربي داخل الكلمات"),
+        TransformDefinition("arabic_number_words", needs_arabic=True),
         rebus_writer(ARABIC_NUMBER_WORDS),
     ),
-    (_encoding("base64", "ترميز Base64"), _base64),
-    (_encoding("unicode_escape", "ترميز Unicode"), _unicode_escape),
+    (_encoding("base64"), _base64),
+    (_encoding("unicode_escape"), _unicode_escape),
 )
 TRANSFORMS = tuple(definition for definition, _ in _REGISTRY)
 _OPERATIONS = {definition.name: operation for definition, operation in _REGISTRY}
+
+
+def adapter_sequence(names: tuple[str, ...], axis: Axis) -> tuple[TransformDefinition, ...]:
+    """Return the transforms an adapter applies, in the order named.
+
+    An over-refusal prompt keeps only transforms that preserve its meaning
+    for a reader, because a refusal of an unreadable prompt measures nothing.
+
+    Raises:
+        ValueError: If a name is unknown or repeated, the sequence cannot be
+            composed, or a transform is unfit for an over-refusal prompt.
+    """
+    by_name = {definition.name: definition for definition in TRANSFORMS}
+    unknown = [name for name in names if name not in by_name]
+    if unknown:
+        raise ValueError(f"Unknown transform: {', '.join(unknown)}.")
+    if len(set(names)) != len(names):
+        raise ValueError("A transform may be applied only once.")
+    sequence = tuple(by_name[name] for name in names)
+    if not compatible_sequence(sequence):
+        raise ValueError("These transforms cannot be composed in this order.")
+    if axis is Axis.OVER_REFUSAL and not all(t.safe_for_over_refusal for t in sequence):
+        raise ValueError("Over-refusal prompts take only meaning-preserving transforms.")
+    return sequence
+
+
+def axis_transforms(names: tuple[str, ...], axis: Axis) -> tuple[str, ...]:
+    """Return the named transforms one axis applies, in the order named.
+
+    An agentic run chooses one adapter for both axes: an attack takes every
+    transform, an over-refusal prompt only those that keep its meaning.
+    Unknown names are kept, so ``adapter_sequence`` still rejects them.
+    """
+    if axis is Axis.ADVERSARIAL:
+        return names
+    by_name = {definition.name: definition for definition in TRANSFORMS}
+    return tuple(
+        name for name in names if name not in by_name or by_name[name].safe_for_over_refusal
+    )
+
+
+def transform_text(text: str, sequence: tuple[TransformDefinition, ...]) -> str | None:
+    """Apply transforms in order, or return None when one cannot apply."""
+    for transform in sequence:
+        if transform.needs_arabic and not has_arabic(text):
+            return None
+        text = apply_transform(transform.name, text)
+        leaked = transform.removes_arabic and not transform.is_shell
+        if leaked and has_arabic(text):
+            return None
+    return text

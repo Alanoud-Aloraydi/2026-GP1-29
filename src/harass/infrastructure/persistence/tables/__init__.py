@@ -9,8 +9,6 @@ from harass.infrastructure.persistence.tables.accounts import (
 from harass.infrastructure.persistence.tables.base import ENTITY_ID, Base
 from harass.infrastructure.persistence.tables.connections import ConnectionRow
 from harass.infrastructure.persistence.tables.evaluations import (
-    GeneratedPromptRow,
-    PromptFindingRow,
     ReportRow,
     RunJobRow,
     RunOutcomeRow,
@@ -32,13 +30,11 @@ __all__ = [
     "AuthenticationSessionRow",
     "Base",
     "ConnectionRow",
-    "GeneratedPromptRow",
     "GeneratorCardRow",
     "GeneratorLessonRow",
     "GeneratorOutcomeRow",
     "GeneratorPromptRow",
     "JudgeBenchmarkReportRow",
-    "PromptFindingRow",
     "ReportRow",
     "RequestLimitRow",
     "RunJobRow",

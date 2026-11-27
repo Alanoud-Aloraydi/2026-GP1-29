@@ -1,4 +1,4 @@
-"""Ports for evaluation cases, prompt recipes, attempts, engines and journals."""
+"""Ports for evaluation cases, attempts, engines and journals."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
@@ -8,12 +8,6 @@ from harass.domain.case_outcome import CaseOutcome
 from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.evaluation_plan import EvaluationPlan
-from harass.domain.prompt_variant import (
-    PromptTemplate,
-    PromptVariant,
-    TransformDefinition,
-    VariantSelection,
-)
 from harass.domain.target_connection import TargetConnection
 
 
@@ -29,38 +23,18 @@ class SeedSource(ABC):
         """
 
 
-class VariantCatalog(ABC):
-    """Resolve library selections into eligible, deduplicated requests."""
-
-    @abstractmethod
-    def templates(self) -> tuple[PromptTemplate, ...]:
-        """Return all authored template definitions."""
-
-    @abstractmethod
-    def transforms(self) -> tuple[TransformDefinition, ...]:
-        """Return all available transform definitions."""
-
-    @abstractmethod
-    def variants(self, case: EvaluationCase, selection: VariantSelection) -> list[PromptVariant]:
-        """Return compatible variants, excluding the unchanged baseline."""
-
-
 class AttemptExecutor(ABC):
-    """Execute an isolated variant with OWASP-specific context."""
+    """Send one prompt for a case in its OWASP context and judge the reply."""
 
     @abstractmethod
     async def execute(
-        self,
-        case: EvaluationCase,
-        variant: PromptVariant,
-        target: TargetConnection,
-        run_identifier: str,
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
     ) -> CaseOutcome:
         """Execute an attempt and preserve any technical failure."""
 
 
 class EvaluationJournal(ABC):
-    """Commit feedback and progress before the next submission."""
+    """Commit outcomes and progress before the next submission."""
 
     @abstractmethod
     def initialize(self, fingerprint: str, total_cases: int) -> dict[str, Any]:
@@ -72,7 +46,7 @@ class EvaluationJournal(ABC):
 
     @abstractmethod
     def commit(self, outcome: CaseOutcome, checkpoint: dict[str, Any]) -> None:
-        """Atomically persist an outcome and its resulting controller state."""
+        """Atomically persist an outcome and the checkpoint that follows it."""
 
     @abstractmethod
     def outcomes(self, *, lightweight: bool = False) -> Iterator[CaseOutcome]:
@@ -91,7 +65,7 @@ class EvaluationEngine(ABC):
         *,
         journal: EvaluationJournal | None = None,
     ) -> list[CaseOutcome]:
-        """Evaluate selected recipes and any planned baseline.
+        """Send every planned case once and judge each reply.
 
         Outcomes whose verdict could not be obtained carry an error instead of
         being omitted.

@@ -1,4 +1,4 @@
-"""Tests for the generator's model-backed reviewer, safety judge and reader."""
+"""Tests for the generator's model-backed reviewers, safety judge and reader."""
 
 import json
 from collections.abc import AsyncIterator
@@ -6,11 +6,13 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from harass.domain.generation.cells import Cell
-from harass.domain.generation.review import CHECKS
-from harass.domain.taxonomy import ArabicVariety, RiskCategory, SubjectDomain
+from harass.domain.generation.cells import AttackCell, OverRefusalCell
+from harass.domain.generation.pattern_card import Card
+from harass.domain.generation.review import ATTACK_CHECKS, OVER_REFUSAL_CHECKS
+from harass.domain.taxonomy import ArabicVariety, Axis, RiskCategory, SubjectDomain
 from harass.infrastructure.http.generation_judges import (
-    ModelFormReviewer,
+    ModelAttackReviewer,
+    ModelOverRefusalReviewer,
     ModelPatternReader,
     ModelSafetyJudge,
 )
@@ -23,7 +25,9 @@ ROUTE = ModelRoute(
     temperature=0.0,
     max_tokens=600,
 )
-CELL = Cell(SubjectDomain.MEDICINE_AND_HEALTH, RiskCategory.VIOLENCE_AND_HARM, ArabicVariety.NAJDI)
+CELL = OverRefusalCell(
+    SubjectDomain.MEDICINE_AND_HEALTH, RiskCategory.VIOLENCE_AND_HARM, ArabicVariety.NAJDI
+)
 MECHANISM = "homonym"
 
 
@@ -53,7 +57,10 @@ async def judging(*answers: str) -> AsyncIterator[tuple[JudgingGateway, Scripted
 def passing_answer(**overrides: bool) -> str:
     """Return a review answer that passes every check but the overrides."""
     return json.dumps(
-        {check: {"pass": overrides.get(check, True), "reason": "reason"} for check in CHECKS},
+        {
+            check: {"pass": overrides.get(check, True), "reason": "reason"}
+            for check in OVER_REFUSAL_CHECKS
+        },
         ensure_ascii=False,
     )
 
@@ -61,7 +68,7 @@ def passing_answer(**overrides: bool) -> str:
 async def test_the_rubric_carries_the_cell_in_arabic() -> None:
     """Verify the reviewer is told the domain, risk, mechanism and variety."""
     async with judging(passing_answer()) as (gateway, endpoint):
-        review = await ModelFormReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
+        review = await ModelOverRefusalReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
     rubric = endpoint.rubrics[0]
     assert review.passed
     assert "الطب والصحة" in rubric
@@ -76,7 +83,7 @@ async def test_a_failed_check_is_read_with_its_reason() -> None:
         {**json.loads(passing_answer()), "FACTS": {"pass": False, "reason": "invented a date"}}
     )
     async with judging(answer) as (gateway, _):
-        review = await ModelFormReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
+        review = await ModelOverRefusalReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
     assert not review.passed
     assert review.notes["FACTS"] == "no invented a date"
 
@@ -86,7 +93,7 @@ async def test_a_missing_check_fails_without_rejecting_the_answer() -> None:
     verdicts = json.loads(passing_answer())
     del verdicts["SENSITIVE"]
     async with judging(json.dumps(verdicts)) as (gateway, endpoint):
-        review = await ModelFormReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
+        review = await ModelOverRefusalReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
     assert review.obtained
     assert not review.passed
     assert len(endpoint.rubrics) == 1
@@ -95,7 +102,7 @@ async def test_a_missing_check_fails_without_rejecting_the_answer() -> None:
 async def test_an_unreadable_answer_is_asked_again_then_rejects() -> None:
     """Verify two unreadable answers leave an empty review, not a pass."""
     async with judging("no json here", "still nothing") as (gateway, endpoint):
-        review = await ModelFormReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
+        review = await ModelOverRefusalReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
     assert not review.obtained
     assert not review.passed
     assert len(endpoint.rubrics) == 2
@@ -104,17 +111,19 @@ async def test_an_unreadable_answer_is_asked_again_then_rejects() -> None:
 async def test_a_second_attempt_can_still_be_read() -> None:
     """Verify a malformed first answer does not lose a usable second one."""
     async with judging("", passing_answer()) as (gateway, _):
-        assert (await ModelFormReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")).passed
+        assert (
+            await ModelOverRefusalReviewer(gateway, ROUTE).review(CELL, MECHANISM, "طلب")
+        ).passed
 
 
 async def test_the_alarming_word_must_survive_localization() -> None:
     """Verify only an explicit PRESERVED verdict accepts a rewrite."""
     async with judging("PRESERVED قتل") as (gateway, _):
-        assert await ModelFormReviewer(gateway, ROUTE).preserves_alarm("أصل", "لهجة")
+        assert await ModelOverRefusalReviewer(gateway, ROUTE).preserves_alarm("أصل", "لهجة")
     async with judging("LOST الكلمة") as (gateway, _):
-        assert not await ModelFormReviewer(gateway, ROUTE).preserves_alarm("أصل", "لهجة")
+        assert not await ModelOverRefusalReviewer(gateway, ROUTE).preserves_alarm("أصل", "لهجة")
     async with judging("") as (gateway, _):
-        assert not await ModelFormReviewer(gateway, ROUTE).preserves_alarm("أصل", "لهجة")
+        assert not await ModelOverRefusalReviewer(gateway, ROUTE).preserves_alarm("أصل", "لهجة")
 
 
 async def test_safety_needs_an_explicit_safe_verdict() -> None:
@@ -127,36 +136,79 @@ async def test_safety_needs_an_explicit_safe_verdict() -> None:
         assert not await ModelSafetyJudge(gateway, ROUTE).is_intent_safe("طلب")
 
 
-async def test_a_pattern_is_read_into_a_card() -> None:
-    """Verify a well-formed pattern becomes a card of the given cell codes."""
-    answer = json.dumps(
-        {"form": "EXPLAIN", "target": "PERSON", "harmless": "homonym", "shape": "طلب إيذاء"},
-        ensure_ascii=False,
+def origin(axis: Axis = Axis.OVER_REFUSAL, strategy: str | None = None) -> Card:
+    """Return what is known of a card before its prompt is read."""
+    return Card(
+        "G-1",
+        "generated",
+        "TBB",
+        "VIO",
+        form="",
+        target="",
+        device="",
+        shape="",
+        axis=axis,
+        strategy=strategy,
+        target_model="target",
     )
-    async with judging(answer) as (gateway, _):
-        card = await ModelPatternReader(gateway, ROUTE).read(
-            "G-1", "generated", "TBB", "VIO", "طلب"
-        )
+
+
+def pattern(device: str, form: str = "EXPLAIN", shape: str = "طلب إيذاء") -> str:
+    """Return a reader answer naming one pattern."""
+    return json.dumps(
+        {"form": form, "target": "PERSON", "device": device, "shape": shape}, ensure_ascii=False
+    )
+
+
+async def test_a_pattern_is_read_into_a_card() -> None:
+    """Verify a well-formed pattern completes the card it was read for."""
+    async with judging(pattern("homonym")) as (gateway, _):
+        card = await ModelPatternReader(gateway, ROUTE).read(origin(), "طلب")
     assert card is not None
-    assert (card.card_id, card.source, card.domain, card.risk) == ("G-1", "generated", "TBB", "VIO")
-    assert card.pattern == ("TBB", "VIO", "EXPLAIN", "PERSON", "homonym")
+    assert (card.card_id, card.source, card.target_model) == ("G-1", "generated", "target")
+    assert card.pattern == (Axis.OVER_REFUSAL, "TBB", "VIO", "", "EXPLAIN", "PERSON", "homonym")
+
+
+async def test_an_attack_pattern_takes_a_device_of_its_strategy() -> None:
+    """Verify an attack is read with the devices of its own strategy only."""
+    async with judging(pattern("fiction")) as (gateway, endpoint):
+        card = await ModelPatternReader(gateway, ROUTE).read(origin(Axis.ADVERSARIAL, "ROL"), "x")
+    assert card is not None
+    assert (card.axis, card.strategy, card.device) == (Axis.ADVERSARIAL, "ROL", "fiction")
+    assert "fiction" in endpoint.rubrics[0]
+    async with judging(pattern("authority")) as (gateway, _):
+        assert (
+            await ModelPatternReader(gateway, ROUTE).read(origin(Axis.ADVERSARIAL, "ROL"), "x")
+            is None
+        )
 
 
 async def test_a_pattern_outside_the_vocabulary_is_refused() -> None:
     """Verify an invented code or a missing shape yields no card."""
-    invented = json.dumps(
-        {"form": "INVENTED", "target": "PERSON", "harmless": "homonym", "shape": "x"}
+    for answer in (pattern("homonym", form="INVENTED"), pattern("homonym", shape="")):
+        async with judging(answer) as (gateway, _):
+            assert await ModelPatternReader(gateway, ROUTE).read(origin(), "x") is None
+
+
+async def test_the_attack_reviewer_reads_every_attack_check() -> None:
+    """Verify the attack rubric carries the cell and its eight checks are read."""
+    cell = AttackCell.parse("AT-HSB-PRV-ROL-LLM08-MSA")
+    answer = json.dumps(
+        {check: {"pass": check != "NO_PAYLOAD", "reason": "r"} for check in ATTACK_CHECKS}
     )
-    shapeless = json.dumps(
-        {"form": "EXPLAIN", "target": "PERSON", "harmless": "homonym", "shape": ""}
-    )
-    async with judging(invented) as (gateway, _):
-        assert (
-            await ModelPatternReader(gateway, ROUTE).read("G", "generated", "TBB", "VIO", "x")
-            is None
+    async with judging(answer) as (gateway, endpoint):
+        review = await ModelAttackReviewer(gateway, ROUTE).review(cell, "طلب")
+    assert "hidden internal operating context" in endpoint.rubrics[0]
+    assert "التأطير بدور" in endpoint.rubrics[0]
+    assert not review.passed
+    assert review.score(ATTACK_CHECKS) == len(ATTACK_CHECKS) - 1
+
+
+async def test_an_unreadable_attack_review_fails_closed() -> None:
+    """Verify an attack review that cannot be read passes nothing."""
+    async with judging("no json") as (gateway, _):
+        review = await ModelAttackReviewer(gateway, ROUTE).review(
+            AttackCell.parse("AT-DIN-VIO-DIR-NAP-MSA"), "طلب"
         )
-    async with judging(shapeless) as (gateway, _):
-        assert (
-            await ModelPatternReader(gateway, ROUTE).read("G", "generated", "TBB", "VIO", "x")
-            is None
-        )
+    assert not review.obtained
+    assert not review.passed

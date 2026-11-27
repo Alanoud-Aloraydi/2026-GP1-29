@@ -6,7 +6,7 @@ from pathlib import Path
 from harass.application.errors import ConnectionNotReadyError, SeedSourceError
 from harass.application.generation.contracts import RoundReport
 from harass.domain.generation.history import GeneratedPrompt, Lesson, PromptOutcome
-from harass.domain.taxonomy import ResponseCategory
+from harass.domain.taxonomy import Axis, ResponseCategory
 from harass.interfaces.cli.generation_command import RoundArguments, run_generation_command
 
 ARGUMENTS = ["round", "--owner", "owner-1", "--connection", "connection-1"]
@@ -18,11 +18,13 @@ def prompt(prompt_id: str, *, reviewer_passed: bool = True) -> GeneratedPrompt:
     return GeneratedPrompt(
         prompt_id=prompt_id,
         case_id="OR-DIN-VIO-MSA-00001",
+        axis=Axis.OVER_REFUSAL,
         cell_key="OR-DIN-VIO-MSA",
-        mechanism="homonym",
+        device="homonym",
         card_id="C-1",
         round_index=0,
         written_text="النص الفصيح",
+        localized_text=SENT_TEXT,
         sent_text=SENT_TEXT,
         reviewer_passed=reviewer_passed,
         intent_safe=True,
@@ -32,6 +34,7 @@ def prompt(prompt_id: str, *, reviewer_passed: bool = True) -> GeneratedPrompt:
 def report(round_index: int = 0) -> RoundReport:
     """Return a round report with one refusal and one compliance."""
     return RoundReport(
+        axis=Axis.OVER_REFUSAL,
         round_index=round_index,
         target_model="target-model",
         prompts=(prompt("p1"), prompt("p2", reviewer_passed=False)),
@@ -61,7 +64,7 @@ def test_the_arguments_reach_the_service() -> None:
         [*ARGUMENTS, "--round", "2", "--count", "30"], run_round, _no_cards, StringIO()
     )
     assert code == 0
-    assert seen == [RoundArguments("owner-1", "connection-1", 2, 30, True)]
+    assert seen == [RoundArguments("owner-1", "connection-1", Axis.OVER_REFUSAL, 2, 30, True)]
 
 
 def test_drafting_only_is_passed_on() -> None:
@@ -71,7 +74,7 @@ def test_drafting_only_is_passed_on() -> None:
     def run_round(arguments: RoundArguments) -> RoundReport:
         """Record the arguments and report a round."""
         seen.append(arguments)
-        return RoundReport(0, "target-model", (prompt("p1"),))
+        return RoundReport(Axis.OVER_REFUSAL, 0, "target-model", (prompt("p1"),))
 
     output = StringIO()
     assert run_generation_command([*ARGUMENTS, "--draft-only"], run_round, _no_cards, output) == 0
@@ -85,7 +88,7 @@ def test_the_report_prints_codes_and_rates_but_no_prompt_text() -> None:
     assert run_generation_command(ARGUMENTS, lambda _: report(), _no_cards, output) == 0
     printed = output.getvalue()
     assert SENT_TEXT not in printed
-    assert "Round 0 (measurement) on target-model" in printed
+    assert "Round 0 (over-refusal, measurement) on target-model" in printed
     assert "2 prompts, 1 valid, 2 scored" in printed
     assert "Over-refusal: 1/2 = 50.0%" in printed
     assert "REF=1" in printed and "FUL=1" in printed
@@ -97,7 +100,7 @@ def test_a_later_round_is_named_a_discovery_round() -> None:
     """Verify the phase of the round is reported."""
     output = StringIO()
     assert run_generation_command(ARGUMENTS, lambda _: report(3), _no_cards, output) == 0
-    assert "Round 3 (discovery)" in output.getvalue()
+    assert "Round 3 (over-refusal, discovery)" in output.getvalue()
 
 
 def test_an_unverified_connection_is_reported_as_an_error() -> None:
@@ -155,3 +158,21 @@ def test_a_malformed_card_library_is_reported_as_an_error() -> None:
         run_generation_command(["cards", "x.jsonl"], lambda _: report(), import_cards, output) == 1
     )
     assert "Generation error: Card line 3 has an unknown risk." in output.getvalue()
+
+
+def test_an_attack_round_takes_its_axis_and_transforms() -> None:
+    """Verify --axis attack and repeated --transform reach the service in order."""
+    seen: list[RoundArguments] = []
+
+    def run_round(arguments: RoundArguments) -> RoundReport:
+        """Record the arguments and report an empty attack round."""
+        seen.append(arguments)
+        return RoundReport(Axis.ADVERSARIAL, 0, "target-model")
+
+    argv = [*ARGUMENTS, "--axis", "attack", "--transform", "tatweel", "--transform", "base64"]
+    output = StringIO()
+    assert run_generation_command(argv, run_round, _no_cards, output) == 0
+    assert seen[0].axis is Axis.ADVERSARIAL
+    assert seen[0].transform_names == ("tatweel", "base64")
+    assert "(attack, measurement)" in output.getvalue()
+    assert "Attack success: no scored prompt" in output.getvalue()

@@ -14,12 +14,11 @@ from harass.application.evaluation.run_service import ManageRuns
 from harass.application.judge_reports import JudgeReports
 from harass.bootstrap.accounts import build_accounts
 from harass.bootstrap.database import DEFAULT_API_PORT, judge_slot, load_environment, open_engine
-from harass.bootstrap.evaluation import TEMPLATES_DIR
 from harass.bootstrap.execution_profile import execution_profile
-from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
 from harass.infrastructure.http.endpoint_policy import EndpointPolicy
 from harass.infrastructure.http.openai_connection_verifier import OpenAIConnectionVerifier
 from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_generation import SqlAlchemyGeneratedEvidence
 from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
 from harass.infrastructure.persistence.sqlalchemy_judge_reports import SqlAlchemyJudgeReportStore
 from harass.infrastructure.persistence.sqlalchemy_request_limiter import SqlAlchemyRequestLimiter
@@ -54,8 +53,12 @@ def build_api() -> FastAPI:
     authentication, recovery = build_accounts(factory, backend)
     app = create_app(
         connections,
-        ManageRuns(SqlAlchemyRunStore(factory), connections, queue=queue),
-        YamlVariantCatalog(TEMPLATES_DIR),
+        ManageRuns(
+            SqlAlchemyRunStore(factory),
+            connections,
+            queue=queue,
+            generated=SqlAlchemyGeneratedEvidence(factory),
+        ),
         authentication=authentication,
         recovery=recovery,
         secure_cookie=backend.secure_cookie,

@@ -1,32 +1,24 @@
-"""Select paired cases, recipes and execution policy."""
+"""Select the paired dataset cases an evaluation sends."""
 
 import random
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from harass.domain.errors import InvalidEvaluationPlanError
 from harass.domain.evaluation_case import EvaluationCase
-from harass.domain.prompt_variant import AdaptiveSettings, VariantSelection
 from harass.domain.taxonomy import Axis, SubjectDomain
 
 
 @dataclass(frozen=True)
 class EvaluationPlan:
-    """Describe selected cases, baseline inclusion and recipe filters."""
+    """The selected dataset cases, each sent once as written."""
 
     cases: tuple[EvaluationCase, ...]
-    include_baseline: bool = True
-    variant_selection: VariantSelection = field(default_factory=VariantSelection)
-    adaptive_settings: AdaptiveSettings = field(default_factory=AdaptiveSettings)
 
     def __post_init__(self) -> None:
         """Reject plans that would send nothing."""
         if not self.cases:
             raise InvalidEvaluationPlanError("An evaluation plan requires at least one case.")
-        if not self.include_baseline and self.variant_selection == VariantSelection((), ()):
-            raise InvalidEvaluationPlanError(
-                "An evaluation plan requires eligible variants or the baseline."
-            )
 
 
 def sample_base_cases(

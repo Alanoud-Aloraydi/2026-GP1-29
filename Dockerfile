@@ -23,7 +23,6 @@ RUN apt-get update \
 COPY --from=dependencies /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=harass:harass frontend ./frontend
-COPY --chown=harass:harass config ./config
 COPY --chown=harass:harass data ./data
 USER harass
 EXPOSE 8000

@@ -6,11 +6,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from harass.application.errors import UnknownRunError
+from harass.application.evaluation.contracts import RunParameters
 from harass.application.ports.runs import RunStore
-from harass.domain.evaluation_run import EvaluationRun
+from harass.domain.evaluation_run import ACTIVE_STATUSES, EvaluationRun, RunKind, RunStatus
+from harass.domain.taxonomy import Axis
 from harass.infrastructure.persistence.row_mapping import read_run
 from harass.infrastructure.persistence.session_factory import SessionFactory
-from harass.infrastructure.persistence.tables import ReportRow, RunRow
+from harass.infrastructure.persistence.tables import ReportRow, RunJobRow, RunRow
 
 
 class SqlAlchemyRunStore(RunStore):
@@ -55,6 +57,30 @@ class SqlAlchemyRunStore(RunStore):
                 .group_by(RunRow.status)
             )
             return {status: count for status, count in counts}
+
+    def baselines(
+        self, owner_id: str, connection_id: str
+    ) -> list[tuple[EvaluationRun, Axis | None]]:
+        """Return the baseline runs that completed or may still complete, newest first.
+
+        O(n) in the connection's baseline runs, each read with its job inputs.
+        """
+        with self._factory() as session:
+            rows = session.execute(
+                select(RunRow, RunJobRow.parameters)
+                .join(RunJobRow, RunJobRow.run_id == RunRow.run_id)
+                .where(
+                    RunRow.owner_id == owner_id,
+                    RunRow.connection_id == connection_id,
+                    RunRow.kind == RunKind.BASELINE,
+                    RunRow.status.in_((RunStatus.COMPLETED, *ACTIVE_STATUSES)) | RunRow.resumable,
+                )
+                .order_by(RunRow.created_at.desc(), RunRow.run_id)
+            )
+            return [
+                (read_run(row), RunParameters.from_document(parameters).selection.axis)
+                for row, parameters in rows
+            ]
 
 
 def _owned(session: Session, run_id: str, owner_id: str) -> RunRow:

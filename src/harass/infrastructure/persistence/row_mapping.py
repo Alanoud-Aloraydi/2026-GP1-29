@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from harass.domain.evaluation_run import EvaluationRun, RunStatus
+from harass.domain.evaluation_run import EvaluationRun, RunKind, RunStatus
 from harass.infrastructure.persistence.tables import RunRow
 
 
@@ -18,6 +18,8 @@ def new_run_row(run: EvaluationRun) -> RunRow:
         lifecycle_events=[{"event": "created", "at": run.created_at.isoformat()}],
         finished_at=run.finished_at,
         error=run.error,
+        kind=run.kind.value,
+        awaits_run_id=run.awaits_run_id,
     )
 
 
@@ -36,10 +38,11 @@ def read_run(row: RunRow) -> EvaluationRun:
         error=row.error,
         total_cases=row.total_cases,
         completed_cases=row.completed_cases,
-        completed_attempts=row.completed_attempts,
         resumable=row.resumable,
         started_at=utc_timestamp(row.started_at),
         lifecycle_events=tuple(row.lifecycle_events or ()),
+        kind=RunKind(row.kind),
+        awaits_run_id=row.awaits_run_id,
     )
 
 

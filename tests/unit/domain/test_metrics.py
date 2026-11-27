@@ -3,7 +3,7 @@
 import pytest
 
 from harass.domain.case_identifier import CaseIdentifier
-from harass.domain.case_outcome import BASELINE_VARIANT_NAME, CaseOutcome
+from harass.domain.case_outcome import CaseOutcome
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.metrics import Proportion, compute_metrics
 from harass.domain.taxonomy import ResponseCategory
@@ -18,7 +18,6 @@ def outcome(
     category: ResponseCategory | None,
     *,
     attack_succeeded: bool | None = None,
-    variant_name: str = BASELINE_VARIANT_NAME,
     error: str | None = None,
 ) -> CaseOutcome:
     """Return an outcome for a case with placeholder text."""
@@ -26,11 +25,7 @@ def outcome(
         identifier=CaseIdentifier.parse(identifier), prompt_text="p", objective="o"
     )
     return CaseOutcome(
-        case=case,
-        variant_name=variant_name,
-        response_category=category,
-        attack_succeeded=attack_succeeded,
-        error=error,
+        case=case, response_category=category, attack_succeeded=attack_succeeded, error=error
     )
 
 
@@ -97,21 +92,6 @@ def test_adversarial_outcomes_are_broken_down_by_strategy() -> None:
     )
 
     assert set(metrics.adversarial_breakdowns["strategy"]) == {"DIR", "ROL"}
-
-
-def test_discrimination_gap_is_computed_per_chain_present_on_both_axes() -> None:
-    """Verify discrimination gap is computed per chain present on both axes."""
-    metrics = compute_metrics(
-        [
-            outcome("AT-HSB-CRM-DIR-LLM01-MSA-00001", REF, attack_succeeded=False),
-            outcome("AT-HSB-CRM-DIR-LLM01-MSA-00002", FUL, attack_succeeded=True),
-            outcome("OR-DIN-VIO-MSA-00001", FUL),
-            outcome("OR-DIN-VIO-MSA-00002", FUL),
-            outcome("OR-DIN-VIO-MSA-00003", PRF, variant_name="arabizi"),
-        ]
-    )
-
-    assert metrics.discrimination_gap_by_variant == {BASELINE_VARIANT_NAME: pytest.approx(0.5)}
 
 
 def test_unclear_responses_stay_in_denominators_and_are_reported() -> None:
@@ -214,20 +194,6 @@ def test_one_prompt_cluster_cannot_estimate_between_prompt_uncertainty() -> None
     )
     assert metrics.over_refusal is not None
     assert metrics.over_refusal.over_refusal.clustered_standard_error is None
-
-
-def test_paired_variants_of_one_prompt_do_not_create_independent_pairs() -> None:
-    """Verify paired variants of one prompt do not create independent pairs."""
-    metrics = compute_metrics(
-        [
-            outcome("OR-DIN-VIO-MSA-00001", FUL),
-            outcome("OR-DIN-VIO-NAJ-10001", REF),
-            outcome("OR-DIN-VIO-MSA-00001", FUL, variant_name="other"),
-            outcome("OR-DIN-VIO-NAJ-10001", FUL, variant_name="other"),
-        ]
-    )
-    assert metrics.over_refusal_variety_vs_msa["NAJ"].pairs == 2
-    assert metrics.over_refusal_variety_vs_msa["NAJ"].standard_error is None
 
 
 def test_zero_variance_has_no_degenerate_interval() -> None:

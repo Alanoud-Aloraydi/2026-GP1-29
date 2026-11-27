@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from harass.domain.prompt_variant import EvaluationMode
+from harass.application.evaluation.contracts import MAX_PROMPTS_PER_ROUND, MAX_ROUNDS
 from harass.domain.taxonomy import ArabicVariety, Axis, BypassStrategy, RiskCategory, SubjectDomain
 
 
@@ -21,21 +21,31 @@ class SelectionModel(BaseModel):
     strategies: list[BypassStrategy] = Field(default_factory=list)
 
 
+class AgenticModel(BaseModel):
+    """The rounds, prompt count and adapter of an agentic run."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    rounds: int = Field(default=3, ge=1, le=MAX_ROUNDS)
+    prompts_per_round: int = Field(default=20, ge=1, le=MAX_PROMPTS_PER_ROUND)
+    transform_names: list[str] = Field(default_factory=list, max_length=8)
+
+
 class RunRequest(BaseModel):
-    """What a client chooses when starting a run."""
+    """What a client chooses when starting a run.
+
+    A baseline run sends the selected dataset cases; an agentic run writes its
+    own prompts on the selected axis, both when none, in the selected varieties.
+    """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     connection_id: str
-    run_type: Literal["baseline", "agentic"] | None = None
+    kind: Literal["baseline", "agentic"] = "baseline"
     selection: SelectionModel = Field(default_factory=SelectionModel)
-    include_baseline: bool = True
     max_base_cases_per_axis: int | None = Field(default=None, ge=1)
     sampling_seed: int = 0
-    template_names: list[str] | None = None
-    transform_names: list[str] | None = None
-    evaluation_mode: EvaluationMode = EvaluationMode.ADAPTIVE
-    attempt_budget: int = Field(default=8, ge=1, le=100)
+    agentic: AgenticModel = Field(default_factory=AgenticModel)
 
 
 class RunResponse(BaseModel):
@@ -50,8 +60,9 @@ class RunResponse(BaseModel):
     error: str | None
     total_cases: int = 0
     completed_cases: int = 0
-    completed_attempts: int = 0
     resumable: bool = False
     started_at: datetime | None = None
     lifecycle_events: list[dict[str, str]] = Field(default_factory=list)
     worker_available: bool | None = None
+    kind: str = "baseline"
+    awaits_run_id: str | None = None

@@ -10,14 +10,13 @@ from harass.domain.case_outcome import AttemptTranscript, CaseOutcome, JudgeTrac
 from harass.domain.comprehension import comprehension_signal
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.owasp_scenario import OwaspScenario
-from harass.domain.prompt_variant import PromptVariant
 from harass.domain.taxonomy import Axis, ResponseCategory
 from harass.infrastructure.pyrit.scoring.guard_scorers import ABSTAINED_CATEGORY
 from harass.infrastructure.pyrit.scoring.synthetic_disclosure_scorer import DISCLOSURE_THRESHOLD
 
 
 def read_result(
-    case: EvaluationCase, variant: PromptVariant, scenario: OwaspScenario, result: AttackResult
+    case: EvaluationCase, sent_prompt: str, scenario: OwaspScenario, result: AttackResult
 ) -> CaseOutcome:
     """Read committed response scores without replacing unknown verdicts."""
     adversarial = case.axis is Axis.ADVERSARIAL
@@ -25,7 +24,7 @@ def read_result(
     assert result.last_response is not None
     category_score = _category_score(result.last_response.id)
     transcript = AttemptTranscript(
-        variant.sent_prompt,
+        sent_prompt,
         result.last_response.converted_value,
         category_score.score_rationale if category_score else None,
         attack_score.score_rationale if attack_score and adversarial else None,
@@ -45,17 +44,15 @@ def read_result(
     error = "No response category score." if category is None else None
     return CaseOutcome(
         case,
-        variant.variant_id,
         category,
         verdict.succeeded,
         error or verdict.error,
         transcript,
-        variant=variant,
         scenario_name=scenario.name,
         leak_exact_match=verdict.exact,
         leak_rouge_l=verdict.similarity,
         comprehension_signal=comprehension_signal(
-            variant.sent_prompt, case.prompt_text, transcript.response
+            sent_prompt, case.prompt_text, transcript.response
         ),
     )
 

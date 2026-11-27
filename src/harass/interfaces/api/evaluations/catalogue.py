@@ -1,11 +1,11 @@
 """Authenticated evaluation catalogue metadata."""
 
-from dataclasses import asdict
 from typing import Any
 
 from fastapi import Depends, FastAPI
 
-from harass.application.ports.evaluation import VariantCatalog
+from harass.application.evaluation.contracts import MAX_PROMPTS_PER_ROUND, MAX_ROUNDS
+from harass.domain.generation.transforms import TRANSFORMS
 from harass.domain.taxonomy import (
     ArabicVariety,
     BypassStrategy,
@@ -14,15 +14,15 @@ from harass.domain.taxonomy import (
     SubjectDomain,
 )
 from harass.interfaces.api.accounts.dependencies import authenticated_owner
-from harass.interfaces.api.evaluations.labels import AXES, DIALECTS, LABELS
+from harass.interfaces.api.evaluations.labels import AXES, DIALECTS, LABELS, TRANSFORM_LABELS
 
 
-def install_catalogue_routes(app: FastAPI, catalog: VariantCatalog | None) -> None:
-    """Register the endpoints with their injected application service."""
+def install_catalogue_routes(app: FastAPI) -> None:
+    """Register the endpoint that lists the dataset's classifications."""
 
     @app.get("/evaluation-options")
     def evaluation_options(owner: str = Depends(authenticated_owner)) -> dict[str, Any]:
-        """Return supported classifications and authored library metadata."""
+        """Return the supported classifications and their labels."""
         return {
             "dialects": DIALECTS,
             "axes": AXES,
@@ -32,8 +32,18 @@ def install_catalogue_routes(app: FastAPI, catalog: VariantCatalog | None) -> No
             "risk_categories": [member.value for member in RiskCategory],
             "strategies": [member.value for member in BypassStrategy],
             "owasp_categories": [member.value for member in OwaspCategory],
-            "templates": [asdict(template) for template in catalog.templates()] if catalog else [],
-            "transforms": [asdict(transform) for transform in catalog.transforms()]
-            if catalog
-            else [],
+            "agentic": {
+                "max_rounds": MAX_ROUNDS,
+                "max_prompts_per_round": MAX_PROMPTS_PER_ROUND,
+                "transforms": [
+                    {
+                        "name": transform.name,
+                        "label": TRANSFORM_LABELS[transform.name],
+                        "attack_only": not transform.safe_for_over_refusal,
+                    }
+                    for transform in sorted(
+                        TRANSFORMS, key=lambda item: list(TRANSFORM_LABELS).index(item.name)
+                    )
+                ],
+            },
         }

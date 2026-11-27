@@ -101,6 +101,11 @@ DEFAULT_GENERATOR_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_WRITER_MODEL = "google/gemma-3-27b-it"
 DEFAULT_REVIEWER_MODEL = "openai/gpt-oss-20b"
 DEFAULT_SAFETY_JUDGE_MODEL = "qwen/qwen3.8-27b"
+# The attack writer must draft attacks without refusing them; this model wrote
+# 30 of 30 in the attacker bake-off. It also localizes attacks, which an
+# aligned localizer may refuse to rewrite.
+DEFAULT_ATTACKER_ENDPOINT = "https://api.venice.ai/api/v1/chat/completions"
+DEFAULT_ATTACKER_MODEL = "deepseek-v4-1-flash-1017-uncensored"
 
 
 @dataclass(frozen=True)
@@ -118,13 +123,15 @@ class GenerationSettings:
 
     The reviewer and the safety judge belong to other model families than the
     writer, so no model reviews its own writing; the localizer stays in the
-    writer's family, which rewrote Arabic varieties best in the bake-off.
+    writer's family, which rewrote Arabic varieties best in the bake-off. The
+    attacker writes and localizes attacks, and is absent when not configured.
     """
 
     writer: GenerationModel
     localizer: GenerationModel
     reviewer: GenerationModel
     safety_judge: GenerationModel
+    attacker: GenerationModel | None = None
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str]) -> "GenerationSettings":
@@ -151,7 +158,22 @@ class GenerationSettings:
                     environment, "HARASS_SAFETY_JUDGE_MODEL", DEFAULT_SAFETY_JUDGE_MODEL
                 ),
             ),
+            attacker=_attacker(environment),
         )
+
+
+def _attacker(environment: Mapping[str, str]) -> GenerationModel | None:
+    """Read the attack writer, or None when no attacker key is configured.
+
+    Over-refusal rounds need no attacker, so its key is optional; an attack
+    round without it fails before any model is called.
+    """
+    api_key = environment.get("HARASS_ATTACKER_API_KEY", "").strip()
+    if not api_key:
+        return None
+    endpoint = environment.get("HARASS_ATTACKER_ENDPOINT", "").strip() or DEFAULT_ATTACKER_ENDPOINT
+    model = _generation_model(environment, "HARASS_ATTACKER_MODEL", DEFAULT_ATTACKER_MODEL)
+    return GenerationModel(endpoint, api_key, model)
 
 
 def _generation_model(environment: Mapping[str, str], name: str, default: str) -> str:

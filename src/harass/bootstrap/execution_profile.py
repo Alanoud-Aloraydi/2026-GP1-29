@@ -15,13 +15,15 @@ def execution_profile(settings: Settings) -> str:
     package = Path(__file__).resolve().parents[1]
     sources = [
         Path("data/baseline_dataset.xlsx"),
-        *sorted(Path("config/templates").glob("*.yaml")),
         *sorted((package / "application/evaluation").glob("*.py")),
+        *sorted((package / "application/generation").glob("*.py")),
         *sorted((package / "application/reporting").glob("*.py")),
-        *sorted((package / "domain").glob("*.py")),
+        *sorted((package / "domain").rglob("*.py")),
         *sorted((package / "infrastructure/pyrit").rglob("*.py")),
         *sorted((package / "infrastructure/dataset").glob("*.py")),
         package / "infrastructure/http/qwenguard_moderation.py",
+        package / "infrastructure/http/generation_judges.py",
+        package / "infrastructure/http/model_gateway.py",
         package / "infrastructure/settings.py",
         package / "infrastructure/http/endpoint_policy.py",
     ]

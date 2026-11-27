@@ -1,4 +1,4 @@
-"""Import pattern cards, or run one round, with the services injected.
+"""Import pattern cards, or run one round on either axis, with the services injected.
 
 The command prints only codes, verdicts and counts: the prompts themselves
 stay in the database, where the application reads them with their evidence.
@@ -14,6 +14,10 @@ from typing import TextIO
 from harass.application.errors import ApplicationError
 from harass.application.generation.contracts import RoundReport
 from harass.domain.errors import DomainError
+from harass.domain.metrics import Proportion
+from harass.domain.taxonomy import Axis
+
+AXES = {"over-refusal": Axis.OVER_REFUSAL, "attack": Axis.ADVERSARIAL}
 
 
 @dataclass(frozen=True)
@@ -22,9 +26,11 @@ class RoundArguments:
 
     owner_id: str
     connection_id: str
+    axis: Axis
     round_index: int
     count: int
     send_to_target: bool
+    transform_names: tuple[str, ...] = ()
 
 
 type RunRound = Callable[[RoundArguments], RoundReport]
@@ -55,7 +61,7 @@ def _parse(argv: Sequence[str]) -> argparse.Namespace:
     """Read the verb and its options, rejecting impossible rounds and counts."""
     parser = argparse.ArgumentParser(
         prog="harass-generate",
-        description="Generate over-refusal prompts for one round and score them.",
+        description="Generate one round of over-refusal or attack prompts and score them.",
     )
     actions = parser.add_subparsers(dest="action", required=True)
     cards = actions.add_parser("cards", help="store the pattern cards of a JSON lines file")
@@ -63,6 +69,9 @@ def _parse(argv: Sequence[str]) -> argparse.Namespace:
     round_action = actions.add_parser("round", help="generate and judge one round")
     round_action.add_argument("--owner", required=True, help="identifier of the owner")
     round_action.add_argument("--connection", required=True, help="identifier of the connection")
+    round_action.add_argument(
+        "--axis", choices=tuple(AXES), default="over-refusal", help="which axis to generate"
+    )
     round_action.add_argument(
         "--round", type=_number, default=0, help="0 measures, later rounds explore"
     )
@@ -74,6 +83,13 @@ def _parse(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="write and judge the prompts without sending any to the target",
     )
+    round_action.add_argument(
+        "--transform",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="adapter transform applied before sending; repeat to apply several in order",
+    )
     return parser.parse_args(argv)
 
 
@@ -82,42 +98,54 @@ def _round_arguments(arguments: argparse.Namespace) -> RoundArguments:
     return RoundArguments(
         owner_id=arguments.owner,
         connection_id=arguments.connection,
+        axis=AXES[arguments.axis],
         round_index=arguments.round,
         count=arguments.count,
         send_to_target=not arguments.draft_only,
+        transform_names=tuple(arguments.transform),
     )
 
 
 def _print_report(report: RoundReport, output: TextIO) -> None:
-    """Print the round's counts, its rate and one line per prompt."""
+    """Print the round's counts, its axis's rate and one line per prompt."""
     phase = "discovery" if report.round_index else "measurement"
-    proportion = report.over_refusal
-    rate, interval = proportion.rate, proportion.wilson_interval()
-    categories = " ".join(
-        f"{category}={count}" for category, count in sorted(report.categories.items())
-    )
+    axis_name = next(name for name, axis in AXES.items() if axis is report.axis)
     print(
-        f"Round {report.round_index} ({phase}) on {report.target_model}: "
+        f"Round {report.round_index} ({axis_name}, {phase}) on {report.target_model}: "
         f"{len(report.prompts)} prompts, {len(report.valid_prompts)} valid, "
         f"{len(report.outcomes)} scored.",
         file=output,
     )
-    if rate is None or interval is None:
-        print("Over-refusal: no scored prompt in this round.", file=output)
+    if report.axis is Axis.ADVERSARIAL:
+        _print_rate("Attack success", report.success, "", output)
     else:
-        print(
-            f"Over-refusal: {proportion.count}/{proportion.total} = {rate:.1%} "
-            f"[{interval[0]:.1%}, {interval[1]:.1%}]; {categories}.",
-            file=output,
+        categories = " ".join(
+            f"{category}={count}" for category, count in sorted(report.categories.items())
         )
+        _print_rate("Over-refusal", report.success, f"; {categories}", output)
     for prompt in report.prompts:
+        source = prompt.device or "-"
+        transforms = ",".join(prompt.transform_names) or "none"
         print(
-            f"  {prompt.case_id} {prompt.cell_key} {prompt.mechanism} "
+            f"  {prompt.case_id} {prompt.cell_key} {source} "
             f"review={'pass' if prompt.reviewer_passed else 'fail'} "
-            f"safe={prompt.intent_safe} attempts={prompt.attempts}",
+            f"safe={prompt.intent_safe} transforms={transforms} attempts={prompt.attempts}",
             file=output,
         )
     print(f"Lessons written: {len(report.lessons)}; new cards: {len(report.cards)}.", file=output)
+
+
+def _print_rate(label: str, proportion: Proportion, suffix: str, output: TextIO) -> None:
+    """Print one rate with its Wilson interval, or say nothing was scored."""
+    rate, interval = proportion.rate, proportion.wilson_interval()
+    if rate is None or interval is None:
+        print(f"{label}: no scored prompt in this round.", file=output)
+        return
+    print(
+        f"{label}: {proportion.count}/{proportion.total} = {rate:.1%} "
+        f"[{interval[0]:.1%}, {interval[1]:.1%}]{suffix}.",
+        file=output,
+    )
 
 
 def _number(value: str, minimum: int = 0) -> int:

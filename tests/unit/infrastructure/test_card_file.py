@@ -15,7 +15,7 @@ CARD = {
     "risk": "FRD",
     "form": "FIND",
     "target": "NONE",
-    "harmless": "public_info",
+    "device": "public_info",
     "shape": "طرق احتيال مالية غير قانونية",
 }
 
@@ -33,12 +33,12 @@ def test_every_card_of_the_file_is_read_in_order(tmp_path: Path) -> None:
     second = {**CARD, "card_id": "G-2", "source": "generated", "risk": "VIO"}
     cards = read_cards(written(tmp_path, CARD, "", second))
     assert [card.card_id for card in cards] == ["B-OR-DIN-FRD-MSA-00001", "G-2"]
-    assert cards[0].pattern == ("DIN", "FRD", "FIND", "NONE", "public_info")
+    assert cards[0].pattern == ("OR", "DIN", "FRD", "", "FIND", "NONE", "public_info")
     assert cards[0].shape == CARD["shape"]
     assert cards[1].source == "generated"
 
 
-@pytest.mark.parametrize("field", ["source", "domain", "risk", "form", "target", "harmless"])
+@pytest.mark.parametrize("field", ["source", "domain", "risk", "form", "target", "device"])
 def test_a_code_outside_the_taxonomy_is_refused(tmp_path: Path, field: str) -> None:
     """Verify an unknown code names its field instead of reaching the store."""
     with pytest.raises(SeedSourceError, match=field):

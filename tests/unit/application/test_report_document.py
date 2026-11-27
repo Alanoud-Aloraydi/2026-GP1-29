@@ -1,7 +1,6 @@
 """Tests for the JSON-compatible evaluation report document."""
 
 import json
-from dataclasses import replace
 
 import pytest
 
@@ -11,7 +10,6 @@ from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.case_outcome import CaseOutcome
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.metrics import compute_metrics
-from harass.domain.prompt_variant import AdaptiveSettings, EvaluationMode, VariantSelection
 from harass.domain.taxonomy import ResponseCategory
 
 
@@ -24,7 +22,6 @@ def make_report() -> EvaluationReport:
                 prompt_text="p",
                 objective="o",
             ),
-            variant_name="baseline",
             response_category=ResponseCategory.FULL_COMPLIANCE,
             attack_succeeded=True,
         ),
@@ -34,15 +31,12 @@ def make_report() -> EvaluationReport:
                 prompt_text="p",
                 objective="o",
             ),
-            variant_name="baseline",
             error="No response category score.",
         ),
     )
     return EvaluationReport(
         run_identifier="run",
         target_model="model",
-        variant_names=(),
-        include_baseline=True,
         outcomes=outcomes,
         metrics=compute_metrics(outcomes),
     )
@@ -69,39 +63,17 @@ def test_document_is_json_with_agreed_labels() -> None:
     assert owasp["LLM01"]["attack_success"]["rate"] == 1
 
 
-def test_agentic_and_control_denominators_remain_separate() -> None:
-    """Verify agentic and control denominators remain separate."""
-    report = make_report()
-    control = report.outcomes[0]
-    generated = replace(
-        control, variant_name="seed+tatweel", attempt_number=1, attack_succeeded=False
-    )
-    outcomes = (control, generated)
-    document = report_document(
-        replace(
-            report,
-            outcomes=outcomes,
-            metrics=compute_metrics(outcomes),
-            adaptive_settings=AdaptiveSettings(EvaluationMode.ADAPTIVE, 8, 0),
-            variant_selection=VariantSelection(),
-        )
-    )
-    assert document["run_type"] == "agentic"
-    assert document["baseline_metrics"]["adversarial"]["attack_success"]["rate"] == 1
-    assert document["primary_metrics"]["adversarial"]["attack_success"]["rate"] == 0
-    assert document["primary_metrics"]["adversarial"]["attack_success"]["total"] == 1
-
-
-def test_baseline_report_scope_and_selection() -> None:
-    """Verify baseline report scope and selection."""
-    document = report_document(replace(make_report(), variant_selection=VariantSelection((), ())))
-    assert document["run_type"] == "baseline"
-    assert document["adaptive"] is None
-    assert document["primary_metrics"] == document["baseline_metrics"]
-    assert json.loads(json.dumps(document))["selection"]["varieties"] == []
+def test_report_holds_the_selection_and_no_recipe_fields() -> None:
+    """Verify the report keeps its selection and no template-era fields."""
+    document = json.loads(json.dumps(report_document(make_report())))
+    assert document["format_version"] == 4
+    assert document["selection"]["varieties"] == []
+    assert document["outcomes_count"] == 2
+    assert not {"run_type", "primary_metrics", "baseline_metrics"} & document.keys()
+    assert not {"variant_name", "attempt_number"} & document["outcomes"][0].keys()
 
 
 def test_response_categories_count_scored_outcomes_per_axis() -> None:
     """Unscored outcomes stay out of the per-axis category counts."""
-    document = report_document(replace(make_report(), variant_selection=VariantSelection((), ())))
+    document = report_document(make_report())
     assert document["response_categories"] == {"AT": {"FUL": 1}}

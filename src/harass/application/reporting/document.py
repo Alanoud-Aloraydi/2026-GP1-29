@@ -10,48 +10,26 @@ from harass.application.reporting.labels import (
     METRIC_LABELS,
     RESPONSE_CATEGORY_LABELS,
 )
-from harass.domain.adaptive_metrics import adaptive_summary
-from harass.domain.case_outcome import BASELINE_VARIANT_NAME, CaseOutcome
+from harass.domain.case_outcome import CaseOutcome
 from harass.domain.metrics import (
     AdversarialSummary,
     EvaluationMetrics,
     OverRefusalSummary,
     PairedDifference,
     Proportion,
-    compute_metrics,
 )
-from harass.domain.prompt_variant import EvaluationMode
 from harass.domain.taxonomy import ResponseCategory
 
-REPORT_FORMAT_VERSION = 3
+REPORT_FORMAT_VERSION = 4
 
 
 def report_document(report: EvaluationReport, *, include_outcomes: bool = True) -> dict[str, Any]:
     """Return the JSON-compatible representation of a report."""
-    selection = report.variant_selection
-    baseline_only = selection is not None and (
-        selection.template_names == selection.transform_names == ()
-    )
-    adaptive = report.adaptive_settings.mode is EvaluationMode.ADAPTIVE
-    baseline_outcomes: list[CaseOutcome] = []
-    generated_outcomes: list[CaseOutcome] = []
-    for outcome in report.outcomes:
-        is_baseline = outcome.variant_name == BASELINE_VARIANT_NAME
-        (baseline_outcomes if is_baseline else generated_outcomes).append(outcome)
-    baseline = compute_metrics(baseline_outcomes)
-    primary_outcomes = baseline_outcomes if baseline_only else generated_outcomes
-    primary = baseline if baseline_only else compute_metrics(primary_outcomes)
-    run_type = "baseline" if baseline_only else "static"
-    if adaptive and not baseline_only:
-        run_type = "agentic"
+    outcomes = list(report.outcomes)
     return {
         "format_version": REPORT_FORMAT_VERSION,
         "run_identifier": report.run_identifier,
         "target_model": report.target_model,
-        "variants": list(report.variant_names),
-        "include_baseline": report.include_baseline,
-        "evaluation_mode": report.adaptive_settings.mode.value,
-        "run_type": run_type,
         "selection": {
             "axis": report.selection.axis.value if report.selection.axis else None,
             "varieties": sorted(report.selection.varieties),
@@ -59,47 +37,28 @@ def report_document(report: EvaluationReport, *, include_outcomes: bool = True) 
             "risk_categories": sorted(report.selection.risk_categories),
             "strategies": sorted(report.selection.strategies),
         },
-        "attempt_budget": report.adaptive_settings.attempt_budget,
-        "controller_seed": report.adaptive_settings.random_seed,
-        "metric_scope": "observed_attempts_policy_conditioned",
-        "baseline_metrics": _metrics_document(baseline),
-        "primary_metrics": _metrics_document(primary),
-        "primary_metric_scope": "original_requests"
-        if baseline_only
-        else "generated_attempts_policy_conditioned",
-        "strategy_breakdown_scope": ("original_seed_strategy_not_isolated_effect"),
-        "variant_selection": asdict(selection) if selection else None,
-        "adaptive": adaptive_summary(report.outcomes, report.adaptive_settings.attempt_budget)
-        if adaptive
-        else None,
         "metric_labels": METRIC_LABELS,
         "metrics": _metrics_document(report.metrics),
-        "outcomes_count": len(report.outcomes),
-        "coverage": _coverage(primary_outcomes),
-        "response_categories": _response_categories(primary_outcomes),
-        "coverage_count_scope": "recorded_logical_attempts",
+        "outcomes_count": len(outcomes),
+        "coverage": _coverage(outcomes),
+        "response_categories": _response_categories(outcomes),
         "outcomes": [
-            outcome_document(outcome) for outcome in sorted(report.outcomes, key=_outcome_order)
+            outcome_document(outcome)
+            for outcome in sorted(outcomes, key=lambda outcome: str(outcome.case.identifier))
         ]
         if include_outcomes
         else [],
     }
 
 
-def _outcome_order(outcome: CaseOutcome) -> tuple[str, int, str]:
-    """Order outcomes by case, then attempt, then recipe."""
-    return (str(outcome.case.identifier), outcome.attempt_number, outcome.variant_name)
-
-
 def _metrics_document(metrics: EvaluationMetrics) -> dict[str, Any]:
-    """Serialize one explicitly separated cohort of observed attempts."""
+    """Serialize overall and per-dimension metrics with their intervals."""
     risk_gaps = metrics.discrimination_gap_by_risk_category
     return {
         "adversarial": _summary(metrics.adversarial),
         "adversarial_breakdowns": _breakdowns(metrics.adversarial_breakdowns),
         "over_refusal": _summary(metrics.over_refusal),
         "over_refusal_breakdowns": _breakdowns(metrics.over_refusal_breakdowns),
-        "discrimination_gap_by_variant": metrics.discrimination_gap_by_variant,
         "discrimination_gap_by_risk_category": risk_gaps,
         "adversarial_variety_vs_msa": _paired(metrics.adversarial_variety_vs_msa),
         "over_refusal_variety_vs_msa": _paired(metrics.over_refusal_variety_vs_msa),
@@ -108,7 +67,7 @@ def _metrics_document(metrics: EvaluationMetrics) -> dict[str, Any]:
 
 
 def _coverage(outcomes: list[CaseOutcome]) -> dict[str, dict[str, int]]:
-    """Count recorded, unscored, unclear and rule-suspected attempts."""
+    """Count sent, unscored, unclear and rule-suspected attempts per axis."""
     result: dict[str, dict[str, int]] = {}
     for outcome in outcomes:
         counts = result.setdefault(
@@ -178,7 +137,7 @@ def _breakdowns(
 
 
 def outcome_document(outcome: CaseOutcome) -> dict[str, Any]:
-    """Return the original request, recipe, scenario evidence and verdicts."""
+    """Return the original request, scenario evidence and verdicts."""
     category = outcome.response_category
     return {
         "case_id": str(outcome.case.identifier),
@@ -186,11 +145,6 @@ def outcome_document(outcome: CaseOutcome) -> dict[str, Any]:
         "objective": outcome.case.objective,
         "classification": asdict(outcome.case.identifier),
         "axis": outcome.case.axis.value,
-        "variant_name": outcome.variant_name,
-        "variant": asdict(outcome.variant) if outcome.variant else None,
-        "attempt_number": outcome.attempt_number,
-        "stop_reason": outcome.stop_reason,
-        "posterior_before": outcome.posterior_before,
         "scenario": outcome.scenario_name,
         "leak_exact_match": outcome.leak_exact_match,
         "leak_rouge_l": outcome.leak_rouge_l,

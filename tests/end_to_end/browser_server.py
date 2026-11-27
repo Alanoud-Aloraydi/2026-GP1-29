@@ -28,9 +28,9 @@ from sqlalchemy.orm import sessionmaker
 
 from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.connections import ManageConnections
+from harass.application.evaluation.baseline_engine import BaselineEngine
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.evaluation.variant_engine import VariantEvaluationEngine
 from harass.application.evaluation.worker import ProcessRuns
 from harass.application.ports.connections import ConnectionVerifier
 from harass.application.ports.evaluation import SeedSource
@@ -38,20 +38,20 @@ from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.target_connection import TargetConnection
 from harass.infrastructure.dataset.spreadsheet_seed_source import SpreadsheetSeedSource
-from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
 from harass.infrastructure.persistence.sqlalchemy_authentication import (
     SqlAlchemyAuthenticationStore,
 )
 from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_generation import SqlAlchemyGeneratedEvidence
 from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
 from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
 from harass.infrastructure.persistence.tables import Base
+from harass.infrastructure.pyrit.attempt_executor import PyritAttemptExecutor
 from harass.infrastructure.pyrit.scoring.guard_scorers import (
     GuardAttackScorer,
     GuardCategoryScorer,
     GuardModerator,
 )
-from harass.infrastructure.pyrit.variant_attempt_executor import PyritAttemptExecutor
 from harass.infrastructure.security.fernet_secret_cipher import FernetSecretCipher
 from harass.infrastructure.security.jwt_authentication import JwtAuthenticationSecurity
 from harass.interfaces.api.app import create_app
@@ -139,7 +139,6 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
         FernetSecretCipher(Fernet.generate_key().decode("ascii")),
         BrowserVerifier(),
     )
-    catalogue = YamlVariantCatalog(ROOT / "config" / "templates")
     moderator = GuardModerator(
         httpx.AsyncClient(
             base_url="http://judge.test", transport=httpx.MockTransport(browser_guard)
@@ -147,21 +146,24 @@ def build_smoke_app(*, case_count: int | None = None) -> FastAPI:
     )
     evaluation = RunEvaluation(
         BrowserSeeds(case_count),
-        VariantEvaluationEngine(
-            catalogue,
+        BaselineEngine(
             PyritAttemptExecutor(
                 lambda connection: BrowserTarget(),
                 GuardCategoryScorer(moderator=moderator),
                 GuardAttackScorer(moderator=moderator),
-            ),
+            )
         ),
     )
     queue = SqlAlchemyRunQueue(factory, "browser-profile", "browser-judge")
-    worker = ProcessRuns(queue, connections, evaluation, poll_seconds=0.1)
+    worker = ProcessRuns(queue, connections, evaluation, None, poll_seconds=0.1)
     app = create_app(
         connections,
-        ManageRuns(SqlAlchemyRunStore(factory), connections, queue=queue),
-        catalogue,
+        ManageRuns(
+            SqlAlchemyRunStore(factory),
+            connections,
+            queue=queue,
+            generated=SqlAlchemyGeneratedEvidence(factory),
+        ),
         authentication=ManageAuthentication(
             SqlAlchemyAuthenticationStore(factory),
             JwtAuthenticationSecurity("browser-fixture-only-signing-key-" + "x" * 32),

@@ -2,7 +2,6 @@
 
 import asyncio
 from collections.abc import Iterator
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -22,8 +21,8 @@ from harass.application.ports.connections import ConnectionVerifier
 from harass.application.ports.evaluation import EvaluationJournal
 from harass.domain.metrics import compute_metrics
 from harass.domain.target_connection import TargetConnection
-from harass.infrastructure.dataset.yaml_variant_catalog import YamlVariantCatalog
 from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
+from harass.infrastructure.persistence.sqlalchemy_generation import SqlAlchemyGeneratedEvidence
 from harass.infrastructure.persistence.sqlalchemy_jobs import SqlAlchemyRunQueue
 from harass.infrastructure.persistence.sqlalchemy_runs import SqlAlchemyRunStore
 from harass.infrastructure.persistence.tables import Base
@@ -45,8 +44,6 @@ class StubEvaluation:
         return EvaluationReport(
             run_identifier=request.run_identifier,
             target_model=request.target.model_name,
-            variant_names=(),
-            include_baseline=True,
             outcomes=(),
             metrics=compute_metrics([]),
         )
@@ -74,10 +71,16 @@ def client() -> Iterator[TestClient]:
         PassingVerifier(),
     )
     queue = SqlAlchemyRunQueue(factory, "api-fixture", "api-judge")
-    runs = ManageRuns(SqlAlchemyRunStore(factory), connections, queue=queue)
-    catalog = YamlVariantCatalog(Path(__file__).resolve().parents[3] / "config" / "templates")
-    app = create_app(connections, runs, catalog)
-    app.state.test_worker = ProcessRuns(queue, connections, cast(RunEvaluation, StubEvaluation()))
+    runs = ManageRuns(
+        SqlAlchemyRunStore(factory),
+        connections,
+        queue=queue,
+        generated=SqlAlchemyGeneratedEvidence(factory),
+    )
+    app = create_app(connections, runs)
+    app.state.test_worker = ProcessRuns(
+        queue, connections, cast(RunEvaluation, StubEvaluation()), None
+    )
     # This isolated fixture bypasses authentication explicitly, never through a
     # production header.
     app.dependency_overrides[authenticated_owner] = lambda: "user-1"
@@ -148,28 +151,76 @@ def test_unknown_run_is_not_found(client: TestClient) -> None:
     assert client.get("/runs/missing", headers=OWNER_HEADER).status_code == 404
 
 
-def test_evaluation_options_are_real_library_metadata(client: TestClient) -> None:
-    """Verify evaluation options are real library metadata."""
+def test_evaluation_options_list_the_dataset_classifications(client: TestClient) -> None:
+    """Verify the options list the dataset's classifications and nothing else."""
     response = client.get("/evaluation-options", headers=OWNER_HEADER)
     assert response.status_code == 200
-    assert len(response.json()["templates"]) == 16
     assert "MSA" in response.json()["varieties"]
     assert set(response.json()["owasp_categories"]) == {"LLM01", "LLM02", "LLM07", "LLM08", "NAP"}
-    assert "tatweel" in {entry["name"] for entry in response.json()["transforms"]}
+    assert not {"templates", "transforms"} & response.json().keys()
+    agentic = response.json()["agentic"]
+    assert (agentic["max_rounds"], agentic["max_prompts_per_round"]) == (5, 50)
+    transforms = {item["name"]: item for item in agentic["transforms"]}
+    assert transforms["arabizi"]["attack_only"] and not transforms["tatweel"]["attack_only"]
+    assert all(item["label"] for item in agentic["transforms"])
+
+
+def test_an_agentic_run_without_a_baseline_runs_one_first(client: TestClient) -> None:
+    """A missing baseline is admitted first; the agentic run waits until it completes."""
+    connection_id = add_connection(client)
+    client.post(f"/connections/{connection_id}/verify", headers=OWNER_HEADER)
+    response = client.post(
+        "/runs",
+        json={"connection_id": connection_id, "kind": "agentic", "selection": {"axis": "OR"}},
+        headers=OWNER_HEADER,
+    )
+    assert response.status_code == 201
+    agentic = response.json()
+    baseline_id = agentic["awaits_run_id"]
+    baseline = client.get(f"/runs/{baseline_id}", headers=OWNER_HEADER).json()
+    assert (baseline["kind"], baseline["status"]) == ("baseline", "pending")
+    assert asyncio.run(cast(FastAPI, client.app).state.test_worker.once())
+    assert client.get(f"/runs/{baseline_id}", headers=OWNER_HEADER).json()["status"] == "completed"
+    waited = client.get(f"/runs/{agentic['run_id']}", headers=OWNER_HEADER).json()
+    assert (waited["status"], waited["awaits_run_id"]) == ("pending", None)
+    prompts = client.get(f"/runs/{agentic['run_id']}/prompts", headers=OWNER_HEADER)
+    assert (prompts.status_code, prompts.json()["total"]) == (200, 0)
+
+
+def test_an_agentic_run_follows_a_finished_baseline(client: TestClient) -> None:
+    """After a baseline run completes, an agentic run is admitted with its rounds."""
+    connection_id = add_connection(client)
+    client.post(f"/connections/{connection_id}/verify", headers=OWNER_HEADER)
+    client.post("/runs", json={"connection_id": connection_id}, headers=OWNER_HEADER)
+    assert asyncio.run(cast(FastAPI, client.app).state.test_worker.once())
+    response = client.post(
+        "/runs",
+        json={
+            "connection_id": connection_id,
+            "kind": "agentic",
+            "agentic": {"rounds": 2, "prompts_per_round": 5, "transform_names": ["tatweel"]},
+        },
+        headers=OWNER_HEADER,
+    )
+    assert response.status_code == 201
+    assert response.json()["kind"] == "agentic"
 
 
 @pytest.mark.parametrize(
     "body",
     [
         {"selection": {"axis": "INVALID"}},
-        {"evaluation_mode": "multi_turn"},
-        {"attempt_budget": 0},
+        {"run_type": "agentic"},
+        {"max_base_cases_per_axis": 0},
         {"selection": {"varieties": ["UNKNOWN"]}},
+        {"kind": "agentic", "agentic": {"rounds": 6}},
+        {"kind": "agentic", "agentic": {"prompts_per_round": 51}},
+        {"kind": "unknown"},
     ],
 )
 def test_invalid_evaluation_parameters_are_rejected(
     client: TestClient, body: dict[str, object]
 ) -> None:
-    """Malformed classifications and budgets fail before a run is created."""
+    """Malformed or unknown parameters fail before a run is created."""
     response = client.post("/runs", headers=OWNER_HEADER, json={"connection_id": "unused", **body})
     assert response.status_code == 422

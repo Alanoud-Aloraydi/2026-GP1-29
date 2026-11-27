@@ -3,10 +3,17 @@
 import asyncio
 import logging
 import uuid
+from typing import Any
 
 from harass.application.connections import ManageConnections
-from harass.application.evaluation.contracts import EvaluationRequest, RunParameters
+from harass.application.errors import ApplicationError
+from harass.application.evaluation.contracts import (
+    AgenticParameters,
+    EvaluationRequest,
+    RunParameters,
+)
 from harass.application.evaluation.runner import RunEvaluation
+from harass.application.generation.agentic_run import RunAgenticEvaluation
 from harass.application.ports.runs import (
     EvaluationSuspendedError,
     EvaluationYieldedError,
@@ -16,9 +23,14 @@ from harass.application.ports.runs import (
     StorageUnavailableError,
 )
 from harass.application.reporting.document import report_document
+from harass.domain.evaluation_run import RunKind
 from harass.domain.target_connection import TargetConnection
 
 logger = logging.getLogger(__name__)
+
+
+class AgenticUnavailableError(ApplicationError):
+    """The worker has no generator models, so it cannot play an agentic run."""
 
 
 class ProcessRuns:
@@ -29,14 +41,20 @@ class ProcessRuns:
         queue: RunQueue,
         connections: ManageConnections,
         evaluation: RunEvaluation,
+        agentic: RunAgenticEvaluation | None,
         *,
         heartbeat_seconds: float = 20,
         poll_seconds: float = 2,
     ) -> None:
-        """Inject execution ports and bounded worker scheduling intervals."""
+        """Inject execution ports and bounded worker scheduling intervals.
+
+        ``agentic`` is None when the generator models are not configured;
+        an agentic run then fails with a message saying so.
+        """
         self._queue = queue
         self._connections = connections
         self._evaluation = evaluation
+        self._agentic = agentic
         self._heartbeat_seconds = heartbeat_seconds
         self._poll_seconds = poll_seconds
 
@@ -72,12 +90,7 @@ class ProcessRuns:
         """Validate immutable job inputs and persist its execution outcome."""
         try:
             target = self._queued_target(job)
-            parameters = RunParameters.from_document(job.parameters)
-            report = await self._evaluation.execute(
-                EvaluationRequest(target, parameters, job.run.run_id),
-                journal=self._queue.journal(job),
-            )
-            document = await asyncio.to_thread(report_document, report, include_outcomes=False)
+            document = await self._report(job, target)
             document["target_endpoint"] = target.base_url
             document["evidence_paged"] = True
             await asyncio.to_thread(self._queue.finish, job, document)
@@ -87,11 +100,32 @@ class ProcessRuns:
             return
         except EvaluationSuspendedError as error:
             await asyncio.to_thread(self._queue.fail, job, str(error), resumable=True)
+        except AgenticUnavailableError as error:
+            await asyncio.to_thread(self._queue.fail, job, str(error))
         except Exception as error:
             logger.error("Run %s failed: %s", job.run.run_id, type(error).__name__)
             await asyncio.to_thread(
                 self._queue.fail, job, f"Evaluation failed: {type(error).__name__}."
             )
+
+    async def _report(self, job: RunJob, target: TargetConnection) -> dict[str, Any]:
+        """Play the job's next share of work by its kind and return its report."""
+        journal = self._queue.journal(job)
+        if job.run.kind is RunKind.AGENTIC:
+            if self._agentic is None:
+                raise AgenticUnavailableError("Agentic generation is not configured.")
+            return await self._agentic.execute(
+                target,
+                AgenticParameters.from_document(job.parameters),
+                job.run.run_id,
+                job.run.owner_id,
+                journal,
+            )
+        report = await self._evaluation.execute(
+            EvaluationRequest(target, RunParameters.from_document(job.parameters), job.run.run_id),
+            journal=journal,
+        )
+        return await asyncio.to_thread(report_document, report, include_outcomes=False)
 
     def _queued_target(self, job: RunJob) -> TargetConnection:
         """Load the run's connection and refuse it if it changed since."""

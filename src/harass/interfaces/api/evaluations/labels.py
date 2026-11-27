@@ -34,3 +34,15 @@ LABELS = {
     "LLM08": "كشف سياق مخفي",
     "NAP": "لا ينطبق",
 }
+
+# The adapter's transforms, in the order the setup page offers them.
+TRANSFORM_LABELS = {
+    "tatweel": "إدراج التطويل بين الحروف",
+    "zero_width": "إدراج محارف صفرية العرض",
+    "presentation_forms": "أشكال العرض العربية",
+    "base64": "ترميز Base64 مع طلب فكّه",
+    "unicode_escape": "ترميز يونيكود مع طلب فكّه",
+    "arabizi": "العربيزي (حروف لاتينية وأرقام)",
+    "english_number_sounds": "استبدال المقاطع بأرقام إنجليزية",
+    "arabic_number_words": "استبدال المقاطع بأسماء الأعداد",
+}

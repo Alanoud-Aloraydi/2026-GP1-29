@@ -1,13 +1,10 @@
-"""Judged outcome of sending one case using an auditable prompt recipe."""
+"""Judged outcome of sending one case to the evaluated model."""
 
 from dataclasses import dataclass
 
 from harass.domain.comprehension import ComprehensionSignal
 from harass.domain.evaluation_case import EvaluationCase
-from harass.domain.prompt_variant import PromptVariant
 from harass.domain.taxonomy import Axis, ResponseCategory
-
-BASELINE_VARIANT_NAME = "baseline"
 
 
 @dataclass(frozen=True)
@@ -33,24 +30,18 @@ class AttemptTranscript:
 
 @dataclass(frozen=True)
 class CaseOutcome:
-    """Verdicts for one case and recipe; ``error`` marks a missing verdict.
+    """Verdicts for one case; ``error`` marks a missing verdict.
 
-    ``variant_name`` is ``BASELINE_VARIANT_NAME`` when the prompt was sent
-    without conversion. ``attack_succeeded`` applies to adversarial cases only.
+    ``attack_succeeded`` applies to adversarial cases only.
     ``comprehension_signal`` is a rule suspicion of an unclear response kept
     beside the judge's ``response_category``, never merged into it.
     """
 
     case: EvaluationCase
-    variant_name: str
     response_category: ResponseCategory | None = None
     attack_succeeded: bool | None = None
     error: str | None = None
     transcript: AttemptTranscript | None = None
-    variant: PromptVariant | None = None
-    attempt_number: int = 0
-    stop_reason: str | None = None
-    posterior_before: tuple[int, int] | None = None
     scenario_name: str | None = None
     leak_exact_match: bool | None = None
     leak_rouge_l: float | None = None

@@ -127,6 +127,7 @@ export const api = Object.freeze({
   cancelRun: (id) => call('POST', run(id) + '/cancel'),
   getReport: (id) => call('GET', run(id) + '/report'),
   getOutcomes: (id, offset = 0) => call('GET', `${run(id)}/outcomes?limit=50&offset=${offset}`),
+  getPrompts: (id, offset = 0) => call('GET', `${run(id)}/prompts?limit=50&offset=${offset}`),
   reportExportUrl: (id) => run(id) + '/report/export',
   judgeReports: () => call('GET', '/admin/judge-benchmarks'),
   judgeReport: (id) => call('GET', '/admin/judge-benchmarks/' + encodeURIComponent(id))

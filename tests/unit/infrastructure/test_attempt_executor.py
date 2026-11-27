@@ -1,4 +1,4 @@
-"""Tests for variant attempt executor."""
+"""Tests for the PyRIT attempt executor."""
 
 import asyncio
 import json
@@ -13,15 +13,14 @@ from pyrit.prompt_target.common.target_configuration import TargetConfiguration
 
 from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.evaluation_case import EvaluationCase
-from harass.domain.prompt_variant import PromptVariant
 from harass.domain.target_connection import TargetConnection
 from harass.domain.taxonomy import ResponseCategory
+from harass.infrastructure.pyrit.attempt_executor import PyritAttemptExecutor
 from harass.infrastructure.pyrit.scoring.guard_scorers import (
     GuardAttackScorer,
     GuardCategoryScorer,
     GuardModerator,
 )
-from harass.infrastructure.pyrit.variant_attempt_executor import PyritAttemptExecutor
 
 REFUSAL_MARKER = "REFUSE_ME"
 REFUSAL_TEXT = "I refuse."
@@ -103,19 +102,15 @@ def target() -> ScriptedTarget:
     return ScriptedTarget()
 
 
-async def test_variant_executor_scores_independent_requests(
+async def test_the_executor_scores_independent_requests(
     pyrit_memory: None, target: ScriptedTarget
 ) -> None:
-    """Verify variant executor scores independent requests."""
+    """Verify each request is sent and judged on its own."""
     guard = Guard()
     executor = PyritAttemptExecutor(lambda connection: target, *guard.scorers())
     case = make_case("OR-DIN-VIO-MSA-00001", "safe question")
-    first = await executor.execute(
-        case, PromptVariant("first", "first", REFUSAL_MARKER), CONNECTION, "run"
-    )
-    second = await executor.execute(
-        case, PromptVariant("second", "second", "neutral"), CONNECTION, "run"
-    )
+    first = await executor.execute(case, REFUSAL_MARKER, CONNECTION, "run")
+    second = await executor.execute(case, "neutral", CONNECTION, "run")
     assert first.response_category is ResponseCategory.FULL_REFUSAL
     assert second.response_category is ResponseCategory.FULL_COMPLIANCE
     assert first.transcript and first.transcript.sent_prompt == REFUSAL_MARKER
@@ -134,10 +129,7 @@ async def test_the_guard_judges_both_axes_with_one_request(
     executor = PyritAttemptExecutor(lambda connection: target, *guard.scorers())
 
     outcome = await executor.execute(
-        make_case("AT-HSB-PRV-DIR-LLM01-MSA-00001", "attack"),
-        PromptVariant("probe", "probe", "neutral"),
-        CONNECTION,
-        "run",
+        make_case("AT-HSB-PRV-DIR-LLM01-MSA-00001", "attack"), "neutral", CONNECTION, "run"
     )
 
     assert outcome.error is None
@@ -181,9 +173,7 @@ async def test_attempt_deadline_is_unscored_not_a_safety_verdict(pyrit_memory: N
         lambda connection: target, *Guard().scorers(), attempt_timeout_seconds=0.01
     )
     case = make_case("OR-DIN-VIO-MSA-00001", "neutral")
-    outcome = await executor.execute(
-        case, PromptVariant("slow", "slow", "neutral"), CONNECTION, "run"
-    )
+    outcome = await executor.execute(case, "neutral", CONNECTION, "run")
     assert not outcome.is_scored
     assert outcome.error and "timeout" in outcome.error
 
@@ -197,9 +187,7 @@ async def test_owasp_context_is_sent_and_leakage_is_deterministic(
     target = SyntheticLeakTarget()
     executor = PyritAttemptExecutor(lambda connection: target, *guard.scorers())
     case = make_case(f"AT-HSB-PRV-DIR-{code}-MSA-00001", "protected disclosure")
-    outcome = await executor.execute(
-        case, PromptVariant("probe", "probe", "سؤال تجريبي"), CONNECTION, "run"
-    )
+    outcome = await executor.execute(case, "سؤال تجريبي", CONNECTION, "run")
     assert outcome.error is None
     assert outcome.attack_succeeded is True
     assert outcome.leak_exact_match is True
@@ -217,10 +205,7 @@ async def test_judge_timeout_retains_target_response(pyrit_memory: None) -> None
         attempt_timeout_seconds=0.1,
     )
     outcome = await executor.execute(
-        make_case("OR-DIN-VIO-MSA-00001", "neutral"),
-        PromptVariant("baseline", "baseline", "neutral"),
-        CONNECTION,
-        "timeout-evidence",
+        make_case("OR-DIN-VIO-MSA-00001", "neutral"), "neutral", CONNECTION, "timeout-evidence"
     )
     assert not outcome.is_scored and outcome.technical_error == "timeout"
     assert outcome.transcript is not None
@@ -237,10 +222,7 @@ async def test_a_controversial_response_leaves_the_attack_unscored(
     )
 
     outcome = await executor.execute(
-        make_case("AT-HSB-PRV-DIR-LLM01-MSA-00001", "attack"),
-        PromptVariant("probe", "probe", "neutral"),
-        CONNECTION,
-        "run",
+        make_case("AT-HSB-PRV-DIR-LLM01-MSA-00001", "attack"), "neutral", CONNECTION, "run"
     )
 
     assert outcome.attack_succeeded is None
@@ -255,10 +237,7 @@ async def test_an_unavailable_judge_never_becomes_a_verdict(
     executor = PyritAttemptExecutor(lambda connection: target, *Guard(status=503).scorers())
 
     outcome = await executor.execute(
-        make_case("OR-DIN-VIO-MSA-00001", "neutral"),
-        PromptVariant("baseline", "baseline", "neutral"),
-        CONNECTION,
-        "run",
+        make_case("OR-DIN-VIO-MSA-00001", "neutral"), "neutral", CONNECTION, "run"
     )
 
     assert not outcome.is_scored

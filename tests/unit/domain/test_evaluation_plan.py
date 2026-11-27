@@ -6,7 +6,6 @@ from harass.domain.case_identifier import CaseIdentifier
 from harass.domain.errors import InvalidEvaluationPlanError
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.evaluation_plan import EvaluationPlan, sample_base_cases
-from harass.domain.prompt_variant import VariantSelection
 from harass.domain.taxonomy import Axis, SubjectDomain
 
 
@@ -26,16 +25,10 @@ def over_refusal_cases(domain: str, base_numbers: range) -> list[EvaluationCase]
     ]
 
 
-def test_plan_requires_cases_and_something_to_send() -> None:
-    """An empty plan, or one without chains and baseline, is rejected."""
+def test_plan_requires_cases() -> None:
+    """An empty plan is rejected."""
     with pytest.raises(InvalidEvaluationPlanError):
         EvaluationPlan(cases=())
-    with pytest.raises(InvalidEvaluationPlanError):
-        EvaluationPlan(
-            cases=(case("OR-DIN-VIO-MSA-00001"),),
-            include_baseline=False,
-            variant_selection=VariantSelection((), ()),
-        )
 
 
 def test_without_a_limit_every_case_is_kept() -> None:

@@ -3,7 +3,6 @@ import { catalogue, html, percent, range, table } from '../core/ui.js';
 import { evidence } from './report-evidence.js';
 
 const categoryNames = [['FUL', 'أجاب عن الطلب'], ['PRF', 'أجاب جزئيًا'], ['REF', 'رفض الطلب'], ['UNC', 'رد غير واضح']];
-const runModes = { baseline: 'اختبار أساسي', agentic: 'اختبار تكيّفي', static: 'تعداد ثابت' };
 const dimensions = {
   subject_domain: 'المجال',
   risk_category: 'فئة الخطر',
@@ -47,7 +46,7 @@ const rateCard = (label, metric, description, tone) => {
 };
 
 function summaryCards (report) {
-  const metrics = report.primary_metrics || {};
+  const metrics = report.metrics || {};
   const attack = axisMetric(metrics, 'AT');
   const refusal = axisMetric(metrics, 'OR');
   const harmful = metrics.adversarial?.refusal?.rate;
@@ -139,28 +138,6 @@ function breakdownTable (metrics, dimension, caption) {
   return table(caption, [{ title: 'التصنيف', cell: (key) => catalogue.labels[key] || key }, ...columns], keys);
 }
 
-function adaptiveSections (report) {
-  if (report.run_type !== 'agentic') return '';
-  const axes = Object.keys(catalogue.axes).filter((axis) => axisMetric(report.primary_metrics, axis));
-  const adaptive = Object.entries(report.adaptive || {});
-  return html`
-    ${axes.length > 0 && html`<section class="card">${table('مقارنة المحاولات مع الطلبات الأصلية', [
-      { title: 'المحور', cell: (axis) => catalogue.axes[axis] },
-      { title: 'المحاولات التكيفية', cell: (axis) => rateCell(axisMetric(report.primary_metrics, axis)) },
-      { title: 'الطلبات الأصلية للمقارنة', cell: (axis) => rateCell(axisMetric(report.baseline_metrics, axis)) }
-    ], axes)}</section>`}
-    ${adaptive.length > 0 && html`<section class="card">${table('اكتشاف الخلل على مستوى الحالة', [
-      { title: 'المحور', cell: ([axis]) => catalogue.axes[axis] || axis },
-      { title: 'حالات اكتُشف فيها خلل', cell: ([, summary]) => `${summary.defects_detected} من ${summary.cases}` },
-      { title: 'المحاولات المسجلة', cell: ([, summary]) => summary.attempts_submitted },
-      {
-        title: 'حالات غير محسومة',
-        cell: ([, summary]) => summary.defect_within_k?.[report.attempt_budget]?.undetermined ?? '—'
-      }
-    ], adaptive)}
-    <p class="hint">الاكتشاف خلال ${report.attempt_budget} محاولات كحد أقصى لكل حالة.</p></section>`}`;
-}
-
 const coverageTable = (report) => html`
   <section class="card">
     ${table('اكتمال الأحكام', [
@@ -186,13 +163,12 @@ function classificationTables (metrics) {
 }
 
 export function reportBody (report) {
-  const metrics = report.primary_metrics || {};
+  const metrics = report.metrics || {};
   const scope = report.selection?.varieties?.map((code) => catalogue.dialects[code] || code).join('، ');
   return html`
     <div class="report-stack">
       <div class="section-toolbar">
         <div class="chip-row">
-          <span class="chip">${runModes[report.run_type] || '—'}</span>
           <span class="chip">${scope || 'النطاق موضح في الحالات'}</span>
         </div>
         <button class="btn btn-secondary" id="exportReport" type="button">تنزيل التقرير · JSON</button>
@@ -204,7 +180,6 @@ export function reportBody (report) {
             <span class="coverage-warning">الأحكام غير المكتملة تحدّ من التفسير؛ راجع اكتمال الأحكام.</span>`}</p>
       </div>
       ${summaryCards(report)}
-      ${adaptiveSections(report)}
       ${dialectCard(metrics)}
       ${categoryDistribution(report)}
       ${coverageTable(report)}

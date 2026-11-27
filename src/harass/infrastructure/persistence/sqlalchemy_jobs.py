@@ -55,19 +55,22 @@ class SqlAlchemyRunQueue(RunQueue):
         self._clock = clock
 
     def enqueue(self, run: EvaluationRun, parameters: dict[str, Any], target_endpoint: str) -> None:
-        """Persist run admission and its durable job atomically."""
+        """Persist run admission and its durable job atomically.
+
+        An agentic run that awaits the owner's active baseline run is admitted
+        beside it; any other active run of the owner refuses admission.
+        """
         with job_session(self._factory) as session:
             session.scalar(
                 select(UserRow.user_id).where(UserRow.user_id == run.owner_id).with_for_update()
             )
-            active = session.scalar(
-                select(RunRow.run_id)
-                .where(
-                    RunRow.owner_id == run.owner_id,
-                    RunRow.status.in_(ACTIVE_STATUSES) | RunRow.resumable,
-                )
-                .limit(1)
+            query = select(RunRow.run_id).where(
+                RunRow.owner_id == run.owner_id,
+                RunRow.status.in_(ACTIVE_STATUSES) | RunRow.resumable,
             )
+            if run.awaits_run_id is not None:
+                query = query.where(RunRow.run_id != run.awaits_run_id)
+            active = session.scalar(query.limit(1))
             if active:
                 raise ActiveRunError(active)
             session.add(new_run_row(run))
@@ -127,6 +130,7 @@ class SqlAlchemyRunQueue(RunQueue):
                 .join(RunRow)
                 .where(
                     RunRow.status.in_(ACTIVE_STATUSES),
+                    RunRow.awaits_run_id.is_(None),
                     or_(RunJobRow.worker_id.is_(None), RunJobRow.lease_until <= now),
                 )
                 .order_by(func.coalesce(RunJobRow.queued_at, RunRow.created_at), RunRow.run_id)
@@ -143,6 +147,7 @@ class SqlAlchemyRunQueue(RunQueue):
                 run.status = RunStatus.FAILED.value
                 run.error = "Execution configuration changed; create a new run."
                 run.finished_at = now
+                _settle_waiting(session, run, now)
                 self._free_slot(session)
                 return None
             row.worker_id, row.lease_until = worker_id, until
@@ -241,6 +246,7 @@ class SqlAlchemyRunQueue(RunQueue):
             run.status, run.error, run.finished_at = (status.value, error, self._clock())
             _event(run, "suspended" if resumable else status.value, run.finished_at)
             run.resumable = resumable
+            _settle_waiting(session, run, run.finished_at)
             self._free_slot(session, job.worker_id)
 
     def _free_slot(self, session: Session, worker_id: str | None = None) -> None:
@@ -285,6 +291,7 @@ class SqlAlchemyRunQueue(RunQueue):
             run.status, run.resumable = RunStatus.CANCELLED.value, False
             run.finished_at = self._clock()
             _event(run, "cancelled", run.finished_at)
+            _settle_waiting(session, run, run.finished_at)
             return read_run(run)
 
     def journal(self, job: RunJob) -> EvaluationJournal:
@@ -308,7 +315,7 @@ class SqlAlchemyRunQueue(RunQueue):
             rows = session.scalars(
                 select(RunOutcomeRow.document)
                 .where(RunOutcomeRow.run_id == run_id)
-                .order_by(RunOutcomeRow.case_index, RunOutcomeRow.attempt_number)
+                .order_by(RunOutcomeRow.case_index)
                 .offset(offset)
                 .limit(limit)
             )
@@ -328,6 +335,29 @@ def _owned_run(session: Session, run_id: str, owner_id: str, *, lock: bool = Fal
     if run is None or run.owner_id != owner_id:
         raise UnknownRunError(run_id)
     return run
+
+
+def _settle_waiting(session: Session, run: RunRow, timestamp: datetime) -> None:
+    """Release or fail the agentic runs that wait for a run that just settled.
+
+    A completed baseline lets its waiting runs start; a cancelled baseline, or
+    one that failed for good, fails them, keeping which baseline they waited
+    for. A suspended baseline can still resume, so its waiting runs keep waiting.
+    """
+    if run.status == RunStatus.FAILED.value and run.resumable:
+        return
+    waiting = session.scalars(
+        select(RunRow)
+        .where(RunRow.awaits_run_id == run.run_id, RunRow.status == RunStatus.PENDING.value)
+        .with_for_update()
+    )
+    for dependent in waiting:
+        if run.status == RunStatus.COMPLETED.value:
+            dependent.awaits_run_id = None
+            continue
+        dependent.status, dependent.finished_at = RunStatus.FAILED.value, timestamp
+        dependent.error = "The baseline run this agentic run waited for did not complete."
+        _event(dependent, RunStatus.FAILED.value, timestamp)
 
 
 def _event(run: RunRow, name: str, timestamp: datetime) -> None:

@@ -19,7 +19,6 @@ from harass.application.errors import (
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.judge_reports import JudgeReports
 from harass.application.ports.accounts import RequestLimiter
-from harass.application.ports.evaluation import VariantCatalog
 from harass.application.ports.runs import StorageUnavailableError
 from harass.domain.errors import DomainError
 from harass.interfaces.api.accounts.cookies import SessionCookies
@@ -36,7 +35,6 @@ from harass.interfaces.api.middleware.security_headers import install_security_h
 def create_app(
     connections: ManageConnections,
     runs: ManageRuns,
-    catalog: VariantCatalog | None = None,
     *,
     authentication: ManageAuthentication | None = None,
     recovery: AccountRecovery | None = None,
@@ -60,7 +58,7 @@ def create_app(
         )
 
     install_recovery_routes(app, recovery, SessionCookies(secure_cookie, session_seconds))
-    install_catalogue_routes(app, catalog)
+    install_catalogue_routes(app)
     install_connection_routes(app, connections)
     install_run_routes(app, runs)
     if judge_reports is not None:

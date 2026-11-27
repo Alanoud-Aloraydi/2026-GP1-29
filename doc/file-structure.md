@@ -8,25 +8,8 @@ Maintained source files and their responsibilities. Generated files, local secre
 │   └── workflows/
 │       └── ci.yml                                                  # Python, frontend and PostgreSQL contract checks for every proposed revision.
 ├── config/
-│   ├── docker/
-│   │   └── init-database.sh                                        # Create a dedicated application role; database administration stays separate.
-│   └── templates/
-│       ├── at_direct_plain.yaml                                    # Authored at direct plain evaluation prompt template.
-│       ├── at_direct_steps.yaml                                    # Authored at direct steps evaluation prompt template.
-│       ├── at_distraction_heading.yaml                             # Authored at distraction heading evaluation prompt template.
-│       ├── at_distraction_sections.yaml                            # Authored at distraction sections evaluation prompt template.
-│       ├── at_obfuscation_payload.yaml                             # Authored at obfuscation payload evaluation prompt template.
-│       ├── at_obfuscation_quoted.yaml                              # Authored at obfuscation quoted evaluation prompt template.
-│       ├── at_persuasion_consistency.yaml                          # Authored at persuasion consistency evaluation prompt template.
-│       ├── at_persuasion_urgency.yaml                              # Authored at persuasion urgency evaluation prompt template.
-│       ├── at_poisoned_note.yaml                                   # Authored at poisoned note evaluation prompt template.
-│       ├── at_poisoned_record.yaml                                 # Authored at poisoned record evaluation prompt template.
-│       ├── at_role_dialogue.yaml                                   # Authored at role dialogue evaluation prompt template.
-│       ├── at_role_expert.yaml                                     # Authored at role expert evaluation prompt template.
-│       ├── or_delimited.yaml                                       # Authored or delimited evaluation prompt template.
-│       ├── or_plain.yaml                                           # Authored or plain evaluation prompt template.
-│       ├── or_readability.yaml                                     # Authored or readability evaluation prompt template.
-│       └── or_verbatim.yaml                                        # Authored or verbatim evaluation prompt template.
+│   └── docker/
+│       └── init-database.sh                                        # Create a dedicated application role; database administration stays separate.
 ├── data/
 │   ├── judge_benchmarks/
 │   │   ├── d1-2b_bf16_dev_2026-11-03.json                          # Judge benchmark report; publish with harass-reports publish.
@@ -68,8 +51,9 @@ Maintained source files and their responsibilities. Generated files, local secre
 │   │       │   ├── judges.js                                       # Administrator page that compares published judge benchmark reports.
 │   │       │   └── report.js                                       # Evaluation page: live progress while a run works, then its report.
 │   │       └── views/
+│   │           ├── agentic-report.js                               # Agentic run report: each axis against the baseline, the rounds and the generated prompts.
 │   │           ├── judge-comparison.js                             # Judge benchmark reports: summary table and full report.
-│   │           ├── report-evidence.js                              # Attempt transcripts, verdict evidence and evidence pagination.
+│   │           ├── report-evidence.js                              # Attempt transcripts, generated prompts, verdict evidence and evidence pagination.
 │   │           ├── report.js                                       # Evaluation metrics, coverage and report composition.
 │   │           └── run.js                                          # Evaluation lifecycle, progress and the list of runs.
 │   ├── account.html                                                # Profile interface for the HARASS evaluation service.
@@ -101,28 +85,33 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   │   └── recovery.py                                     # Issue and consume purpose-bound account verification and reset links.
 │       │   ├── evaluation/
 │       │   │   ├── __init__.py                                     # Evaluation admission, orchestration and durable worker execution.
+│       │   │   ├── baseline_engine.py                              # Send each dataset case once as written, with durable attempt reservations.
 │       │   │   ├── contracts.py                                    # Run parameters, requests and reports exchanged with the evaluation use case.
 │       │   │   ├── outcome_codec.py                                # Decode stored outcomes for evidence and statistical analysis.
 │       │   │   ├── run_service.py                                  # Manage evaluation admission, lifecycle and stored reports.
 │       │   │   ├── runner.py                                       # Select paired seeds and compute auditable evaluation reports.
-│       │   │   ├── variant_engine.py                               # Execute adaptive evaluations with durable attempt reservations.
 │       │   │   └── worker.py                                       # Renewable worker execution outside the HTTP application lifecycle.
 │       │   ├── generation/                                         # Orchestration of the agentic prompt generator.
 │       │   │   ├── __init__.py                                     # Orchestration of the agentic prompt generator.
+│       │   │   ├── agentic_run.py                                  # Run the agentic generator against a client's model as one durable evaluation run.
+│       │   │   ├── attack_drafting.py                              # Write one attack prompt for one cell and carry it through the gates.
 │       │   │   ├── contracts.py                                    # What a generation round is asked for and what it reports back.
-│       │   │   ├── drafting.py                                     # Write one prompt for one cell and carry it through the writing gates.
-│       │   │   ├── generation_service.py                           # Run one round of the agentic over-refusal prompt generator.
-│       │   │   └── librarian.py                                    # Distil lessons from a finished round at two scopes.
+│       │   │   ├── generation_service.py                           # Run one round of the agentic prompt generator on either axis.
+│       │   │   ├── librarian.py                                    # Distil lessons from a finished round at two scopes, on either axis.
+│       │   │   ├── localization.py                                 # Rewrite a Modern Standard Arabic draft into its variety behind rule gates.
+│       │   │   ├── over_refusal_drafting.py                        # Write one over-refusal prompt for one cell and carry it through the gates.
+│       │   │   └── seeding.py                                      # Seed the pattern cards of an agentic run from the target's baseline run.
 │       │   ├── ports/
 │       │   │   ├── __init__.py                                     # Abstract interfaces that outer layers implement.
 │       │   │   ├── accounts.py                                     # Ports for accounts, sessions, account-action mail and request limits.
 │       │   │   ├── connections.py                                  # Ports for stored model connections, their verification and key encryption.
-│       │   │   ├── evaluation.py                                   # Ports for evaluation cases, prompt recipes, attempts, engines and journals.
+│       │   │   ├── evaluation.py                                   # Ports for evaluation cases, attempts, engines and journals.
 │       │   │   ├── generation.py                                   # Ports the prompt generator reaches its models and its store through.
 │       │   │   ├── judge_report_store.py                           # Persistence contract for published judge benchmark reports.
 │       │   │   └── runs.py                                         # Ports for reading runs, admitting them and leasing them to workers.
 │       │   ├── reporting/
 │       │   │   ├── __init__.py                                     # Framework-independent report projections and serialization.
+│       │   │   ├── agentic_document.py                             # Serialize an agentic run into the JSON document its report page reads.
 │       │   │   ├── document.py                                     # Serialize evaluation reports into JSON-compatible documents.
 │       │   │   └── labels.py                                       # Arabic labels under which verdicts and metrics are presented to readers.
 │       │   ├── __init__.py                                         # Use cases orchestrating the domain through abstract ports.
@@ -145,31 +134,31 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       ├── domain/
 │       │   ├── __init__.py                                         # Define framework-independent Arabic safety evaluation rules.
 │       │   ├── account_action.py                                   # Expiring, single-use account actions with purpose-bound credentials.
-│       │   ├── adaptive_controller.py                              # Implement Beta-Bernoulli Thompson recipe selection.
-│       │   ├── adaptive_metrics.py                                 # Measure observed discovery under adaptive selection.
 │       │   ├── authentication.py                                   # User identities and revocable authentication sessions.
 │       │   ├── case_identifier.py                                  # Case identifiers of the HARASS coding system.
-│       │   ├── case_outcome.py                                     # Judged outcome of sending one case using an auditable prompt recipe.
+│       │   ├── case_outcome.py                                     # Judged outcome of sending one case to the evaluated model.
 │       │   ├── case_selection.py                                   # Criteria for selecting evaluation cases.
 │       │   ├── comprehension.py                                    # Rule signals that a target response did not understand its prompt.
 │       │   ├── errors.py                                           # Errors raised when domain invariants are violated.
 │       │   ├── evaluation_case.py                                  # Evaluation cases sent to the target model.
-│       │   ├── evaluation_plan.py                                  # Select paired cases, recipes and execution policy.
+│       │   ├── evaluation_plan.py                                  # Select the paired dataset cases an evaluation sends.
 │       │   ├── evaluation_run.py                                   # The lifecycle record of one evaluation run managed by the backend.
 │       │   ├── generation/                                         # Domain rules for generating evaluation prompts.
 │       │   │   ├── __init__.py                                     # Domain rules for generating evaluation prompts (over-refusal and attack).
-│       │   │   ├── briefs.py                                       # Turn a cell and a pattern card into the Arabic briefs the models see.
-│       │   │   ├── cells.py                                        # The over-refusal cell grid and the planner that schedules a round.
+│       │   │   ├── attack_briefs.py                            # Turn an attack cell into the writer's brief and read the writer's answer.
+│       │   │   ├── cells.py                                    # The cell grids of both axes and the planners that schedule a round.
 │       │   │   ├── dialect.py                                      # Check an Arabic prompt against the variety it claims.
-│       │   │   ├── history.py                                      # What the generator has learned so far about one target model.
+│       │   │   ├── history.py                                  # What the generator has learned so far about one target model.
+│       │   │   ├── localization_briefs.py                      # Briefs that rewrite a Modern Standard Arabic prompt into one variety.
+│       │   │   ├── novelty.py                                  # The novelty gate: a new draft must not repeat a known prompt.
+│       │   │   ├── over_refusal_briefs.py                      # Turn an over-refusal cell and a pattern card into the writer's brief.
 │       │   │   ├── pattern_card.py                                 # Pattern cards: why a seed prompt was refused, abstracted from its text.
-│       │   │   ├── review.py                                       # The form reviewer's verdict on one generated prompt.
-│       │   │   └── transforms.py                                   # Auditable Arabic surface transforms with explicit composition properties.
+│       │   │   ├── review.py                                   # The form reviewer's verdict on one generated prompt of either axis.
+│       │   │   └── transforms.py                               # Auditable Arabic surface transforms with explicit composition properties.
 │       │   ├── judge_report.py                                     # Published benchmark reports of response judges.
 │       │   ├── metrics.py                                          # Safety metrics computed from judged case outcomes.
 │       │   ├── model_connection.py                                 # A client's saved connection to a model under evaluation.
 │       │   ├── owasp_scenario.py                                   # Define synthetic single-turn OWASP LLM scenarios.
-│       │   ├── prompt_variant.py                                   # Define framework-independent prompt variants and recipe contracts.
 │       │   ├── seed_library.py                                     # Group linguistic variants by unambiguous base-case identity.
 │       │   ├── target_connection.py                                # Connection details of the model under evaluation.
 │       │   └── taxonomy.py                                         # Classification codes of the HARASS evaluation taxonomy.
@@ -177,13 +166,12 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   ├── dataset/
 │       │   │   ├── __init__.py                                     # Readers of the project dataset.
 │       │   │   ├── card_file.py                                    # Read the generator's pattern cards from a JSON lines file.
-│       │   │   ├── spreadsheet_seed_source.py                      # Seed source reading evaluation cases from the dataset spreadsheet.
-│       │   │   └── yaml_variant_catalog.py                         # Compose bounded prompt variants from authored YAML recipes.
+│       │   │   └── spreadsheet_seed_source.py                      # Seed source reading evaluation cases from the dataset spreadsheet.
 │       │   ├── http/
 │       │   │   ├── __init__.py                                     # HTTP adapters.
 │       │   │   ├── endpoint_policy.py                              # Pin approved outbound addresses while retaining TLS checks.
 │       │   │   ├── generation_judges.py                            # The model-backed judges of the prompt generator.
-│       │   │   ├── model_gateway.py                                # One gateway to the generator's writing and judging models.
+│       │   │   ├── model_gateway.py                                # One OpenAI-compatible gateway for the generator's writing and judging models.
 │       │   │   ├── openai_connection_verifier.py                   # Verify model availability and generation on compatible endpoints.
 │       │   │   └── qwenguard_moderation.py                         # One moderation request to the Qwen3Guard server, read into its labels.
 │       │   ├── mail/
@@ -204,7 +192,10 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   │   │   │   ├── 0009_judge_benchmark_reports.py         # Store published judge benchmark reports for administrators.
 │       │   │   │   │   ├── 0010_generator_benchmark_reports.py     # Store published prompt-generator benchmark reports for administrators.
 │       │   │   │   │   └── 0011_drop_generator_reports.py          # Drop the prompt-generator benchmark reports, which the site no longer shows.
-│       │   │   │   │   ├── 0012_generation.py                      # Store the prompt generator's cards, prompts, outcomes and lessons.
+│       │   │   │   │   ├── 0012_generation.py                  # Store the prompt generator's cards, prompts, outcomes and lessons.
+│       │   │   │   │   ├── 0013_generation_attacks.py          # Store attack prompts beside over-refusal ones, with every stage and the reply.
+│       │   │   │   │   ├── 0014_baseline_only_runs.py          # Keep one baseline attempt per case: drop template attempts and the archive.
+│       │   │   │   │   └── 0015_agentic_runs.py                # Run the agentic generator as an evaluation run that learns on both axes.
 │       │   │   │   ├── env.py                                      # Run migrations using environment or injected connection settings.
 │       │   │   │   └── script.py.mako                              # Defines the template used to generate Alembic revisions.
 │       │   │   ├── tables/
@@ -217,7 +208,6 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   │   │   └── judge_reports.py                            # Judge benchmark reports published for administrators.
 │       │   │   ├── __init__.py                                     # PostgreSQL persistence for project-level data.
 │       │   │   ├── job_sessions.py                                 # Transactional job storage and worker ownership checks.
-│       │   │   ├── prompt_archive.py                               # Internal research archival inside the report transaction.
 │       │   │   ├── row_mapping.py                                  # Convert persisted evaluation rows and restore UTC timestamps.
 │       │   │   ├── schema.py                                       # Explicit schema readiness checks before production storage is used.
 │       │   │   ├── session_factory.py                              # Type contract for independent SQLAlchemy database sessions.
@@ -237,10 +227,10 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   │   │   ├── guard_scorers.py                            # PyRIT scorers that take their verdicts from the Qwen3Guard server.
 │       │   │   │   └── synthetic_disclosure_scorer.py              # Deterministic synthetic disclosure judging without another model request.
 │       │   │   ├── __init__.py                                     # Adapters built on PyRIT.
+│       │   │   ├── attempt_executor.py                             # Execute isolated PyRIT attempts with request-aware scoring.
 │       │   │   ├── attempt_outcome.py                              # Conversion of stored PyRIT verdicts into auditable application outcomes.
 │       │   │   ├── judge_request_audit.py                          # Count judge HTTP calls without recording request content.
-│       │   │   ├── target_builder.py                               # Build PyRIT targets for the evaluated models.
-│       │   │   └── variant_attempt_executor.py                     # Execute isolated PyRIT attempts with request-aware scoring.
+│       │   │   └── target_builder.py                               # Build PyRIT targets for the evaluated models.
 │       │   ├── reporting/
 │       │   │   └── __init__.py                                     # Report export adapters.
 │       │   ├── security/
@@ -286,7 +276,7 @@ Maintained source files and their responsibilities. Generated files, local secre
 │       │   ├── cli/
 │       │   │   ├── __init__.py                                     # Command-line delivery.
 │       │   │   ├── administrator_command.py                        # Administrator access commands with the service injected.
-│       │   │   ├── generation_command.py                           # Import pattern cards, or run one round, with the services injected.
+│       │   │   ├── generation_command.py                           # Import pattern cards, or run one round on either axis, with the services injected.
 │       │   │   └── report_command.py                               # Publish judge benchmark report files with the storage injected.
 │       │   └── __init__.py                                         # Delivery mechanisms exposing the use cases.
 │       └── __init__.py                                             # HARASS: Hardened Arabic Red-Teaming And Safety Shield.
@@ -295,7 +285,7 @@ Maintained source files and their responsibilities. Generated files, local secre
 │   │   └── browser_server.py                                       # Run local browser QA against real application adapters.
 │   ├── frontend/
 │   │   ├── initialization.cjs                                      # Pending initialization cannot send credential fields through a native form request.
-│   │   ├── report.cjs                                              # Unsafe evidence stays text while adaptive and control metrics remain distinct.
+│   │   ├── report.cjs                                              # Unsafe evidence stays text and the report shows the run's metrics.
 │   │   └── shell.cjs                                               # Mounting the shared layout replaces navigation without duplicating controls.
 │   ├── integration/
 │   │   ├── test_live_round_trip.py                                 # Tests for live round trip.
@@ -303,44 +293,47 @@ Maintained source files and their responsibilities. Generated files, local secre
 │   ├── unit/
 │   │   ├── application/
 │   │   │   ├── generation/                                         # Tests for the agentic prompt generator's rounds.
+│   │   │   │   ├── test_agentic_run.py                             # Tests for the agentic run: seeding from the baseline, durable rounds and its report.
 │   │   │   │   └── test_generation_round.py                        # Tests for one generation round, driven entirely by fake ports.
 │   │   │   ├── test_administrators.py                              # Tests for granting and revoking administrator access.
+│   │   │   ├── test_baseline_engine.py                             # Tests for the engine that sends each dataset case once.
 │   │   │   ├── test_judge_benchmark_reports.py                     # Tests for publishing and reading judge benchmark reports.
 │   │   │   ├── test_manage_connections.py                          # Tests for the connection-management use case with in-memory fakes.
 │   │   │   ├── test_manage_runs.py                                 # Run admission coordinates ownership and durable ports without execution.
 │   │   │   ├── test_report_document.py                             # Tests for the JSON-compatible evaluation report document.
-│   │   │   ├── test_run_evaluation.py                              # Tests for run evaluation.
-│   │   │   └── test_variant_evaluation.py                          # Tests for variant evaluation.
+│   │   │   └── test_run_evaluation.py                              # Tests for run evaluation.
 │   │   ├── domain/
 │   │   │   ├── generation/                                         # Tests for the generator's pure rules.
-│   │   │   │   ├── test_briefs.py                                  # Tests for the Arabic briefs the writer and the localizer read.
-│   │   │   │   ├── test_cells.py                                   # Tests for the over-refusal cell grid and round planner.
-│   │   │   │   ├── test_dialect.py                                 # Tests for the dialect marker and formal leakage checks.
-│   │   │   │   ├── test_history.py                                 # Tests for the generator's history: verdicts, counts and lesson choice.
-│   │   │   │   ├── test_pattern_card.py                            # Tests for pattern cards and their confidence-bound assignment.
+│   │   │   │   ├── test_attack_briefs.py                       # Tests for the attack writer's brief and the reading of its answer.
+│   │   │   │   ├── test_cells.py                               # Tests for the cell grids and round planners of both axes.
+│   │   │   │   ├── test_dialect.py                                 # Tests for the dialect marker gates.
+│   │   │   │   ├── test_history.py                             # Tests for the generator's history: verdicts, counts and lesson choice.
+│   │   │   │   ├── test_over_refusal_briefs.py                 # Tests for the writer and localizer brief builders.
+│   │   │   │   ├── test_pattern_card.py                            # Tests for pattern-card assignment and the upper-confidence choice.
 │   │   │   │   ├── test_review.py                                  # Tests for the form reviewer's verdict record.
-│   │   │   │   └── test_transforms.py                              # Tests for the auditable Arabic surface transforms.
+│   │   │   │   └── test_transforms.py                              # Tests for the adapter's Arabic surface transforms.
 │   │   │   ├── test_case_identifier.py                             # Tests for the case identifier coding rules.
 │   │   │   ├── test_case_selection.py                              # Tests for case selection criteria.
 │   │   │   ├── test_comprehension.py                               # Tests for the rule signals of responses that missed the prompt.
-│   │   │   ├── test_domain_invariants.py                           # Tests for invariants of evaluation cases and converter chains.
+│   │   │   ├── test_domain_invariants.py                           # Tests for invariants of evaluation cases.
 │   │   │   ├── test_evaluation_plan.py                             # Tests for evaluation plans and base-case sampling.
 │   │   │   ├── test_metrics.py                                     # Tests for safety metrics and Wilson score intervals.
 │   │   │   └── test_target_connection.py                           # Tests for target connection invariants.
 │   │   ├── infrastructure/
 │   │   │   ├── test_account_mail.py                                # SMTP transport security and disabled-feature composition checks.
+│   │   │   ├── test_attempt_executor.py                            # Tests for the PyRIT attempt executor.
+│   │   │   ├── test_card_file.py                                   # Tests for reading the generator's pattern cards from a file.
 │   │   │   ├── test_connection_verifier.py                         # Tests for connection verifier.
 │   │   │   ├── test_durable_runs.py                                # Tests for durable runs.
 │   │   │   ├── test_fernet_secret_cipher.py                        # Tests for the Fernet secret cipher.
-│   │   │   ├── test_generation_judges.py                           # Tests for the generator's reviewer, safety judge and pattern reader.
+│   │   │   ├── test_generation_judges.py                           # Tests for the generator's model-backed reviewers, safety judge and reader.
 │   │   │   ├── test_generation_store.py                            # Tests for the append-only storage of the prompt generator.
 │   │   │   ├── test_judge_server.py                                # Tests for the judge server script, run with stand-ins for the GPU stack.
 │   │   │   ├── test_migrations_and_limits.py                       # Tests for migrations and limits.
 │   │   │   ├── test_model_gateway.py                               # Tests for the generator's model gateway and its judging wrapper.
 │   │   │   ├── test_settings_and_targets.py                        # Tests for system settings and the construction of PyRIT targets.
 │   │   │   ├── test_spreadsheet_seed_source.py                     # Tests for reading evaluation cases from the dataset spreadsheet.
-│   │   │   ├── test_sqlalchemy_stores.py                           # Tests for the SQLAlchemy connection and run stores and the finding archive.
-│   │   │   └── test_variant_attempt_executor.py                    # Tests for variant attempt executor.
+│   │   │   └── test_sqlalchemy_stores.py                           # Tests for the SQLAlchemy connection and run stores.
 │   │   ├── interfaces/
 │   │   │   ├── test_account_recovery.py                            # Account-email gating and single-use recovery on real isolated storage.
 │   │   │   ├── test_admin_routes.py                                # Tests for the administrator-only judge benchmark endpoints.
@@ -348,7 +341,7 @@ Maintained source files and their responsibilities. Generated files, local secre
 │   │   │   ├── test_api.py                                         # Tests for the HTTP API with in-memory use cases and no real model calls.
 │   │   │   ├── test_authentication.py                              # Tests for authentication.
 │   │   │   ├── test_generation_command.py                          # Tests for the prompt generation command.
-│   │   │   ├── test_product_protocol.py                            # Behavioral tests for the product's two fixed evaluation protocols.
+│   │   │   ├── test_product_protocol.py                            # Behavioral tests for the evaluation request protocol and browser contracts.
 │   │   │   └── test_report_command.py                              # Tests for the judge report publish command.
 │   │   └── test_function_length.py                                 # Keep every function short enough to read in one screen.
 │   └── conftest.py                                                 # Shared test fixtures.

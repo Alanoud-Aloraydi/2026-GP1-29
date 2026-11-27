@@ -5,7 +5,7 @@ import pytest
 from harass.application.evaluation.outcome_codec import read_outcome
 from harass.application.reporting.document import outcome_document
 from harass.domain.case_identifier import CaseIdentifier
-from harass.domain.case_outcome import BASELINE_VARIANT_NAME, CaseOutcome
+from harass.domain.case_outcome import CaseOutcome
 from harass.domain.comprehension import ComprehensionSignal, comprehension_signal
 from harass.domain.evaluation_case import EvaluationCase
 from harass.domain.taxonomy import ResponseCategory
@@ -59,10 +59,7 @@ def test_the_signal_survives_storage_beside_the_judge_verdict() -> None:
     """Store the rule signal without changing the judge's category."""
     case = EvaluationCase(CaseIdentifier.parse("OR-DIN-VIO-MSA-00001"), ORIGINAL, "o")
     outcome = CaseOutcome(
-        case,
-        BASELINE_VARIANT_NAME,
-        ResponseCategory.FULL_REFUSAL,
-        comprehension_signal=ComprehensionSignal.ECHOED_PROMPT,
+        case, ResponseCategory.FULL_REFUSAL, comprehension_signal=ComprehensionSignal.ECHOED_PROMPT
     )
     restored = read_outcome(outcome_document(outcome))
     assert restored.response_category is ResponseCategory.FULL_REFUSAL
