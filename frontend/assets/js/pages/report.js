@@ -3,7 +3,7 @@ import { api } from '../core/api-client.js';
 import { start } from '../core/bootstrap.js';
 import { runBusy } from '../core/forms.js';
 import { clearError, empty, html, link, PAGE_SIZE, showError } from '../core/ui.js';
-import { agenticReportBody } from '../views/agentic-report.js';
+import { agenticReportBody, noVerdictSummary } from '../views/agentic-report.js';
 import { reportBody } from '../views/report.js';
 import { evidencePage, promptEvidencePage } from '../views/report-evidence.js';
 import { baselineNotice, runHeading, runProgress, updateRunProgress } from '../views/run.js';
@@ -73,12 +73,16 @@ async function reportPage () {
       container.insertAdjacentHTML('beforeend', baselineNotice(run) + runProgress(run));
     }
     if (run.status === 'failed' && !run.awaits_run_id) {
+      const noVerdict = noVerdictSummary(run.error);
       container.insertAdjacentHTML('beforeend', run.resumable
         ? html`<p>توقف التقييم بعد أخطاء تقنية متكررة. تحقق من الاتصال وإعدادات المحكّم ثم استأنف.</p>
             <button type="button" class="btn" id="resumeRun">استئناف التقييم</button>`
-        : empty(
-          'تعذّر إكمال التقييم', 'راجع اتصال النموذج ثم ابدأ تقييمًا جديدًا.', 'evaluation-setup.html', 'تقييم جديد'
-        ));
+        : noVerdict !== null
+          ? empty('لم يصل أي طلب إلى المحكّم', 'الأسباب: ' + (noVerdict || 'غير مسجّلة') + '.',
+            'evaluation-setup.html', 'تقييم جديد')
+          : empty(
+            'تعذّر إكمال التقييم', 'راجع اتصال النموذج ثم ابدأ تقييمًا جديدًا.', 'evaluation-setup.html', 'تقييم جديد'
+          ));
       if (run.resumable) bindRunAction('resumeRun', api.resumeRun);
     }
     if (ACTIVE.includes(run.status) || run.resumable) {

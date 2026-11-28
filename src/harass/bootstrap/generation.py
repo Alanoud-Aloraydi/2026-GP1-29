@@ -4,7 +4,9 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
@@ -66,15 +68,30 @@ JUDGEMENT_TOKENS = 400
 # The reviewing models hide their answer behind reasoning tokens unless the
 # effort is low: at the default they returned reasoning and no content.
 REASONING_EFFORT = "low"
+# The attacker is a Venice reasoning model: thinking spent the whole attack
+# budget and returned no text, so its writing and localizing skip thinking.
+ATTACKER_EXTRA_BODY = {"venice_parameters": {"disable_thinking": True}}
 GATEWAY_TIMEOUT_SECONDS = 180
 
 
 def _writer(
-    gateway: ModelGateway, model: GenerationModel, temperature: float, tokens: int
+    gateway: ModelGateway,
+    model: GenerationModel,
+    temperature: float,
+    tokens: int,
+    extra_body: Mapping[str, Any] | None = None,
 ) -> GatewayBriefWriter:
-    """Bind one writing role to its model and its sampling settings."""
+    """Bind one writing role to its model, its sampling settings and any provider options."""
     return GatewayBriefWriter(
-        gateway, ModelRoute(model.endpoint, model.api_key, model.model, temperature, tokens)
+        gateway,
+        ModelRoute(
+            model.endpoint,
+            model.api_key,
+            model.model,
+            temperature,
+            tokens,
+            extra_body=extra_body or {},
+        ),
     )
 
 
@@ -149,10 +166,11 @@ def _attack(
     """Assemble the attack pipeline, or None when no attacker is configured."""
     if generation.attacker is None:
         return None
+    attacker = generation.attacker
     return AttackDraftPipeline(
-        _writer(gateway, generation.attacker, ATTACKER_TEMPERATURE, ATTACK_TOKENS),
+        _writer(gateway, attacker, ATTACKER_TEMPERATURE, ATTACK_TOKENS, ATTACKER_EXTRA_BODY),
         VarietyLocalizer(
-            _writer(gateway, generation.attacker, LOCALIZER_TEMPERATURE, WRITING_TOKENS),
+            _writer(gateway, attacker, LOCALIZER_TEMPERATURE, WRITING_TOKENS, ATTACKER_EXTRA_BODY),
             echo_phrases=ATTACK_ECHO_PHRASES,
         ),
         ModelAttackReviewer(judging, _judge(generation.reviewer, ATTACK_REVIEW_TOKENS)),

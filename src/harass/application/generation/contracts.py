@@ -1,7 +1,8 @@
 """What a generation round is asked for and what it reports back."""
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 from harass.domain.generation.history import GeneratedPrompt, Lesson, PromptOutcome
 from harass.domain.generation.pattern_card import Card
@@ -47,6 +48,17 @@ class GenerationRequest:
         return self.round_index > MEASUREMENT_ROUND
 
 
+class DraftDrop(StrEnum):
+    """Why a planned cell yielded no prompt, so an empty round can be explained."""
+
+    UNUSABLE_ANSWER = "unusable_answer"
+    WRITER_TRUNCATED = "writer_truncated"
+    REPEATS_KNOWN = "repeats_known"
+    NO_NOVEL_CANDIDATE = "no_novel_candidate"
+    LOCALIZATION_FAILED = "localization_failed"
+    NO_CARD = "no_card"
+
+
 @dataclass(frozen=True)
 class Draft:
     """One prompt that survived the writing gates, with its review.
@@ -63,7 +75,10 @@ class Draft:
 
 @dataclass(frozen=True)
 class RoundReport:
-    """What one round produced and the rate its scored prompts give."""
+    """What one round produced and the rate its scored prompts give.
+
+    ``dropped`` counts the planned cells that yielded no prompt, by reason.
+    """
 
     axis: Axis
     round_index: int
@@ -72,6 +87,7 @@ class RoundReport:
     outcomes: tuple[PromptOutcome, ...] = ()
     lessons: tuple[Lesson, ...] = ()
     cards: tuple[Card, ...] = ()
+    dropped: Counter[DraftDrop] = field(default_factory=Counter)
 
     @property
     def valid_prompts(self) -> tuple[GeneratedPrompt, ...]:

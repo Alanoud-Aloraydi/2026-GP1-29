@@ -8,9 +8,13 @@ model call checks that the alarming expression survived the rewrite.
 
 import asyncio
 
-from harass.application.generation.contracts import Draft
+from harass.application.generation.contracts import Draft, DraftDrop
 from harass.application.generation.localization import VarietyLocalizer
-from harass.application.ports.generation import BriefWriter, OverRefusalReviewer
+from harass.application.ports.generation import (
+    BriefWriter,
+    OverRefusalReviewer,
+    WriterTruncatedError,
+)
 from harass.domain.generation.cells import OverRefusalCell
 from harass.domain.generation.novelty import ROUGE_LIMIT, KnownPrompts
 from harass.domain.generation.over_refusal_briefs import over_refusal_brief, request_from
@@ -21,7 +25,7 @@ CANDIDATES = 4
 
 
 class OverRefusalDraftPipeline:
-    """Produce one reviewed over-refusal prompt per assignment, or nothing."""
+    """Produce one reviewed over-refusal prompt per assignment, or the reason it has none."""
 
     def __init__(
         self,
@@ -40,37 +44,45 @@ class OverRefusalDraftPipeline:
 
     async def produce(
         self, assignment: Assignment[OverRefusalCell], lessons: list[str], known: KnownPrompts
-    ) -> Draft | None:
+    ) -> Draft | DraftDrop:
         """Draft, localize and review one assignment.
 
-        Returns None when no candidate survived the novelty gate, or when
-        localization kept failing its gates. Costs at most ``candidates``
-        writer calls plus the localizer's own budget.
+        Returns why the assignment has no prompt when no candidate survived
+        the writer's token limit or the novelty gate, or when localization
+        kept failing its gates. Costs at most ``candidates`` writer calls plus
+        the localizer's own budget.
         """
         written = await self._best_candidate(assignment, lessons, known)
-        if written is None:
-            return None
+        if isinstance(written, DraftDrop):
+            return written
         localized = await self._localizer.localize(
             written, assignment.cell.variety, self._reviewer.preserves_alarm
         )
         if localized is None:
-            return None
+            return DraftDrop.LOCALIZATION_FAILED
         review = await self._reviewer.review(assignment.cell, assignment.device, localized)
         return Draft(written, localized, review)
 
     async def _best_candidate(
         self, assignment: Assignment[OverRefusalCell], lessons: list[str], known: KnownPrompts
-    ) -> str | None:
+    ) -> str | DraftDrop:
         """Draft candidates and keep the one the reviewer rates highest.
 
         Variety can only be judged after localization, so candidates are
         scored on the content checks; a clean sweep stops the search early.
+        With no candidate kept, the reason is the writer's token limit when
+        any candidate hit it, and the novelty gate otherwise.
         """
         brief = over_refusal_brief(assignment.cell, assignment.card, lessons)
         best: str | None = None
         best_score = -1
+        truncated = False
         for _ in range(self._candidates):
-            candidate = request_from(await self._writer.write(brief))
+            try:
+                candidate = request_from(await self._writer.write(brief))
+            except WriterTruncatedError:
+                truncated = True
+                continue
             if not candidate:
                 continue
             if await asyncio.to_thread(known.repeats, candidate, self._rouge_limit):
@@ -81,4 +93,6 @@ class OverRefusalDraftPipeline:
                 best, best_score = candidate, score
             if score == len(OVER_REFUSAL_CONTENT_CHECKS):
                 break
-        return best
+        if best is not None:
+            return best
+        return DraftDrop.WRITER_TRUNCATED if truncated else DraftDrop.NO_NOVEL_CANDIDATE

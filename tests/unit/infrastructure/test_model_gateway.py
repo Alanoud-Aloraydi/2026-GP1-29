@@ -9,6 +9,11 @@ from typing import Any
 import httpx
 import pytest
 
+from harass.application.ports.generation import WriterTruncatedError
+from harass.bootstrap.generation import _attack, _writer
+from harass.domain.generation.cells import plan_attack_round
+from harass.domain.generation.novelty import KnownPrompts
+from harass.domain.taxonomy import ArabicVariety
 from harass.infrastructure.http.model_gateway import (
     REASONING_BUDGET,
     GatewayBriefWriter,
@@ -16,7 +21,9 @@ from harass.infrastructure.http.model_gateway import (
     ModelGateway,
     ModelGatewayError,
     ModelRoute,
+    ModelTruncatedError,
 )
+from harass.infrastructure.settings import GenerationModel, GenerationSettings
 
 ROUTE = ModelRoute(
     endpoint="https://models.invalid/v1/chat/completions",
@@ -28,9 +35,17 @@ ROUTE = ModelRoute(
 type Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def answered(content: str, reasoning: str | None = None) -> dict[str, Any]:
+def answered(
+    content: str, reasoning: str | None = None, finish_reason: str = "stop"
+) -> dict[str, Any]:
     """Return an OpenAI-compatible reply body."""
-    return {"choices": [{"message": {"content": content, "reasoning": reasoning}}]}
+    message = {"content": content, "reasoning": reasoning}
+    return {"choices": [{"message": message, "finish_reason": finish_reason}]}
+
+
+def truncated(request: httpx.Request) -> httpx.Response:
+    """Answer as a reasoning model that thought until its token limit."""
+    return httpx.Response(200, json=answered("", finish_reason="length"))
 
 
 def gateway(handler: Handler) -> tuple[ModelGateway, httpx.AsyncClient]:
@@ -168,6 +183,71 @@ async def test_requests_carry_the_route_body() -> None:
     assert body["max_tokens"] == ROUTE.max_tokens
     assert body["messages"] == [{"role": "user", "content": "brief"}]
     assert "reasoning" not in body
+
+
+async def test_an_empty_answer_cut_at_the_token_limit_is_its_own_failure() -> None:
+    """Verify a truncated answer is told apart from an empty or reasoning-only one."""
+    model_gateway, client = gateway(truncated)
+    async with client:
+        with pytest.raises(ModelTruncatedError, match="ran out of tokens"):
+            await model_gateway.complete(ROUTE, "brief")
+
+
+async def test_a_truncated_writer_raises_the_port_error() -> None:
+    """Verify the writer reports truncation through the application port."""
+    model_gateway, client = gateway(truncated)
+    async with client:
+        with pytest.raises(WriterTruncatedError):
+            await GatewayBriefWriter(model_gateway, ROUTE).write("brief")
+
+
+async def test_a_truncated_judge_still_fails_closed() -> None:
+    """Verify judging is unchanged: a truncated judgment reads as empty."""
+    model_gateway, client = gateway(truncated)
+    async with client:
+        assert await JudgingGateway(model_gateway).ask(ROUTE, "rubric") == ""
+
+
+async def test_a_cut_off_answer_with_text_is_kept() -> None:
+    """Verify text written before the token limit is still returned."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Answer with partial text stopped at the limit."""
+        return httpx.Response(200, json=answered("نص ناقص", finish_reason="length"))
+
+    model_gateway, client = gateway(handler)
+    async with client:
+        assert await model_gateway.complete(ROUTE, "brief") == "نص ناقص"
+
+
+async def test_only_the_attacker_routes_disable_thinking() -> None:
+    """Verify the attack writer asks Venice to skip thinking; judges and writers do not."""
+    bodies: dict[str, list[dict[str, Any]]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Record each body by model and answer the attacker with a usable attack."""
+        body = json.loads(request.content)
+        bodies.setdefault(body["model"], []).append(body)
+        content = '{"prompt": "نص", "harmful_goal": "هدف", "false_claim": "ادعاء"}'
+        return httpx.Response(200, json=answered(content if body["model"] == "attacker" else ""))
+
+    def model(name: str) -> GenerationModel:
+        """Return a generator model on the fake endpoint."""
+        return GenerationModel(ROUTE.endpoint, "generator-key", name)
+
+    settings = GenerationSettings(
+        model("writer"), model("writer"), model("reviewer"), model("judge"), model("attacker")
+    )
+    model_gateway, client = gateway(handler)
+    cell = plan_attack_round(1, [], varieties=frozenset({ArabicVariety.MODERN_STANDARD}))[0]
+    async with client:
+        pipeline = _attack(model_gateway, JudgingGateway(model_gateway), settings)
+        assert pipeline is not None
+        await pipeline.produce(cell, None, [], KnownPrompts.of([]))
+        await _writer(model_gateway, settings.writer, 0.7, 400).write("brief")
+    skip_thinking = {"disable_thinking": True}
+    assert all(body["venice_parameters"] == skip_thinking for body in bodies["attacker"])
+    assert all("venice_parameters" not in body for body in bodies["reviewer"] + bodies["writer"])
 
 
 def test_the_route_keeps_its_key_out_of_its_representation() -> None:

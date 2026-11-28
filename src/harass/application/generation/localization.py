@@ -8,7 +8,7 @@ check may cost a model call.
 
 from collections.abc import Awaitable, Callable
 
-from harass.application.ports.generation import BriefWriter
+from harass.application.ports.generation import BriefWriter, WriterTruncatedError
 from harass.domain.generation.dialect import foreign_markers, formal_leakage
 from harass.domain.generation.localization_briefs import (
     INSTRUCTION_PHRASES,
@@ -44,7 +44,8 @@ class VarietyLocalizer:
     ) -> str | None:
         """Return the first rewrite that passes every gate, or None.
 
-        Modern Standard Arabic needs no rewrite. Costs at most ``attempts``
+        Modern Standard Arabic needs no rewrite. A rewrite cut off by the
+        token limit counts as a failed attempt. Costs at most ``attempts``
         localizer calls plus one ``accept`` call per rewrite that passed the
         rule gates.
         """
@@ -52,7 +53,10 @@ class VarietyLocalizer:
             return written
         brief = localize_brief(written, variety)
         for _ in range(self._attempts):
-            rewrite = (await self._writer.write(brief)).lstrip(STRAY_MARKS).strip()
+            try:
+                rewrite = (await self._writer.write(brief)).lstrip(STRAY_MARKS).strip()
+            except WriterTruncatedError:
+                continue
             if not rewrite or foreign_markers(rewrite, str(variety)) or formal_leakage(rewrite):
                 continue
             if echoes_instructions(rewrite, self._echo_phrases):

@@ -1,5 +1,6 @@
 """Tests for the agentic run: seeding from the baseline, durable rounds and its report."""
 
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import replace
 from typing import Any
@@ -9,8 +10,8 @@ import pytest
 from test_generation_round import TARGET, FakeStore, RecordingPatternReader
 
 from harass.application.evaluation.contracts import AgenticParameters
-from harass.application.generation.agentic_run import RunAgenticEvaluation
-from harass.application.generation.contracts import GenerationRequest, RoundReport
+from harass.application.generation.agentic_run import AgenticNoVerdictError, RunAgenticEvaluation
+from harass.application.generation.contracts import DraftDrop, GenerationRequest, RoundReport
 from harass.application.generation.generation_service import GenerateRound
 from harass.application.generation.seeding import SEEDS_PER_GROUP, SeedFromBaseline
 from harass.application.ports.evaluation import EvaluationJournal
@@ -130,11 +131,14 @@ class FakeJournal(EvaluationJournal):
 class RecordingRounds(GenerateRound):
     """Play rounds by storing one scored prompt each, recording the requests."""
 
-    def __init__(self, store: FakeStore, *, scored: bool = True) -> None:
-        """Bind the store the report reads."""
+    def __init__(
+        self, store: FakeStore, *, scored: bool = True, dropped: Counter[DraftDrop] | None = None
+    ) -> None:
+        """Bind the store the report reads and the drops each round reports."""
         self.requests: list[GenerationRequest] = []
         self._store = store
         self._scored = scored
+        self._dropped = dropped or Counter()
 
     async def execute(self, request: GenerationRequest) -> RoundReport:
         """Store one prompt of the request's axis and its verdict."""
@@ -172,6 +176,21 @@ class RecordingRounds(GenerateRound):
             (prompt,),
             outcomes,
             lessons=(lesson,),
+            dropped=self._dropped,
+        )
+
+
+class DroppingRounds(GenerateRound):
+    """Play rounds whose every planned cell was dropped, storing nothing."""
+
+    def __init__(self, dropped: Counter[DraftDrop]) -> None:
+        """Bind the drops each round reports."""
+        self._dropped = dropped
+
+    async def execute(self, request: GenerationRequest) -> RoundReport:
+        """Report the drops and no prompt."""
+        return RoundReport(
+            request.axis, request.round_index, TARGET.model_name, dropped=self._dropped
         )
 
 
@@ -278,6 +297,7 @@ async def test_a_round_interrupted_mid_way_is_not_played_again() -> None:
         (1, Axis.ADVERSARIAL),
     ]
     assert [entry["interrupted"] for entry in report["rounds"]] == [False, True, False, False]
+    assert report["rounds"][0]["dropped"] == {}
 
 
 async def test_rounds_that_reach_no_verdict_suspend_the_run() -> None:
@@ -290,3 +310,34 @@ async def test_rounds_that_reach_no_verdict_suspend_the_run() -> None:
         await play(service, journal)
     assert len(rounds.requests) == 2
     assert journal.checkpoint["case_index"] == 2
+
+
+async def test_each_round_reports_why_cells_yielded_no_prompt() -> None:
+    """Verify a round's drop reasons reach the checkpoint and its report row."""
+    store = FakeStore([])
+    rounds = RecordingRounds(store, dropped=Counter({DraftDrop.REPEATS_KNOWN: 2}))
+    service, _, _ = agentic(store, rounds)
+    journal = FakeJournal()
+    report = await play(service, journal)
+    assert {entry["dropped"]["repeats_known"] for entry in journal.checkpoint["learned"]} == {2}
+    assert [entry["dropped"] for entry in report["rounds"]] == [{"repeats_known": 2}] * 4
+
+
+async def test_a_run_that_judged_no_request_fails_with_its_reasons() -> None:
+    """Verify an agentic run with no judged request fails instead of completing."""
+    store = FakeStore([])
+    dropped = Counter({DraftDrop.UNUSABLE_ANSWER: 4})
+    service, _, _ = agentic(store, DroppingRounds(dropped))
+    with pytest.raises(AgenticNoVerdictError) as raised:
+        await play(service, FakeJournal())
+    assert str(raised.value) == "agentic_no_verdict: unusable_answer=16"
+
+
+async def test_unjudged_prompts_are_named_among_the_no_verdict_reasons() -> None:
+    """Verify valid prompts that reached no verdict are counted as unjudged."""
+    store = FakeStore([])
+    service, _, _ = agentic(store, RecordingRounds(store, scored=False))
+    # One unit only: two silent units in a row would suspend the run instead.
+    parameters = replace(PARAMETERS, rounds=1, axes=(Axis.OVER_REFUSAL,))
+    with pytest.raises(AgenticNoVerdictError, match="unjudged=1"):
+        await play(service, FakeJournal(), parameters)

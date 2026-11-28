@@ -297,7 +297,10 @@ def test_baselines_are_listed_newest_first_with_their_axis(owned: sessionmaker[S
     add_run(owned, newer, RunKind.BASELINE, 2, RunStatus.PENDING, Axis.OVER_REFUSAL)
     add_run(owned, cancelled, RunKind.BASELINE, 3, RunStatus.CANCELLED)
     add_run(owned, RUN, RunKind.AGENTIC, 4)
-    listed = [(run.run_id, run.status, axis) for run, axis in runs.baselines(OWNER, CONNECTION)]
+    listed = [
+        (run.run_id, run.status, selection.axis)
+        for run, selection in runs.baselines(OWNER, CONNECTION)
+    ]
     assert listed == [
         (newer, RunStatus.PENDING, Axis.OVER_REFUSAL),
         (older, RunStatus.COMPLETED, None),

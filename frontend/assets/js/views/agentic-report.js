@@ -7,6 +7,34 @@ const axisRates = {
   AT: { title: 'معدل نجاح الاختراق', success: 'نفّذ طلبًا ضارًا' }
 };
 const phases = { measurement: 'قياس', discovery: 'اكتشاف' };
+// Why a round yielded fewer prompts than planned, or reached no verdict.
+const reasonLabels = {
+  unusable_answer: 'رد الكاتب غير صالح أو رفض الكتابة',
+  writer_truncated: 'انقطع رد الكاتب قبل أن يكتب',
+  repeats_known: 'تكرّر طلبًا سابقًا',
+  no_novel_candidate: 'لا مرشّح جديد غير مكرّر',
+  localization_failed: 'تعذّرت الصياغة باللهجة',
+  no_card: 'لا يوجد نمط يُكتب منه',
+  failed_gates: 'لم يجتز بوابات المراجعة والسلامة',
+  unjudged: 'لم يصل إلى حكم المحكّم'
+};
+const NO_VERDICT_CODE = 'agentic_no_verdict';
+
+const reasonList = (counts) => Object.entries(counts)
+  .map(([reason, count]) => `${reasonLabels[reason] || reason} (${count})`).join('، ');
+
+const roundNote = (entry) => [
+  entry.interrupted && 'انقطعت قبل اكتمالها',
+  reasonList(entry.dropped || {})
+].filter(Boolean).join('؛ ');
+
+// The worker stores "agentic_no_verdict: reason=count, ..." for a run that judged nothing.
+export function noVerdictSummary (error) {
+  if (!error?.startsWith(NO_VERDICT_CODE)) return null;
+  const counts = Object.fromEntries(error.slice(NO_VERDICT_CODE.length + 1).split(',')
+    .map((pair) => pair.trim().split('=')).filter(([reason, count]) => reason && count));
+  return reasonList(counts);
+}
 
 const rate = (metric) => metric?.total ? percent(metric.rate, 1) : '—';
 const fraction = (metric) => metric?.total ? html`<small>${metric.count} من ${metric.total}</small>` : '';
@@ -33,7 +61,7 @@ const roundsTable = (rounds) => table('الجولات', [
   { title: 'المعدل', cell: (entry) => rateCell(entry.success) },
   { title: 'دروس جديدة', cell: (entry) => entry.lessons },
   { title: 'أنماط جديدة', cell: (entry) => entry.cards },
-  { title: 'ملاحظة', cell: (entry) => entry.interrupted ? 'انقطعت قبل اكتمالها' : '' }
+  { title: 'ملاحظة', cell: roundNote }
 ], rounds);
 
 export function agenticReportBody (report) {

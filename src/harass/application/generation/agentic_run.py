@@ -12,8 +12,10 @@ reached the target already; what it stored stays in the report.
 import asyncio
 import hashlib
 import json
+from collections import Counter
 from typing import Any
 
+from harass.application.errors import ApplicationError
 from harass.application.evaluation.contracts import AgenticParameters
 from harass.application.generation.contracts import GenerationRequest
 from harass.application.generation.generation_service import GenerateRound
@@ -27,6 +29,24 @@ from harass.domain.target_connection import TargetConnection
 
 # Rounds in a row that reach no verdict suspend the run: the target is down.
 SILENT_ROUND_LIMIT = 2
+# The stored failure starts with this code so the report page can explain it.
+NO_VERDICT_CODE = "agentic_no_verdict"
+# Stored prompts that failed the review or safety gates, and valid ones left unjudged.
+FAILED_GATES = "failed_gates"
+UNJUDGED = "unjudged"
+
+
+class AgenticNoVerdictError(ApplicationError):
+    """Every round of an agentic run ended without one judged request.
+
+    The message holds only classified reason codes and their counts, never
+    model or provider text, so it is safe to store and show.
+    """
+
+    def __init__(self, reasons: Counter[str]) -> None:
+        """Format the reasons as ``code: reason=count, ...`` in a stable order."""
+        counts = ", ".join(f"{reason}={count}" for reason, count in sorted(reasons.items()))
+        super().__init__(f"{NO_VERDICT_CODE}: {counts}" if counts else NO_VERDICT_CODE)
 
 
 class RunAgenticEvaluation:
@@ -58,6 +78,7 @@ class RunAgenticEvaluation:
         Raises:
             EvaluationYieldedError: After a unit, while units remain.
             EvaluationSuspendedError: When rounds in a row reach no verdict.
+            AgenticNoVerdictError: When the whole run judged no request.
         """
         units = parameters.rounds * len(parameters.axes)
         saved = await asyncio.to_thread(journal.initialize, _fingerprint(parameters, target), units)
@@ -84,9 +105,12 @@ class RunAgenticEvaluation:
                 )
             if state["case_index"] < units:
                 raise EvaluationYieldedError("A finished round yielded the judge slot.")
-        return await asyncio.to_thread(
+        document = await asyncio.to_thread(
             self._report, target.model_name, parameters, run_id, owner_id, state
         )
+        if not _judged(document):
+            raise AgenticNoVerdictError(_no_verdict_reasons(document))
+        return document
 
     async def _play(
         self,
@@ -100,7 +124,13 @@ class RunAgenticEvaluation:
         unit = state["case_index"]
         axes = parameters.axes
         round_index, axis = unit // len(axes), axes[unit % len(axes)]
-        entry = {"axis": str(axis), "round": round_index, "lessons": 0, "cards": 0}
+        entry: dict[str, Any] = {
+            "axis": str(axis),
+            "round": round_index,
+            "lessons": 0,
+            "cards": 0,
+            "dropped": {},
+        }
         silent = state["silent_rounds"]
         if state["pending"]:
             entry["interrupted"] = True
@@ -119,7 +149,12 @@ class RunAgenticEvaluation:
             )
             valid = sum(prompt.is_valid for prompt in report.prompts)
             silent = silent + 1 if valid and not report.outcomes else 0
-            entry.update(lessons=len(report.lessons), cards=len(report.cards), interrupted=False)
+            entry.update(
+                lessons=len(report.lessons),
+                cards=len(report.cards),
+                dropped={str(reason): count for reason, count in report.dropped.items()},
+                interrupted=False,
+            )
         following = {
             **state,
             "case_index": unit + 1,
@@ -149,6 +184,28 @@ class RunAgenticEvaluation:
             baseline.get("metrics", {}),
             state["seeded_cards"],
         )
+
+
+def _judged(document: dict[str, Any]) -> int:
+    """Count the requests judged across every axis and phase of the run."""
+    return sum(
+        rates[phase]["total"]
+        for rates in document["axes"].values()
+        for phase in ("measurement", "discovery")
+    )
+
+
+def _no_verdict_reasons(document: dict[str, Any]) -> Counter[str]:
+    """Sum why each round reached no verdict: drops, gate failures and unjudged prompts.
+
+    O(r * d) for r rounds and d drop reasons per round.
+    """
+    reasons: Counter[str] = Counter()
+    for entry in document["rounds"]:
+        reasons.update(entry["dropped"])
+        reasons[FAILED_GATES] += entry["prompts"] - entry["valid"]
+        reasons[UNJUDGED] += entry["valid"]
+    return Counter({reason: count for reason, count in reasons.items() if count})
 
 
 def _fingerprint(parameters: AgenticParameters, target: TargetConnection) -> str:

@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from harass.application.ports.generation import BriefWriter
+from harass.application.ports.generation import BriefWriter, WriterTruncatedError
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,10 @@ REASONING_BUDGET = 2048
 
 class ModelGatewayError(RuntimeError):
     """A model could not be reached, or answered nothing usable."""
+
+
+class ModelTruncatedError(ModelGatewayError):
+    """A model spent its whole token budget and wrote no answer."""
 
 
 @dataclass(frozen=True)
@@ -95,8 +99,15 @@ class GatewayBriefWriter(BriefWriter):
         self._route = route
 
     async def write(self, brief: str) -> str:
-        """Return the model's answer to the brief."""
-        return await self._gateway.complete(self._route, brief)
+        """Return the model's answer to the brief.
+
+        Raises:
+            WriterTruncatedError: If the model ran out of tokens before answering.
+        """
+        try:
+            return await self._gateway.complete(self._route, brief)
+        except ModelTruncatedError as error:
+            raise WriterTruncatedError(str(error)) from None
 
 
 class JudgingGateway:
@@ -138,6 +149,9 @@ def _answer(route: ModelRoute, payload: object) -> str:
     """Read the answer text out of an OpenAI-compatible reply.
 
     Raises:
+        ModelTruncatedError: If the model stopped at its token limit before
+            writing anything; a reasoning model can spend it all thinking
+            and return no reasoning text either.
         ModelGatewayError: If the reply carries no answer, or carries
             reasoning only, so an empty answer is never scored as text.
     """
@@ -147,6 +161,8 @@ def _answer(route: ModelRoute, payload: object) -> str:
     if not isinstance(message, dict):
         raise ModelGatewayError(f"Model {route.model} returned no answer.")
     text = str(message.get("content") or "").strip()
+    if not text and first.get("finish_reason") == "length":
+        raise ModelTruncatedError(f"Model {route.model} ran out of tokens before answering.")
     if not text and str(message.get("reasoning") or "").strip():
         raise ModelGatewayError(f"Model {route.model} answered with reasoning only.")
     return text

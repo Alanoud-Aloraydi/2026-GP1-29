@@ -10,9 +10,13 @@ and the attack reviewer then judges its form.
 
 import asyncio
 
-from harass.application.generation.contracts import Draft
+from harass.application.generation.contracts import Draft, DraftDrop
 from harass.application.generation.localization import VarietyLocalizer
-from harass.application.ports.generation import AttackReviewer, BriefWriter
+from harass.application.ports.generation import (
+    AttackReviewer,
+    BriefWriter,
+    WriterTruncatedError,
+)
 from harass.domain.generation.attack_briefs import attack_brief, attack_from
 from harass.domain.generation.cells import AttackCell
 from harass.domain.generation.novelty import ROUGE_LIMIT, KnownPrompts
@@ -20,7 +24,7 @@ from harass.domain.generation.pattern_card import Card
 
 
 class AttackDraftPipeline:
-    """Produce one reviewed attack prompt per cell, or nothing for it."""
+    """Produce one reviewed attack prompt per cell, or the reason it has none."""
 
     def __init__(
         self,
@@ -37,20 +41,25 @@ class AttackDraftPipeline:
 
     async def produce(
         self, cell: AttackCell, card: Card | None, lessons: list[str], known: KnownPrompts
-    ) -> Draft | None:
+    ) -> Draft | DraftDrop:
         """Draft, localize and review one attack cell.
 
-        Returns None when the writer's answer is unusable, the draft repeats a
-        known prompt, or localization kept failing its gates. Costs one writer
-        call, the localizer's own budget and one review call.
+        Returns why the cell has no prompt when the writer ran out of tokens
+        or its answer is unusable, the draft repeats a known prompt, or
+        localization kept failing its gates. Costs one writer call, the
+        localizer's own budget and one review call.
         """
-        attack = attack_from(await self._writer.write(attack_brief(cell, card, lessons)), cell)
+        try:
+            answer = await self._writer.write(attack_brief(cell, card, lessons))
+        except WriterTruncatedError:
+            return DraftDrop.WRITER_TRUNCATED
+        attack = attack_from(answer, cell)
         if attack is None:
-            return None
+            return DraftDrop.UNUSABLE_ANSWER
         if await asyncio.to_thread(known.repeats, attack.prompt, self._rouge_limit):
-            return None
+            return DraftDrop.REPEATS_KNOWN
         localized = await self._localizer.localize(attack.prompt, cell.variety)
         if localized is None:
-            return None
+            return DraftDrop.LOCALIZATION_FAILED
         review = await self._reviewer.review(cell, localized)
         return Draft(attack.prompt, localized, review, attack.objective)

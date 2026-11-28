@@ -79,9 +79,10 @@ def baseline(run_id: str, status: RunStatus) -> EvaluationRun:
 def test_an_agentic_run_starts_from_the_latest_completed_baseline() -> None:
     """A completed baseline covering both axes is preferred to one still running."""
     use_case, store, _, queue = services()
+    najdi = CaseSelection(varieties=frozenset({ArabicVariety.NAJDI}))
     store.baselines.return_value = [
-        (baseline("base-2", RunStatus.RUNNING), None),
-        (baseline("base-1", RunStatus.COMPLETED), None),
+        (baseline("base-2", RunStatus.RUNNING), najdi),
+        (baseline("base-1", RunStatus.COMPLETED), najdi),
     ]
     run = use_case.start_agentic(
         OWNER,
@@ -110,7 +111,9 @@ def test_an_agentic_run_starts_from_the_latest_completed_baseline() -> None:
 def test_an_agentic_run_waits_for_an_active_baseline_on_its_axis() -> None:
     """A running baseline limited to the chosen axis is awaited, not run twice."""
     use_case, store, _, queue = services()
-    store.baselines.return_value = [(baseline("base-1", RunStatus.PENDING), Axis.OVER_REFUSAL)]
+    store.baselines.return_value = [
+        (baseline("base-1", RunStatus.PENDING), CaseSelection(axis=Axis.OVER_REFUSAL))
+    ]
     run = use_case.start_agentic(
         OWNER, "conn-1", axis=Axis.OVER_REFUSAL, rounds=1, prompts_per_round=5
     )
@@ -124,7 +127,9 @@ def test_an_agentic_run_waits_for_an_active_baseline_on_its_axis() -> None:
 def test_a_missing_baseline_is_admitted_first_and_awaited() -> None:
     """A baseline on one axis does not cover both, so one on both axes runs first."""
     use_case, store, _, queue = services()
-    store.baselines.return_value = [(baseline("base-1", RunStatus.COMPLETED), Axis.OVER_REFUSAL)]
+    store.baselines.return_value = [
+        (baseline("base-1", RunStatus.COMPLETED), CaseSelection(axis=Axis.OVER_REFUSAL))
+    ]
     varieties = frozenset({ArabicVariety.EGYPTIAN})
     run = use_case.start_agentic(
         OWNER, "conn-1", rounds=1, prompts_per_round=5, varieties=varieties
@@ -139,6 +144,66 @@ def test_a_missing_baseline_is_admitted_first_and_awaited() -> None:
     assert second == run
     assert run.awaits_run_id == first.run_id
     assert AgenticParameters.from_document(second_parameters).baseline_run_id == first.run_id
+
+
+def only(*varieties: ArabicVariety) -> frozenset[ArabicVariety]:
+    """Return a variety set for an agentic run or a baseline selection."""
+    return frozenset(varieties)
+
+
+@pytest.mark.parametrize(
+    ("baseline_selection", "agentic_varieties"),
+    [
+        (CaseSelection.from_codes(varieties=["LEV"]), only(ArabicVariety.MODERN_STANDARD)),
+        (CaseSelection(), only(ArabicVariety.MODERN_STANDARD)),
+        (CaseSelection.from_codes(varieties=["NAJ"]), frozenset()),
+        (CaseSelection.from_codes(varieties=["NAJ", "HIJ"]), only(ArabicVariety.NAJDI)),
+        (
+            CaseSelection.from_codes(risk_categories=["VIO"], varieties=["MSA"]),
+            only(ArabicVariety.MODERN_STANDARD),
+        ),
+    ],
+)
+def test_a_baseline_on_other_varieties_or_filters_is_not_reused(
+    baseline_selection: CaseSelection, agentic_varieties: frozenset[ArabicVariety]
+) -> None:
+    """A baseline must cover exactly the run's varieties and no narrower scope (HARASS-12)."""
+    use_case, store, _, queue = services()
+    store.baselines.return_value = [(baseline("base-1", RunStatus.COMPLETED), baseline_selection)]
+    run = use_case.start_agentic(
+        OWNER, "conn-1", rounds=1, prompts_per_round=5, varieties=agentic_varieties
+    )
+    (first, first_parameters, _), (second, _, _) = (
+        call.args for call in queue.enqueue.call_args_list
+    )
+    assert first.kind is RunKind.BASELINE and first.run_id != "base-1"
+    assert RunParameters.from_document(first_parameters).selection.varieties == agentic_varieties
+    assert second == run and run.awaits_run_id == first.run_id
+
+
+@pytest.mark.parametrize(
+    ("baseline_varieties", "agentic_varieties"),
+    [
+        (only(ArabicVariety.MODERN_STANDARD), only(ArabicVariety.MODERN_STANDARD)),
+        (frozenset(), frozenset()),
+        (frozenset(ArabicVariety), frozenset()),
+    ],
+)
+def test_a_baseline_on_the_same_varieties_is_reused(
+    baseline_varieties: frozenset[ArabicVariety], agentic_varieties: frozenset[ArabicVariety]
+) -> None:
+    """An empty variety set means every variety, on either side."""
+    use_case, store, _, queue = services()
+    store.baselines.return_value = [
+        (baseline("base-1", RunStatus.COMPLETED), CaseSelection(varieties=baseline_varieties))
+    ]
+    run = use_case.start_agentic(
+        OWNER, "conn-1", rounds=1, prompts_per_round=5, varieties=agentic_varieties
+    )
+    assert queue.enqueue.call_count == 1
+    assert run.awaits_run_id is None
+    parameters = AgenticParameters.from_document(queue.enqueue.call_args.args[1])
+    assert parameters.baseline_run_id == "base-1"
 
 
 @pytest.mark.parametrize(
@@ -161,7 +226,7 @@ def test_agentic_parameters_out_of_range_are_rejected(
 def test_an_attack_only_transform_is_kept_off_over_refusal_prompts() -> None:
     """Arabizi changes meaning, so an agentic run may choose it for attacks alone."""
     use_case, store, _, queue = services()
-    store.baselines.return_value = [(baseline("base-1", RunStatus.COMPLETED), None)]
+    store.baselines.return_value = [(baseline("base-1", RunStatus.COMPLETED), CaseSelection())]
     use_case.start_agentic(
         OWNER, "conn-1", rounds=1, prompts_per_round=5, transform_names=("arabizi",)
     )

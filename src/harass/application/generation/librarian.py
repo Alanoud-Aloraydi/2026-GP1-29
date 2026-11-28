@@ -12,7 +12,7 @@ advice, because it would teach the writer to defuse its prompts.
 import asyncio
 from collections.abc import Sequence
 
-from harass.application.ports.generation import BriefWriter
+from harass.application.ports.generation import BriefWriter, WriterTruncatedError
 from harass.domain.generation.attack_briefs import attack_lesson_brief
 from harass.domain.generation.history import CELL_SCOPE, GROUP_SCOPE, GeneratedPrompt, Lesson
 from harass.domain.generation.novelty import ROUGE_LIMIT, KnownPrompts
@@ -63,7 +63,10 @@ class Librarian:
         return lessons
 
     async def _contrast(self, axis: Axis, members: list[ScoredPrompt]) -> str:
-        """Return one lesson for a group, or empty when it teaches nothing."""
+        """Return one lesson for a group, or empty when it teaches nothing.
+
+        A lesson cut off by the token limit counts as a failed attempt.
+        """
         success = next((prompt for prompt, hit in members if hit), None)
         failure = next((prompt for prompt, hit in members if not hit), None)
         if success is None or failure is None:
@@ -76,7 +79,10 @@ class Librarian:
         )
         sources = KnownPrompts.of(texts)
         for _ in range(self._attempts):
-            text = (await self._distiller.write(brief)).strip()
+            try:
+                text = (await self._distiller.write(brief)).strip()
+            except WriterTruncatedError:
+                continue
             if not text or await asyncio.to_thread(sources.repeats, text, ROUGE_LIMIT):
                 continue
             if axis is Axis.OVER_REFUSAL and teaches_defusing(text):

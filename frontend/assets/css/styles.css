@@ -114,7 +114,7 @@ mark { background: var(--butter); border-radius: 12px; padding-inline: 10px; col
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Surfaces. */
-.card, .form-panel, .concern-card, .metric-card, .empty-state, .overview-strip > div, .flow-step, .case-evidence, .auth-card {
+.card, .form-panel, .concern-card, .metric-card, .empty-state, .overview-strip > div, .flow-step, .case-evidence, .auth-card, .model-card {
   padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
 }
 .auth-card { max-width: 520px; margin-block: 24px; padding: 40px; }
@@ -287,6 +287,20 @@ td:has(> .matrix-diagonal) { background: var(--tint); font-weight: 700; }
 .concern-card.refusal .chip { color: var(--refusal-text); }
 .dialect-list .chip { padding: 8px 20px; font-size: 1rem; }
 .cta-band { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; padding: 40px; }
+
+/* Baseline model cards and the model page tabs. */
+.model-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin: 0; padding: 0; list-style: none; }
+.model-card { display: flex; flex-direction: column; gap: 8px; height: 100%; color: var(--text); }
+.model-card:hover { border-color: var(--primary); text-decoration: none; }
+.model-card h2 { margin: 0; font-size: 1.25rem; }
+.model-card span { color: var(--primary); font-weight: 600; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-block-end: 24px; border-block-end: 1px solid var(--border); }
+.tab {
+  min-height: 44px; padding: 8px 18px; border: 0; border-block-end: 3px solid transparent; background: none;
+  color: var(--muted); font: inherit; font-weight: 600; cursor: pointer;
+}
+.tab[aria-selected="true"] { border-block-end-color: var(--primary); color: var(--primary); }
+.model-report { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 
 /* Narrow screens and reduced motion. */
 @media (max-width: 900px) { .auth-aside { display: none; } }

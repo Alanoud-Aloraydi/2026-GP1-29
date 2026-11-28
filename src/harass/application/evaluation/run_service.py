@@ -130,7 +130,7 @@ class ManageRuns:
             UnknownConnectionError: If the owner has no such connection.
         """
         axes = (axis,) if axis else AGENTIC_AXES
-        baseline = self._baseline_for(owner_id, connection_id, axes)
+        baseline = self._baseline_for(owner_id, connection_id, axes, varieties)
         baseline_id = baseline.run_id if baseline else str(uuid.uuid4())
         try:
             for chosen in axes:
@@ -164,17 +164,21 @@ class ManageRuns:
         )
 
     def _baseline_for(
-        self, owner_id: str, connection_id: str, axes: tuple[Axis, ...]
+        self,
+        owner_id: str,
+        connection_id: str,
+        axes: tuple[Axis, ...],
+        varieties: frozenset[ArabicVariety],
     ) -> EvaluationRun | None:
-        """Return the baseline run an agentic run on ``axes`` starts from, if any.
+        """Return the baseline run an agentic run on ``axes`` and ``varieties`` starts from.
 
-        A baseline limited to one axis covers only an agentic run on that axis.
-        The latest completed baseline is preferred over one still running.
+        The latest completed covering baseline is preferred over one still
+        running; None when no baseline covers the run.
         """
         covering = [
             run
-            for run, limited_to in self._run_store.baselines(owner_id, connection_id)
-            if limited_to is None or (limited_to,) == axes
+            for run, selection in self._run_store.baselines(owner_id, connection_id)
+            if _covers(selection, axes, varieties)
         ]
         completed = [run for run in covering if run.status is RunStatus.COMPLETED]
         return next(iter(completed or covering), None)
@@ -213,6 +217,26 @@ class ManageRuns:
     def cancel(self, owner_id: str, run_id: str) -> EvaluationRun:
         """Cancel owned work while preserving committed evidence."""
         return self._queue.cancel(run_id, owner_id)
+
+
+def _covers(
+    selection: CaseSelection, axes: tuple[Axis, ...], varieties: frozenset[ArabicVariety]
+) -> bool:
+    """Return whether a baseline's selection fits an agentic run on ``axes`` and ``varieties``.
+
+    The baseline seeds the run's cards and gives its comparison rate, so its
+    varieties must be exactly the run's: a baseline on more varieties would
+    mix others into both. A baseline limited to one axis covers only a run
+    on that axis, and one narrowed by domain, risk or strategy covers none.
+    An empty variety set means every variety on either side.
+    """
+    if selection.subject_domains or selection.risk_categories or selection.strategies:
+        return False
+    if selection.axis is not None and (selection.axis,) != axes:
+        return False
+    return (selection.varieties or frozenset(ArabicVariety)) == (
+        varieties or frozenset(ArabicVariety)
+    )
 
 
 def _report_chunks(

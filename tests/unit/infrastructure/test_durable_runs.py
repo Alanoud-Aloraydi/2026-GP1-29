@@ -2,11 +2,13 @@
 
 import os
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from cryptography.fernet import Fernet
@@ -23,6 +25,7 @@ from harass.application.evaluation.contracts import RunParameters
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
 from harass.application.evaluation.worker import ProcessRuns
+from harass.application.generation.agentic_run import AgenticNoVerdictError, RunAgenticEvaluation
 from harass.application.ports.connections import ConnectionVerifier
 from harass.application.ports.evaluation import AttemptExecutor, EvaluationJournal, SeedSource
 from harass.application.ports.runs import EvaluationYieldedError, LeaseLostError
@@ -315,6 +318,31 @@ async def test_repeated_failures_suspend_and_resume_from_the_checkpoint(storage:
     assert len(executor.seen) == 4
     summary = manager.get_report("20000000-0000-4000-8000-000000000001", run.run_id)
     assert summary["metrics"]["unscored_outcomes"] == 3
+
+
+async def test_an_agentic_run_that_judged_nothing_fails_for_good(storage: Storage) -> None:
+    """Verify a run with no judged request is failed, not completed or resumable."""
+    owner = "20000000-0000-4000-8000-000000000001"
+    resolver = connections(storage)
+    connection = resolver.add(owner, TARGET.base_url, TARGET.model_name, TARGET.api_key)
+    await resolver.verify(owner, connection.connection_id)
+    manager = ManageRuns(
+        storage.runs,
+        resolver,
+        queue=storage.queue,
+        generated=SqlAlchemyGeneratedEvidence(storage.factory),
+    )
+    run = manager.start_agentic(owner, connection.connection_id, rounds=1, prompts_per_round=1)
+    agentic = Mock(spec=RunAgenticEvaluation)
+    agentic.execute.side_effect = AgenticNoVerdictError(Counter({"unusable_answer": 2}))
+    worker = ProcessRuns(
+        storage.queue, resolver, RunEvaluation(Source(), BaselineEngine(Executor())), agentic
+    )
+    assert await worker.once()
+    assert await worker.once()
+    failed = manager.get(owner, run.run_id)
+    assert failed.status is RunStatus.FAILED and not failed.resumable
+    assert failed.error == "agentic_no_verdict: unusable_answer=2"
 
 
 class InterruptedJournal(EvaluationJournal):

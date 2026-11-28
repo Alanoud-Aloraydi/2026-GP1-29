@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from typing import Any
 
+from harass.application.errors import ApplicationError
 from harass.domain.generation.cells import AttackCell, OverRefusalCell
 from harass.domain.generation.history import (
     GeneratedPrompt,
@@ -24,12 +25,21 @@ from harass.domain.generation.review import Review
 from harass.domain.taxonomy import Axis
 
 
+class WriterTruncatedError(ApplicationError):
+    """The writing model hit its token limit before writing any answer."""
+
+
 class BriefWriter(ABC):
     """Turns one brief into Arabic text with a model."""
 
     @abstractmethod
     async def write(self, brief: str) -> str:
-        """Return the model's answer, or an empty string when it wrote none."""
+        """Return the model's answer, or an empty string when it wrote none.
+
+        Raises:
+            WriterTruncatedError: If the model ran out of tokens before it
+                wrote anything, which is told apart from an empty answer.
+        """
 
 
 class OverRefusalReviewer(ABC):

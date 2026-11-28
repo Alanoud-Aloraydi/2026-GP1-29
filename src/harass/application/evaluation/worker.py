@@ -13,7 +13,7 @@ from harass.application.evaluation.contracts import (
     RunParameters,
 )
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.generation.agentic_run import RunAgenticEvaluation
+from harass.application.generation.agentic_run import AgenticNoVerdictError, RunAgenticEvaluation
 from harass.application.ports.runs import (
     EvaluationSuspendedError,
     EvaluationYieldedError,
@@ -100,7 +100,8 @@ class ProcessRuns:
             return
         except EvaluationSuspendedError as error:
             await asyncio.to_thread(self._queue.fail, job, str(error), resumable=True)
-        except AgenticUnavailableError as error:
+        except (AgenticUnavailableError, AgenticNoVerdictError) as error:
+            # Resuming cannot change either outcome, so the failure is final.
             await asyncio.to_thread(self._queue.fail, job, str(error))
         except Exception as error:
             logger.error("Run %s failed: %s", job.run.run_id, type(error).__name__)

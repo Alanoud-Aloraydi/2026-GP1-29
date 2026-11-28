@@ -16,12 +16,18 @@ ones learned.
 import asyncio
 import logging
 import uuid
+from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 
 from harass.application.errors import ApplicationError
 from harass.application.generation.attack_drafting import AttackDraftPipeline
-from harass.application.generation.contracts import Draft, GenerationRequest, RoundReport
+from harass.application.generation.contracts import (
+    Draft,
+    DraftDrop,
+    GenerationRequest,
+    RoundReport,
+)
 from harass.application.generation.librarian import Librarian, ScoredPrompt
 from harass.application.generation.over_refusal_drafting import OverRefusalDraftPipeline
 from harass.application.ports.evaluation import AttemptExecutor, SeedSource
@@ -129,13 +135,15 @@ class GenerateRound:
         known = await asyncio.to_thread(self._known_prompts, history, request.axis)
         cards = await asyncio.to_thread(self._store.cards, target_model)
         if attack is not None and request.axis is Axis.ADVERSARIAL:
-            written = await self._write_attacks(attack, request, history, cards, known)
+            written, dropped = await self._write_attacks(attack, request, history, cards, known)
         else:
-            written = await self._write_over_refusal(request, history, cards, known)
+            written, dropped = await self._write_over_refusal(request, history, cards, known)
         prompts = await self._judge_safety(request, history, written, sequence)
         for prompt in prompts:
             await asyncio.to_thread(self._store.add_prompt, prompt)
-        report = RoundReport(request.axis, request.round_index, target_model, prompts)
+        report = RoundReport(
+            request.axis, request.round_index, target_model, prompts, dropped=dropped
+        )
         if not request.send_to_target:
             return report
         outcomes = await self._score(request, prompts)
@@ -147,11 +155,12 @@ class GenerateRound:
         history: GenerationHistory,
         cards: Sequence[Card],
         known: KnownPrompts,
-    ) -> list[_Written]:
+    ) -> tuple[list[_Written], Counter[DraftDrop]]:
         """Plan the over-refusal cells of the risks that hold a card, and write each.
 
         Every over-refusal prompt is written from a card, so a risk the
         target never over-refused has nothing to imitate and is not planned.
+        Returns the written prompts and why the other cells yielded none.
         """
         risks = frozenset(
             RiskCategory(card.risk) for card in cards if card.axis is Axis.OVER_REFUSAL
@@ -160,7 +169,7 @@ class GenerateRound:
             logger.warning(
                 "Round %d planned no prompt: no card to write from.", request.round_index
             )
-            return []
+            return [], Counter({DraftDrop.NO_CARD: 1})
         plan = plan_over_refusal_round(
             request.round_index,
             request.count,
@@ -175,13 +184,13 @@ class GenerateRound:
             for item in assign(plan, cards, history.card_uses(), _results(request, history))
         ]
 
-        def produce(work: _Work[OverRefusalCell]) -> Awaitable[Draft | None]:
+        def produce(work: _Work[OverRefusalCell]) -> Awaitable[Draft | DraftDrop]:
             assert work.card is not None
             texts = [lesson.text for lesson in work.lessons]
             return self._over_refusal.produce(Assignment(work.cell, work.card), texts, known)
 
-        drafted = await self._with_review_retries(pending, produce)
-        return [_Written(work, draft, attempts) for work, draft, attempts in drafted]
+        drafted, dropped = await self._with_review_retries(request, pending, produce)
+        return [_Written(work, draft, attempts) for work, draft, attempts in drafted], dropped
 
     async def _write_attacks(
         self,
@@ -190,11 +199,12 @@ class GenerateRound:
         history: GenerationHistory,
         cards: Sequence[Card],
         known: KnownPrompts,
-    ) -> list[_Written]:
+    ) -> tuple[list[_Written], Counter[DraftDrop]]:
         """Plan the attack cells and write one attack for each.
 
         A cell whose risk and strategy hold no card yet is written from its
-        definitions alone.
+        definitions alone. Returns the written prompts and why the other
+        cells yielded none.
         """
         plan = plan_attack_round(
             request.count,
@@ -213,38 +223,51 @@ class GenerateRound:
             device = card.device if card else None
             pending.append(_Work(cell, card, self._lessons(request, history, cell, device)))
 
-        def produce(work: _Work[AttackCell]) -> Awaitable[Draft | None]:
+        def produce(work: _Work[AttackCell]) -> Awaitable[Draft | DraftDrop]:
             texts = [lesson.text for lesson in work.lessons]
             return attack.produce(work.cell, work.card, texts, known)
 
-        drafted = await self._with_review_retries(pending, produce)
-        return [_Written(work, draft, attempts) for work, draft, attempts in drafted]
+        drafted, dropped = await self._with_review_retries(request, pending, produce)
+        return [_Written(work, draft, attempts) for work, draft, attempts in drafted], dropped
 
-    async def _with_review_retries[ItemT](
-        self, pending: Sequence[ItemT], produce: Callable[[ItemT], Awaitable[Draft | None]]
-    ) -> list[tuple[ItemT, Draft, int]]:
+    async def _with_review_retries[CellT: (OverRefusalCell, AttackCell)](
+        self,
+        request: GenerationRequest,
+        pending: Sequence[_Work[CellT]],
+        produce: Callable[[_Work[CellT]], Awaitable[Draft | DraftDrop]],
+    ) -> tuple[list[tuple[_Work[CellT], Draft, int]], Counter[DraftDrop]]:
         """Write every item, sending a rejected draft back to the writer.
 
         A draft the reviewer rejects is written again until the last pass,
         where its final attempt is kept and marked as failing review; an item
-        that yields no draft at all is dropped.
+        that yields no draft at all is dropped, and its reason is logged by
+        cell key only, never with prompt text, and counted.
         """
-        kept: list[tuple[ItemT, Draft, int]] = []
+        kept: list[tuple[_Work[CellT], Draft, int]] = []
+        dropped: Counter[DraftDrop] = Counter()
         remaining = list(pending)
         for attempt in range(REVIEW_RETRIES + 1):
             if not remaining:
                 break
             drafts = await self._gather(produce(item) for item in remaining)
-            retry: list[ItemT] = []
+            retry: list[_Work[CellT]] = []
             for item, draft in zip(remaining, drafts, strict=True):
-                if draft is None:
+                if isinstance(draft, DraftDrop):
+                    logger.warning(
+                        "Round %d %s cell %s dropped: %s",
+                        request.round_index,
+                        request.axis,
+                        item.cell.key,
+                        draft,
+                    )
+                    dropped[draft] += 1
                     continue
                 if not draft.review.passed and attempt < REVIEW_RETRIES:
                     retry.append(item)
                     continue
                 kept.append((item, draft, attempt + 1))
             remaining = retry
-        return kept
+        return kept, dropped
 
     async def _judge_safety(
         self,

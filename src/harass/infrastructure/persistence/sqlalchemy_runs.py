@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from harass.application.errors import UnknownRunError
 from harass.application.evaluation.contracts import RunParameters
 from harass.application.ports.runs import RunStore
+from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_run import ACTIVE_STATUSES, EvaluationRun, RunKind, RunStatus
-from harass.domain.taxonomy import Axis
 from harass.infrastructure.persistence.row_mapping import read_run
 from harass.infrastructure.persistence.session_factory import SessionFactory
 from harass.infrastructure.persistence.tables import ReportRow, RunJobRow, RunRow
@@ -60,7 +60,7 @@ class SqlAlchemyRunStore(RunStore):
 
     def baselines(
         self, owner_id: str, connection_id: str
-    ) -> list[tuple[EvaluationRun, Axis | None]]:
+    ) -> list[tuple[EvaluationRun, CaseSelection]]:
         """Return the baseline runs that completed or may still complete, newest first.
 
         O(n) in the connection's baseline runs, each read with its job inputs.
@@ -78,7 +78,7 @@ class SqlAlchemyRunStore(RunStore):
                 .order_by(RunRow.created_at.desc(), RunRow.run_id)
             )
             return [
-                (read_run(row), RunParameters.from_document(parameters).selection.axis)
+                (read_run(row), RunParameters.from_document(parameters).selection)
                 for row, parameters in rows
             ]
 

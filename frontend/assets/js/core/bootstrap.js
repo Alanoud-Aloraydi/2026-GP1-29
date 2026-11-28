@@ -11,12 +11,13 @@ const publicNavigation = [
 ];
 const accountNavigation = [
   ['dashboard.html', 'نظرة عامة'], ['connections.html', 'اتصالات النماذج'],
-  ['evaluation-setup.html', 'تقييم جديد'], ['history.html', 'سجل التقييمات']
+  ['evaluation-setup.html', 'تقييم جديد'], ['history.html', 'سجل التقييمات'],
+  ['models.html', 'النماذج الأساسية']
 ];
 // The server enforces the role; this only decides whether to offer the links.
 const adminNavigation = [['judges.html', 'مقارنة المحكّمين']];
 // A page that belongs to another section marks that section's link.
-const section = { 'model-configuration': 'connections' }[page] || page;
+const section = { 'model-configuration': 'connections', model: 'models' }[page] || page;
 
 const navigationLink = ([path, label]) => {
   const current = path === section + '.html' && (section === page ? 'page' : 'location');

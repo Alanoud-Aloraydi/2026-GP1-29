@@ -7,8 +7,8 @@ from typing import Any
 
 from harass.application.errors import ApplicationError
 from harass.application.ports.evaluation import EvaluationJournal
+from harass.domain.case_selection import CaseSelection
 from harass.domain.evaluation_run import EvaluationRun
-from harass.domain.taxonomy import Axis
 
 
 class RunStore(ABC):
@@ -39,11 +39,12 @@ class RunStore(ABC):
     @abstractmethod
     def baselines(
         self, owner_id: str, connection_id: str
-    ) -> list[tuple[EvaluationRun, Axis | None]]:
+    ) -> list[tuple[EvaluationRun, CaseSelection]]:
         """Return the owner's baseline runs on a connection that completed or may still.
 
-        Each comes with the axis it was limited to, None when it covered both,
-        newest first. Cancelled and permanently failed runs are left out.
+        Each comes with the case selection it ran, so a caller can match its
+        axes and varieties, newest first. Cancelled and permanently failed
+        runs are left out.
         """
 
 

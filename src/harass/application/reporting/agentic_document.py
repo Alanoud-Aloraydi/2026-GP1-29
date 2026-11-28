@@ -97,12 +97,17 @@ def _verdicts(history: GenerationHistory, run_identifier: str, round_index: int)
 
 
 def _learned(entry: dict[str, Any] | None) -> dict[str, Any]:
-    """Return what a round added, marking a round interrupted before it ended."""
+    """Return what a round added and why cells yielded no prompt.
+
+    A round interrupted before it ended is marked; a checkpoint written
+    before drop reasons were recorded reports none.
+    """
     if entry is None:
-        return {"lessons": 0, "cards": 0, "interrupted": False}
+        return {"lessons": 0, "cards": 0, "dropped": {}, "interrupted": False}
     return {
         "lessons": entry["lessons"],
         "cards": entry["cards"],
+        "dropped": entry.get("dropped", {}),
         "interrupted": entry["interrupted"],
     }
 

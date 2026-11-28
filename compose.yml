@@ -91,7 +91,17 @@ services:
     <<: *app
     restart: unless-stopped
     command: ["python", "-m", "harass.bootstrap.worker"]
-    environment: *settings
+    environment:
+      <<: *settings
+      HARASS_GENERATOR_ENDPOINT: ${HARASS_GENERATOR_ENDPOINT:-}
+      HARASS_GENERATOR_API_KEY: ${HARASS_GENERATOR_API_KEY:-}
+      HARASS_WRITER_MODEL: ${HARASS_WRITER_MODEL:-}
+      HARASS_LOCALIZER_MODEL: ${HARASS_LOCALIZER_MODEL:-}
+      HARASS_REVIEWER_MODEL: ${HARASS_REVIEWER_MODEL:-}
+      HARASS_SAFETY_JUDGE_MODEL: ${HARASS_SAFETY_JUDGE_MODEL:-}
+      HARASS_ATTACKER_ENDPOINT: ${HARASS_ATTACKER_ENDPOINT:-}
+      HARASS_ATTACKER_API_KEY: ${HARASS_ATTACKER_API_KEY:-}
+      HARASS_ATTACKER_MODEL: ${HARASS_ATTACKER_MODEL:-}
     volumes:
       - pyrit-data:/var/lib/harass
     depends_on:
