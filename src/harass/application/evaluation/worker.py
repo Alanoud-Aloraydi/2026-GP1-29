@@ -13,7 +13,11 @@ from harass.application.evaluation.contracts import (
     RunParameters,
 )
 from harass.application.evaluation.runner import RunEvaluation
-from harass.application.generation.agentic_run import AgenticNoVerdictError, RunAgenticEvaluation
+from harass.application.generation.agentic_run import (
+    AgenticNoMeasurementError,
+    AgenticNoVerdictError,
+    RunAgenticEvaluation,
+)
 from harass.application.ports.runs import (
     EvaluationSuspendedError,
     EvaluationYieldedError,
@@ -100,8 +104,8 @@ class ProcessRuns:
             return
         except EvaluationSuspendedError as error:
             await asyncio.to_thread(self._queue.fail, job, str(error), resumable=True)
-        except (AgenticUnavailableError, AgenticNoVerdictError) as error:
-            # Resuming cannot change either outcome, so the failure is final.
+        except (AgenticUnavailableError, AgenticNoVerdictError, AgenticNoMeasurementError) as error:
+            # Resuming cannot change any of these outcomes, so the failure is final.
             await asyncio.to_thread(self._queue.fail, job, str(error))
         except Exception as error:
             logger.error("Run %s failed: %s", job.run.run_id, type(error).__name__)
@@ -122,11 +126,14 @@ class ProcessRuns:
                 job.run.owner_id,
                 journal,
             )
+        parameters = RunParameters.from_document(job.parameters)
         report = await self._evaluation.execute(
-            EvaluationRequest(target, RunParameters.from_document(job.parameters), job.run.run_id),
-            journal=journal,
+            EvaluationRequest(target, parameters, job.run.run_id), journal=journal
         )
-        return await asyncio.to_thread(report_document, report, include_outcomes=False)
+        document = await asyncio.to_thread(report_document, report, include_outcomes=False)
+        # The report shows the settings the run was played with, as the agentic report does.
+        document["parameters"] = parameters.document()
+        return document
 
     def _queued_target(self, job: RunJob) -> TargetConnection:
         """Load the run's connection and refuse it if it changed since."""

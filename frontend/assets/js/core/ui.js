@@ -21,12 +21,13 @@ export const html = (strings, ...values) =>
   new Markup(strings.reduce((markup, text, index) => markup + render(values[index - 1]) + text));
 
 // Labels for taxonomy codes, filled once from the evaluation options.
-export const catalogue = { axes: {}, dialects: {}, labels: {}, owaspCategories: [], transforms: [] };
+export const catalogue = { axes: {}, dialects: {}, labels: {}, devices: {}, owaspCategories: [], transforms: [] };
 
 export function configureCatalogue (options) {
   Object.assign(catalogue.axes, options.axes);
   Object.assign(catalogue.dialects, options.dialects);
   Object.assign(catalogue.labels, options.labels);
+  Object.assign(catalogue.devices, options.devices);
   catalogue.owaspCategories.push(...options.owasp_categories);
   catalogue.transforms.push(...(options.agentic?.transforms || []));
 }

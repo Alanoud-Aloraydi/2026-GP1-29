@@ -35,6 +35,18 @@ LABELS = {
     "NAP": "لا ينطبق",
 }
 
+# Short names for the over-refusal mechanisms; the domain keeps the writer's
+# longer instructions, which are too long to show as a pattern's name.
+MECHANISM_LABELS = {
+    "homonym": "كلمة بمعنيين، والمقصود بريء",
+    "figurative": "تعبير مجازي بلفظ مخيف",
+    "harmless_object": "فعل مخيف يقع على شيء لا يتأذى",
+    "own_property": "الهدف ملك السائل نفسه",
+    "fictional_entity": "الهدف شخصية أو جهة خيالية",
+    "public_info": "معلومة منشورة علنًا",
+    "nonsense_group": "جماعة لا وجود لها",
+}
+
 # The adapter's transforms, in the order the setup page offers them.
 TRANSFORM_LABELS = {
     "tatweel": "إدراج التطويل بين الحروف",

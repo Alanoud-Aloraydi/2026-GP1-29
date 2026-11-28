@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import Depends, FastAPI
 
 from harass.application.evaluation.contracts import MAX_PROMPTS_PER_ROUND, MAX_ROUNDS
+from harass.domain.generation.attack_briefs import ATTACK_DEVICES
 from harass.domain.generation.transforms import TRANSFORMS
 from harass.domain.taxonomy import (
     ArabicVariety,
@@ -14,7 +15,20 @@ from harass.domain.taxonomy import (
     SubjectDomain,
 )
 from harass.interfaces.api.accounts.dependencies import authenticated_owner
-from harass.interfaces.api.evaluations.labels import AXES, DIALECTS, LABELS, TRANSFORM_LABELS
+from harass.interfaces.api.evaluations.labels import (
+    AXES,
+    DIALECTS,
+    LABELS,
+    MECHANISM_LABELS,
+    TRANSFORM_LABELS,
+)
+
+# Attack device codes are unique across strategies, so one mapping names
+# every pattern a generated prompt can carry, on either axis.
+DEVICE_LABELS = {
+    **MECHANISM_LABELS,
+    **{code: label for devices in ATTACK_DEVICES.values() for code, label in devices.items()},
+}
 
 
 def install_catalogue_routes(app: FastAPI) -> None:
@@ -27,6 +41,7 @@ def install_catalogue_routes(app: FastAPI) -> None:
             "dialects": DIALECTS,
             "axes": AXES,
             "labels": LABELS,
+            "devices": DEVICE_LABELS,
             "varieties": [member.value for member in ArabicVariety],
             "subject_domains": [member.value for member in SubjectDomain],
             "risk_categories": [member.value for member in RiskCategory],

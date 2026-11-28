@@ -49,7 +49,7 @@ async function evaluationForm () {
   }
   busy(button, false);
   bindSubmit(form, async () => {
-    if (!values('variety').length) formError('اختر لغة أو لهجة واحدة على الأقل.', form.querySelector('[name=variety]'));
+    if (!values('variety').length) formError('يرجى اختيار العربية الفصحى أو إحدى اللهجات العربية على الأقل قبل بدء التقييم.',form.querySelector('[name=variety]'));
     const selection = { axis: checked('axis').value === 'all' ? null : checked('axis').value, varieties: values('variety') };
     const run = await api.startRun(agentic()
       ? {

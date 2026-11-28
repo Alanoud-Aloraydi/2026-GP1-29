@@ -25,7 +25,11 @@ from harass.application.evaluation.contracts import RunParameters
 from harass.application.evaluation.run_service import ManageRuns
 from harass.application.evaluation.runner import RunEvaluation
 from harass.application.evaluation.worker import ProcessRuns
-from harass.application.generation.agentic_run import AgenticNoVerdictError, RunAgenticEvaluation
+from harass.application.generation.agentic_run import (
+    AgenticNoMeasurementError,
+    AgenticNoVerdictError,
+    RunAgenticEvaluation,
+)
 from harass.application.ports.connections import ConnectionVerifier
 from harass.application.ports.evaluation import AttemptExecutor, EvaluationJournal, SeedSource
 from harass.application.ports.runs import EvaluationYieldedError, LeaseLostError
@@ -320,8 +324,133 @@ async def test_repeated_failures_suspend_and_resume_from_the_checkpoint(storage:
     assert summary["metrics"]["unscored_outcomes"] == 3
 
 
-async def test_an_agentic_run_that_judged_nothing_fails_for_good(storage: Storage) -> None:
-    """Verify a run with no judged request is failed, not completed or resumable."""
+class FirstAttemptFails(Executor):
+    """Fail the first attempt technically, then answer every other one."""
+
+    async def execute(
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
+    ) -> CaseOutcome:
+        """Return a technical failure for the first case only."""
+        if not self.seen:
+            self.seen.append(str(case.identifier))
+            return CaseOutcome(
+                case, error="Attempt failed: ConnectionError.", technical_error="connection"
+            )
+        return await super().execute(case, sent_prompt, target, run_identifier)
+
+
+async def play_baseline(
+    storage: Storage, executor: AttemptExecutor, cases: int
+) -> tuple[ManageRuns, ProcessRuns, EvaluationRun]:
+    """Admit a baseline run of ``cases`` cases and let the worker play it once."""
+    owner = "20000000-0000-4000-8000-000000000001"
+    resolver = connections(storage)
+    connection = resolver.add(owner, TARGET.base_url, TARGET.model_name, TARGET.api_key)
+    await resolver.verify(owner, connection.connection_id)
+    manager = ManageRuns(
+        storage.runs,
+        resolver,
+        queue=storage.queue,
+        generated=SqlAlchemyGeneratedEvidence(storage.factory),
+    )
+    run = manager.start(
+        owner, connection.connection_id, RunParameters(max_base_cases_per_axis=cases)
+    )
+    worker = ProcessRuns(
+        storage.queue, resolver, RunEvaluation(Source(), BaselineEngine(executor)), None
+    )
+    assert await worker.once()
+    return manager, worker, run
+
+
+@pytest.mark.parametrize("cases", [1, 2, 3])
+async def test_a_run_whose_every_attempt_failed_is_a_technical_failure(
+    storage: Storage, cases: int
+) -> None:
+    """Verify a run with no verdict is suspended, never completed, even after a resume."""
+    owner = "20000000-0000-4000-8000-000000000001"
+    manager, worker, run = await play_baseline(storage, UnavailableExecutor(), cases)
+    failed = manager.get(owner, run.run_id)
+    assert failed.status is RunStatus.FAILED and failed.resumable
+    assert failed.completed_cases == cases
+    # Whether the failure limit or the end of the run stops it, nothing is left to send.
+    assert failed.error is not None and failed.error.startswith("baseline_no_verdict:")
+    manager.resume(owner, run.run_id)
+    assert await worker.once()
+    resumed = manager.get(owner, run.run_id)
+    assert resumed.status is RunStatus.FAILED and resumed.resumable
+    assert resumed.error is not None and resumed.error.startswith("baseline_no_verdict:")
+    with pytest.raises(UnknownRunError):
+        manager.get_report(owner, run.run_id)
+    page = manager.outcome_page(owner, run.run_id, 0, 10)
+    assert page["total"] == cases
+    assert all(item["technical_error"] for item in page["items"])
+    assert all(item["response_category"] is None for item in page["items"])
+    history, counts = manager.page_for_owner(owner, 0, 10)
+    assert [(item.run_id, item.status) for item in history] == [(run.run_id, RunStatus.FAILED)]
+    assert counts.get("failed") == 1 and not counts.get("completed")
+
+
+async def test_a_run_with_verdicts_and_technical_failures_still_completes(storage: Storage) -> None:
+    """Verify a mixed run completes and its failed attempt stays out of the rate."""
+    owner = "20000000-0000-4000-8000-000000000001"
+    manager, _, run = await play_baseline(storage, FirstAttemptFails(), 3)
+    completed = manager.get(owner, run.run_id)
+    assert completed.status is RunStatus.COMPLETED and completed.error is None
+    report = manager.get_report(owner, run.run_id)
+    metrics = report["metrics"]
+    assert metrics["unscored_outcomes"] == 1
+    assert metrics["over_refusal"]["over_refusal"]["total"] == 2
+    assert report["parameters"]["max_base_cases_per_axis"] == 3
+    assert report["parameters"]["sampling_seed"] == 0
+    assert "connection_revision" not in report["parameters"]
+
+
+class FirstAttemptAnswers(Executor):
+    """Answer the first attempt, then fail every other one technically."""
+
+    async def execute(
+        self, case: EvaluationCase, sent_prompt: str, target: TargetConnection, run_identifier: str
+    ) -> CaseOutcome:
+        """Return a verdict for the first case and a technical failure afterwards."""
+        if not self.seen:
+            return await super().execute(case, sent_prompt, target, run_identifier)
+        self.seen.append(str(case.identifier))
+        return CaseOutcome(
+            case, error="Attempt failed: ConnectionError.", technical_error="connection"
+        )
+
+
+async def test_a_run_whose_last_attempts_failed_can_still_be_resumed_to_completion(
+    storage: Storage,
+) -> None:
+    """Verify failures in a row after a verdict keep the run resumable, and resuming finishes it."""
+    owner = "20000000-0000-4000-8000-000000000001"
+    manager, worker, run = await play_baseline(storage, FirstAttemptAnswers(), 4)
+    suspended = manager.get(owner, run.run_id)
+    assert suspended.status is RunStatus.FAILED and suspended.resumable
+    assert suspended.error is not None and "repeatedly unavailable" in suspended.error
+    manager.resume(owner, run.run_id)
+    assert await worker.once()
+    completed = manager.get(owner, run.run_id)
+    assert completed.status is RunStatus.COMPLETED
+    assert manager.get_report(owner, run.run_id)["metrics"]["unscored_outcomes"] == 3
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (
+            AgenticNoVerdictError(Counter({"unusable_answer": 2})),
+            "agentic_no_verdict: unusable_answer=2",
+        ),
+        (AgenticNoMeasurementError(["AT"]), "agentic_no_measurement: AT"),
+    ],
+)
+async def test_an_agentic_run_without_valid_rates_fails_for_good(
+    storage: Storage, error: Exception, message: str
+) -> None:
+    """Verify a run without valid rates is failed, not completed or resumable."""
     owner = "20000000-0000-4000-8000-000000000001"
     resolver = connections(storage)
     connection = resolver.add(owner, TARGET.base_url, TARGET.model_name, TARGET.api_key)
@@ -334,7 +463,7 @@ async def test_an_agentic_run_that_judged_nothing_fails_for_good(storage: Storag
     )
     run = manager.start_agentic(owner, connection.connection_id, rounds=1, prompts_per_round=1)
     agentic = Mock(spec=RunAgenticEvaluation)
-    agentic.execute.side_effect = AgenticNoVerdictError(Counter({"unusable_answer": 2}))
+    agentic.execute.side_effect = error
     worker = ProcessRuns(
         storage.queue, resolver, RunEvaluation(Source(), BaselineEngine(Executor())), agentic
     )
@@ -342,7 +471,7 @@ async def test_an_agentic_run_that_judged_nothing_fails_for_good(storage: Storag
     assert await worker.once()
     failed = manager.get(owner, run.run_id)
     assert failed.status is RunStatus.FAILED and not failed.resumable
-    assert failed.error == "agentic_no_verdict: unusable_answer=2"
+    assert failed.error == message
 
 
 class InterruptedJournal(EvaluationJournal):

@@ -1,6 +1,7 @@
 """Tests for the HTTP API with in-memory use cases and no real model calls."""
 
 import asyncio
+import re
 from collections.abc import Iterator
 from typing import cast
 
@@ -19,6 +20,8 @@ from harass.application.evaluation.runner import RunEvaluation
 from harass.application.evaluation.worker import ProcessRuns
 from harass.application.ports.connections import ConnectionVerifier
 from harass.application.ports.evaluation import EvaluationJournal
+from harass.domain.generation.attack_briefs import ATTACK_DEVICES
+from harass.domain.generation.over_refusal_briefs import MECHANISMS
 from harass.domain.metrics import compute_metrics
 from harass.domain.target_connection import TargetConnection
 from harass.infrastructure.persistence.sqlalchemy_connections import SqlAlchemyConnectionStore
@@ -31,6 +34,7 @@ from harass.interfaces.api.accounts.dependencies import authenticated_owner
 from harass.interfaces.api.app import create_app
 
 OWNER_HEADER = {"X-Owner-Id": "user-1"}
+ARABIC = re.compile(r"[؀-ۿ]")
 
 
 class StubEvaluation:
@@ -163,6 +167,22 @@ def test_evaluation_options_list_the_dataset_classifications(client: TestClient)
     transforms = {item["name"]: item for item in agentic["transforms"]}
     assert transforms["arabizi"]["attack_only"] and not transforms["tatweel"]["attack_only"]
     assert all(item["label"] for item in agentic["transforms"])
+
+
+def test_every_code_and_pattern_the_pages_show_has_an_arabic_label(client: TestClient) -> None:
+    """Verify the page never falls back to a raw code for a classification or a pattern."""
+    options = client.get("/evaluation-options", headers=OWNER_HEADER).json()
+    codes = {
+        *options["subject_domains"],
+        *options["risk_categories"],
+        *options["strategies"],
+        *options["owasp_categories"],
+    }
+    assert codes <= options["labels"].keys()
+    assert set(options["varieties"]) <= options["dialects"].keys()
+    patterns = {code for devices in ATTACK_DEVICES.values() for code in devices} | set(MECHANISMS)
+    assert patterns == options["devices"].keys()
+    assert all(ARABIC.search(label) for label in options["devices"].values())
 
 
 def test_an_agentic_run_without_a_baseline_runs_one_first(client: TestClient) -> None:

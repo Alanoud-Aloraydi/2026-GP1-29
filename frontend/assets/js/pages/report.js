@@ -3,7 +3,7 @@ import { api } from '../core/api-client.js';
 import { start } from '../core/bootstrap.js';
 import { runBusy } from '../core/forms.js';
 import { clearError, empty, html, link, PAGE_SIZE, showError } from '../core/ui.js';
-import { agenticReportBody, noVerdictSummary } from '../views/agentic-report.js';
+import { agenticReportBody, noMeasurementAxes, noVerdictSummary } from '../views/agentic-report.js';
 import { reportBody } from '../views/report.js';
 import { evidencePage, promptEvidencePage } from '../views/report-evidence.js';
 import { baselineNotice, runHeading, runProgress, updateRunProgress } from '../views/run.js';
@@ -11,6 +11,36 @@ import { baselineNotice, runHeading, runProgress, updateRunProgress } from '../v
 // Waiting runs change slowly, so they are checked less often.
 const POLL_MS = { pending: 15000, running: 10000 };
 const ACTIVE = ['pending', 'running'];
+// A baseline run that sent every case and judged none stores this code; a sent
+// case is never sent again, so resuming it cannot produce a verdict.
+const NOTHING_TO_RESUME_CODE = 'baseline_no_verdict';
+const NEW_RUN = ['evaluation-setup.html', 'تقييم جديد'];
+
+const canResume = (run) => run.resumable && !run.error?.startsWith(NOTHING_TO_RESUME_CODE);
+
+function failureNotice (run) {
+  if (canResume(run)) {
+    return html`<p>توقف التقييم بعد أخطاء تقنية متكررة. تحقق من الاتصال وإعدادات المحكّم ثم استأنف.</p>
+      <button type="button" class="btn" id="resumeRun">استئناف التقييم</button>`;
+  }
+  if (run.resumable) {
+    return empty('لا توجد محاولات متبقية للاستئناف',
+      'أُرسلت كل الحالات وتعذّر الحكم عليها بسبب أخطاء تقنية، ولا يعيد الاستئناف إرسال حالة ' +
+      'سبق إرسالها حتى لا يتلقاها النموذج مرتين. تحقّق من الاتصال بالنموذج والمحكّم ثم ابدأ تقييمًا جديدًا.',
+      ...NEW_RUN);
+  }
+  const noVerdict = noVerdictSummary(run.error);
+  if (noVerdict !== null) {
+    return empty('لم يصل أي طلب إلى المحكّم', 'الأسباب: ' + (noVerdict || 'غير مسجّلة') + '.', ...NEW_RUN);
+  }
+  const unmeasured = noMeasurementAxes(run.error);
+  if (unmeasured !== null) {
+    return empty('لا توجد أحكام في جولة القياس',
+      `لم تُحكَم أي محاولة في جولة القياس على محور ${unmeasured}، فلا يمكن مقارنة النتائج ` +
+      'بالتقييم الأساسي. ابدأ تقييمًا وكيليًا جديدًا.', ...NEW_RUN);
+  }
+  return empty('تعذّر إكمال التقييم', 'راجع اتصال النموذج ثم ابدأ تقييمًا جديدًا.', ...NEW_RUN);
+}
 
 function downloadReport (runId) {
   const anchor = document.createElement('a');
@@ -73,17 +103,8 @@ async function reportPage () {
       container.insertAdjacentHTML('beforeend', baselineNotice(run) + runProgress(run));
     }
     if (run.status === 'failed' && !run.awaits_run_id) {
-      const noVerdict = noVerdictSummary(run.error);
-      container.insertAdjacentHTML('beforeend', run.resumable
-        ? html`<p>توقف التقييم بعد أخطاء تقنية متكررة. تحقق من الاتصال وإعدادات المحكّم ثم استأنف.</p>
-            <button type="button" class="btn" id="resumeRun">استئناف التقييم</button>`
-        : noVerdict !== null
-          ? empty('لم يصل أي طلب إلى المحكّم', 'الأسباب: ' + (noVerdict || 'غير مسجّلة') + '.',
-            'evaluation-setup.html', 'تقييم جديد')
-          : empty(
-            'تعذّر إكمال التقييم', 'راجع اتصال النموذج ثم ابدأ تقييمًا جديدًا.', 'evaluation-setup.html', 'تقييم جديد'
-          ));
-      if (run.resumable) bindRunAction('resumeRun', api.resumeRun);
+      container.insertAdjacentHTML('beforeend', failureNotice(run));
+      if (canResume(run)) bindRunAction('resumeRun', api.resumeRun);
     }
     if (ACTIVE.includes(run.status) || run.resumable) {
       container.insertAdjacentHTML('beforeend',

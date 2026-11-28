@@ -161,7 +161,7 @@ def _answer(route: ModelRoute, payload: object) -> str:
     if not isinstance(message, dict):
         raise ModelGatewayError(f"Model {route.model} returned no answer.")
     text = str(message.get("content") or "").strip()
-    if not text and first.get("finish_reason") == "length":
+    if not text and isinstance(first, dict) and first.get("finish_reason") == "length":
         raise ModelTruncatedError(f"Model {route.model} ran out of tokens before answering.")
     if not text and str(message.get("reasoning") or "").strip():
         raise ModelGatewayError(f"Model {route.model} answered with reasoning only.")

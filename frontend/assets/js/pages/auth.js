@@ -6,8 +6,7 @@ import { safeReturn } from '../core/ui.js';
 
 const signingUp = document.body.dataset.page === 'signup';
 const credentialErrors = {
-  401: 'البريد الإلكتروني أو كلمة المرور غير صحيحة. راجع بياناتك ثم أعد المحاولة.',
-  409: 'هذا البريد مسجل بالفعل. يمكنك تسجيل الدخول بحسابك.'
+  401: 'البريد الإلكتروني أو كلمة المرور غير صحيحة. راجع بياناتك ثم أعد المحاولة.'
 };
 
 async function authenticationForm () {
@@ -24,7 +23,9 @@ async function authenticationForm () {
     try {
       await (signingUp ? api.signup(credentials) : api.login(credentials));
     } catch (error) {
-      throw new Error(credentialErrors[error.status] || error.message);
+      // Keep the error itself so a link it carries, such as sign-in, still shows.
+      error.message = credentialErrors[error.status] || error.message;
+      throw error;
     }
     location.href = safeReturn();
   });

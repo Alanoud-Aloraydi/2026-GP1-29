@@ -25,9 +25,8 @@ export function bindSubmit (form, action) {
       await action();
     } catch (error) {
       showError(error.message);
-      if (error.activeRunId) {
-        const path = 'evaluation-run.html?run_id=' + encodeURIComponent(error.activeRunId);
-        document.getElementById('pageError').insertAdjacentHTML('beforeend', link(path, 'فتح التقييم الجاري'));
+      if (error.link) {
+        document.getElementById('pageError').insertAdjacentHTML('beforeend', link(error.link.path, error.link.label));
       }
       error.field?.focus();
     } finally {

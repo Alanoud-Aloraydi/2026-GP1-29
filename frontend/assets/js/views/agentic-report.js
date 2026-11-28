@@ -19,6 +19,7 @@ const reasonLabels = {
   unjudged: 'لم يصل إلى حكم المحكّم'
 };
 const NO_VERDICT_CODE = 'agentic_no_verdict';
+const NO_MEASUREMENT_CODE = 'agentic_no_measurement';
 
 const reasonList = (counts) => Object.entries(counts)
   .map(([reason, count]) => `${reasonLabels[reason] || reason} (${count})`).join('، ');
@@ -34,6 +35,13 @@ export function noVerdictSummary (error) {
   const counts = Object.fromEntries(error.slice(NO_VERDICT_CODE.length + 1).split(',')
     .map((pair) => pair.trim().split('=')).filter(([reason, count]) => reason && count));
   return reasonList(counts);
+}
+
+// The worker stores "agentic_no_measurement: AT, OR" for a run whose measurement round judged nothing.
+export function noMeasurementAxes (error) {
+  if (!error?.startsWith(NO_MEASUREMENT_CODE)) return null;
+  return error.slice(NO_MEASUREMENT_CODE.length + 1).split(',').map((code) => code.trim())
+    .filter(Boolean).map((code) => catalogue.axes[code] || code).join('، ');
 }
 
 const rate = (metric) => metric?.total ? percent(metric.rate, 1) : '—';
@@ -52,6 +60,16 @@ function axisCard ([axis, rates]) {
       <p class="hint">التقييم الأساسي: ${rateCell(rates.baseline)} · جولات الاكتشاف: ${rateCell(rates.discovery)}</p>
     </div>`;
 }
+
+// Reports written before varieties were recorded show no variety tables.
+const varietyTables = (axes) => Object.entries(axes)
+  .filter(([, rates]) => Object.keys(rates.varieties || {}).length)
+  .map(([axis, rates]) => html`
+    <section class="card">${table(`${axisRates[axis].title} حسب اللهجة · ${catalogue.axes[axis] || axis}`, [
+      { title: 'اللهجة', cell: ([code]) => catalogue.dialects[code] || code },
+      { title: 'جولة القياس', cell: ([, byPhase]) => rateCell(byPhase.measurement) },
+      { title: 'جولات الاكتشاف', cell: ([, byPhase]) => rateCell(byPhase.discovery) }
+    ], Object.entries(rates.varieties))}</section>`);
 
 const roundsTable = (rounds) => table('الجولات', [
   { title: 'الجولة', cell: (entry) => `${entry.round + 1} · ${phases[entry.phase]}` },
@@ -86,6 +104,7 @@ export function agenticReportBody (report) {
           ولا يُعمَّم. بدأ التعلم من ${report.seeded_cards ?? 0} نمطًا استُخرجت من التقييم الأساسي.</p>
       </div>
       <section class="metric-grid">${Object.entries(report.axes || {}).map(axisCard)}</section>
+      ${varietyTables(report.axes || {})}
       <section class="card">${roundsTable(report.rounds || [])}</section>
       <section id="attemptEvidence" aria-live="polite"></section>
     </div>`;

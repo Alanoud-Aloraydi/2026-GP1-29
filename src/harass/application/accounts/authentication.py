@@ -8,7 +8,12 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from harass.application.accounts.errors import AuthenticationError, RegistrationError
+from harass.application.accounts.errors import (
+    AuthenticationError,
+    EmailRegisteredError,
+    InvalidEmailError,
+    InvalidNameError,
+)
 from harass.application.accounts.password_policy import PasswordPolicy
 from harass.application.ports.accounts import AuthenticationSecurity, AuthenticationStore
 from harass.domain.authentication import AuthenticatedLogin, AuthenticationSession, User
@@ -50,13 +55,13 @@ class ManageAuthentication:
             or any(not c.isprintable() for c in canonical_email)
             or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", canonical_email)
         ):
-            raise RegistrationError("A valid email address is required.")
+            raise InvalidEmailError("A valid email address is required.")
         self._passwords.validate(password)
         user = User(str(uuid4()), name, canonical_email, self._security.hash_password(password))
         session, refresh = self._session(user)
         token = self._security.encode_session(session)
         if not self._store.register(user, session):
-            raise RegistrationError("Unable to create an account with these details.")
+            raise EmailRegisteredError("An account with this email already exists.")
         return AuthenticatedLogin(user, token, refresh, session.refresh_expires_at)
 
     def login(self, email: str, password: str) -> AuthenticatedLogin:
@@ -175,7 +180,7 @@ def valid_name(full_name: str) -> str:
     """Trim a display name and require 2-100 printable characters."""
     name = full_name.strip()
     if not 2 <= len(name) <= 100 or any(ord(c) < 32 for c in name):
-        raise RegistrationError("Full name must contain 2-100 printable characters.")
+        raise InvalidNameError("Full name must contain 2-100 printable characters.")
     return name
 
 

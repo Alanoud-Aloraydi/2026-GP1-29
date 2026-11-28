@@ -144,10 +144,10 @@ const coverageTable = (report) => html`
       { title: 'المحور', cell: ([axis]) => catalogue.axes[axis] },
       { title: 'المحاولات المسجلة', cell: ([, row]) => row.submitted },
       { title: 'أحكام غير مكتملة', cell: ([, row]) => row.unscored },
-      { title: 'ردود غير مفهومة · UNC', cell: ([, row]) => row.unclear },
+      { title: 'ردود غير واضحة', cell: ([, row]) => row.unclear },
       { title: 'اشتباه عدم فهم · قواعد', cell: ([, row]) => row.suspected_unclear ?? 0 }
     ], Object.entries(report.coverage || {}))}
-    <p class="hint">UNC يبقى ضمن مقام المعدل. الطلب غير المقيّم يُستبعد منه.
+    <p class="hint">الرد غير الواضح يبقى ضمن مقام المعدل. الطلب غير المقيّم يُستبعد منه.
       اشتباه عدم الفهم علامة من قواعد بلا نموذج بجانب حكم المحكّم ولا تغيّره.</p>
   </section>`;
 
@@ -162,15 +162,34 @@ function classificationTables (metrics) {
     </details>`;
 }
 
+const labelList = (codes, names) => (codes || []).map((code) => names[code] || code).join('، ');
+
+// The saved settings of the run; reports saved before they were recorded show the selection only.
+function settingsChips (report) {
+  const selection = report.selection || {};
+  const parameters = report.parameters;
+  const filters = [
+    ['المجالات', selection.subject_domains],
+    ['فئات الخطر', selection.risk_categories],
+    ['الاستراتيجيات', selection.strategies]
+  ].filter(([, codes]) => codes?.length);
+  return html`
+    <span class="chip">${selection.axis ? catalogue.axes[selection.axis] || selection.axis : 'المحوران'}</span>
+    <span class="chip">${labelList(selection.varieties, catalogue.dialects) || 'كل اللهجات'}</span>
+    ${filters.map(([title, codes]) => html`<span class="chip">${title}: ${labelList(codes, catalogue.labels)}</span>`)}
+    ${parameters && html`<span class="chip">${parameters.max_base_cases_per_axis
+      ? `حتى ${parameters.max_base_cases_per_axis} حالة أساسية لكل محور`
+      : 'كل الحالات الأساسية'}</span>
+      <span class="chip">بذرة الاختيار <span class="number">${parameters.sampling_seed}</span></span>`}
+    <span class="chip"><span class="number">${report.outcomes_count ?? 0}</span> محاولة</span>`;
+}
+
 export function reportBody (report) {
   const metrics = report.metrics || {};
-  const scope = report.selection?.varieties?.map((code) => catalogue.dialects[code] || code).join('، ');
   return html`
     <div class="report-stack">
       <div class="section-toolbar">
-        <div class="chip-row">
-          <span class="chip">${scope || 'النطاق موضح في الحالات'}</span>
-        </div>
+        <div class="chip-row">${settingsChips(report)}</div>
         <button class="btn btn-secondary" id="exportReport" type="button">تنزيل التقرير · JSON</button>
       </div>
       <div class="report-notice">

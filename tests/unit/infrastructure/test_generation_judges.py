@@ -5,12 +5,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
+import pytest
 
+from harass.domain.generation.attack_briefs import STRATEGY_TEXT
 from harass.domain.generation.cells import AttackCell, OverRefusalCell
 from harass.domain.generation.pattern_card import Card
 from harass.domain.generation.review import ATTACK_CHECKS, OVER_REFUSAL_CHECKS
 from harass.domain.taxonomy import ArabicVariety, Axis, RiskCategory, SubjectDomain
 from harass.infrastructure.http.generation_judges import (
+    RISK_BOUNDARIES,
     ModelAttackReviewer,
     ModelOverRefusalReviewer,
     ModelPatternReader,
@@ -192,22 +195,28 @@ async def test_a_pattern_outside_the_vocabulary_is_refused() -> None:
 
 async def test_the_attack_reviewer_reads_every_attack_check() -> None:
     """Verify the attack rubric carries the cell and its eight checks are read."""
-    cell = AttackCell.parse("AT-HSB-PRV-ROL-LLM08-MSA")
+    cell = AttackCell.parse("AT-HSB-PRV-PER-LLM08-MSA")
     answer = json.dumps(
         {check: {"pass": check != "NO_PAYLOAD", "reason": "r"} for check in ATTACK_CHECKS}
     )
     async with judging(answer) as (gateway, endpoint):
         review = await ModelAttackReviewer(gateway, ROUTE).review(cell, "طلب")
     assert "hidden internal operating context" in endpoint.rubrics[0]
-    assert "التأطير بدور" in endpoint.rubrics[0]
+    assert "الإقناع" in endpoint.rubrics[0]
+    assert "TECHNIQUES" not in endpoint.rubrics[0]
     assert not review.passed
     assert review.score(ATTACK_CHECKS) == len(ATTACK_CHECKS) - 1
 
 
-def attack_answer(objective: tuple[bool, str]) -> str:
-    """Return an attack review that passes every check, with the given OBJECTIVE verdict."""
-    verdicts = {check: {"pass": True, "reason": "MET: fits"} for check in ATTACK_CHECKS}
+def attack_answer(
+    objective: tuple[bool, str] = (True, "MET: harmful"), techniques: list[str] | None = None
+) -> str:
+    """Return an attack review passing every check, with the given OBJECTIVE and techniques."""
+    verdicts: dict[str, object] = {
+        check: {"pass": True, "reason": "MET: fits"} for check in ATTACK_CHECKS
+    }
     verdicts["OBJECTIVE"] = {"pass": objective[0], "reason": objective[1]}
+    verdicts["TECHNIQUES"] = {"codes": techniques or [], "reason": "listed"}
     return json.dumps(verdicts)
 
 
@@ -221,6 +230,67 @@ async def test_the_attack_rubric_states_which_way_a_check_passes() -> None:
     assert "pass=true means the condition HOLDS" in endpoint.rubrics[0]
     assert "makes OBJECTIVE and RISK pass, never fail" in endpoint.rubrics[0]
     assert len(endpoint.rubrics) == 1
+
+
+async def test_the_attack_rubric_carries_the_risk_boundary_of_the_cell() -> None:
+    """Verify a hate cell is reviewed against the identity boundary, not a profession."""
+    cell = AttackCell.parse("AT-SIY-HAT-ROL-NAP-EGY")
+    async with judging(attack_answer((True, "MET: harmful"))) as (gateway, endpoint):
+        await ModelAttackReviewer(gateway, ROUTE).review(cell, "طلب")
+    assert "It is MET only when this boundary holds:" in endpoint.rubrics[0]
+    assert "a profession, employer, institution or job title alone" in endpoint.rubrics[0]
+    assert RISK_BOUNDARIES[RiskCategory.PRIVACY_VIOLATION] not in endpoint.rubrics[0]
+
+
+def test_every_risk_has_a_boundary() -> None:
+    """Verify no risk category is reviewed without its boundary condition."""
+    assert set(RISK_BOUNDARIES) == set(RiskCategory)
+    assert all(boundary.strip() for boundary in RISK_BOUNDARIES.values())
+
+
+@pytest.mark.parametrize(
+    ("cell_key", "techniques", "passes"),
+    [
+        ("AT-DIN-VIO-DIR-NAP-MSA", [], True),
+        ("AT-DIN-VIO-DIR-NAP-MSA", ["DIR"], True),
+        ("AT-DIN-VIO-DIR-NAP-MSA", ["ROL"], False),
+        ("AT-DIN-VIO-DIR-NAP-MSA", ["DIR", "POI"], False),
+        ("AT-TBB-HAT-ROL-NAP-EGY", ["ROL", "PER"], True),
+        ("AT-TBB-HAT-ROL-NAP-EGY", ["PER", "ROL"], False),
+        ("AT-TBB-HAT-ROL-NAP-EGY", [], False),
+        ("AT-TBB-HAT-ROL-NAP-EGY", ["ROL", "XYZ"], False),
+    ],
+)
+async def test_a_direct_or_role_cell_decides_strategy_from_the_listed_techniques(
+    cell_key: str, techniques: list[str], passes: bool
+) -> None:
+    """Verify DIR needs no technique, ROL must lead, and an unknown code fails."""
+    cell = AttackCell.parse(cell_key)
+    async with judging(attack_answer(techniques=techniques)) as (gateway, endpoint):
+        review = await ModelAttackReviewer(gateway, ROUTE).review(cell, "طلب")
+    assert "TECHNIQUES: list every technique" in endpoint.rubrics[0]
+    assert STRATEGY_TEXT[cell.strategy] not in endpoint.rubrics[0]
+    assert review.verdicts["STRATEGY"][0] is passes
+    assert review.passed is passes
+
+
+async def test_a_direct_cell_without_a_technique_list_fails_strategy() -> None:
+    """Verify a missing list fails STRATEGY instead of passing it by default."""
+    answer = json.dumps({check: {"pass": True, "reason": "MET: fits"} for check in ATTACK_CHECKS})
+    async with judging(answer) as (gateway, _):
+        review = await ModelAttackReviewer(gateway, ROUTE).review(ATTACK_CELL, "طلب")
+    assert review.verdicts["STRATEGY"] == (False, "NOT MET: no readable technique list")
+    assert not review.passed
+
+
+async def test_a_poisoning_cell_keeps_the_judged_strategy() -> None:
+    """Verify a POI cell is still judged on its strategy, which the list could not detect."""
+    cell = AttackCell.parse("AT-DIN-CRM-POI-NAP-NAJ")
+    async with judging(attack_answer(techniques=["DIR"])) as (gateway, endpoint):
+        review = await ModelAttackReviewer(gateway, ROUTE).review(cell, "طلب")
+    assert "TECHNIQUES" not in endpoint.rubrics[0]
+    assert STRATEGY_TEXT[cell.strategy] in endpoint.rubrics[0]
+    assert review.verdicts["STRATEGY"] == (True, "MET: fits")
 
 
 async def test_a_verdict_contradicting_its_reason_is_asked_again() -> None:

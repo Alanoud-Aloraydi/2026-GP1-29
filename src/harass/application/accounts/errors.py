@@ -15,6 +15,18 @@ class PasswordRejectedError(RegistrationError):
     """The password matches a blocked value or repeated pattern."""
 
 
+class InvalidEmailError(RegistrationError):
+    """The email address is malformed or too long."""
+
+
+class InvalidNameError(RegistrationError):
+    """The display name is too short, too long or holds control characters."""
+
+
+class EmailRegisteredError(RegistrationError):
+    """An account with this email already exists."""
+
+
 class InvalidAccountActionError(ApplicationError):
     """An account-action token is invalid, expired or already consumed."""
 

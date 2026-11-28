@@ -7,9 +7,9 @@ from harass.application.evaluation.contracts import AgenticParameters
 from harass.application.generation.contracts import MEASUREMENT_ROUND
 from harass.domain.generation.history import GenerationHistory
 from harass.domain.metrics import Proportion
-from harass.domain.taxonomy import Axis
+from harass.domain.taxonomy import ArabicVariety, Axis
 
-AGENTIC_FORMAT_VERSION = 1
+AGENTIC_FORMAT_VERSION = 2
 # Where the baseline report keeps each axis's headline rate.
 BASELINE_RATES = {
     Axis.OVER_REFUSAL: ("over_refusal", "over_refusal"),
@@ -51,6 +51,7 @@ def agentic_document(
             "baseline": _baseline(baseline_metrics, history.axis),
             "measurement": _proportion(Proportion(sum(measured), len(measured))),
             "discovery": _proportion(Proportion(sum(discovered), len(discovered))),
+            "varieties": _variety_rates(history, run_identifier),
         }
     return {
         "kind": "agentic",
@@ -90,10 +91,38 @@ def _verdicts(history: GenerationHistory, run_identifier: str, round_index: int)
         if prompt.run_id != run_identifier or prompt.round_index != round_index:
             continue
         outcome = history.outcomes.get(prompt.prompt_id)
-        verdict = outcome.succeeded(history.axis) if outcome else None
+        verdict = outcome.rate_verdict(history.axis) if outcome else None
         if verdict is not None:
             verdicts.append(verdict)
     return verdicts
+
+
+def _variety_rates(history: GenerationHistory, run_identifier: str) -> dict[str, Any]:
+    """Return each variety's measurement and discovery rate on one axis.
+
+    A cell key ends with its variety on both axes. Verdicts follow the same
+    rate rule as the axis's headline rates. O(n) in the axis's prompts.
+    """
+    verdicts: dict[str, dict[str, list[bool]]] = {}
+    for prompt in history.prompts:
+        if prompt.run_id != run_identifier:
+            continue
+        outcome = history.outcomes.get(prompt.prompt_id)
+        verdict = outcome.rate_verdict(history.axis) if outcome else None
+        if verdict is None:
+            continue
+        variety = prompt.cell_key.rsplit("-", 1)[-1]
+        phase = "measurement" if prompt.round_index == MEASUREMENT_ROUND else "discovery"
+        phases = verdicts.setdefault(variety, {"measurement": [], "discovery": []})
+        phases[phase].append(verdict)
+    return {
+        variety.value: {
+            phase: _proportion(Proportion(sum(values), len(values)))
+            for phase, values in verdicts[variety.value].items()
+        }
+        for variety in ArabicVariety
+        if variety.value in verdicts
+    }
 
 
 def _learned(entry: dict[str, Any] | None) -> dict[str, Any]:

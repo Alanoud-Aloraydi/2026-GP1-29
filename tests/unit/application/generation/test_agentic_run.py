@@ -10,7 +10,11 @@ import pytest
 from test_generation_round import TARGET, FakeStore, RecordingPatternReader
 
 from harass.application.evaluation.contracts import AgenticParameters
-from harass.application.generation.agentic_run import AgenticNoVerdictError, RunAgenticEvaluation
+from harass.application.generation.agentic_run import (
+    AgenticNoMeasurementError,
+    AgenticNoVerdictError,
+    RunAgenticEvaluation,
+)
 from harass.application.generation.contracts import DraftDrop, GenerationRequest, RoundReport
 from harass.application.generation.generation_service import GenerateRound
 from harass.application.generation.seeding import SEEDS_PER_GROUP, SeedFromBaseline
@@ -278,11 +282,35 @@ async def test_a_run_on_one_axis_plays_and_reports_only_that_axis() -> None:
     assert {entry["axis"] for entry in report["rounds"]} == {"AT"}
 
 
-async def test_a_round_interrupted_mid_way_is_not_played_again() -> None:
-    """Verify a unit reserved before a crash is skipped and marked interrupted."""
-    store = FakeStore([])
-    rounds = RecordingRounds(store)
-    service, _, _ = agentic(store, rounds)
+def store_judged_prompt(store: FakeStore, axis: Axis, round_index: int) -> None:
+    """Store one prompt of this run's unit with a verdict, as a played unit leaves it."""
+    prompt_id = f"stored-{axis}-{round_index}"
+    store.add_prompt(
+        GeneratedPrompt(
+            prompt_id=prompt_id,
+            case_id="case",
+            axis=axis,
+            cell_key="cell",
+            round_index=round_index,
+            written_text=prompt_id,
+            localized_text=prompt_id,
+            sent_text=prompt_id,
+            reviewer_passed=True,
+            intent_safe=axis is Axis.OVER_REFUSAL,
+            target_model=TARGET.model_name,
+            run_id=RUN,
+        )
+    )
+    attack = False if axis is Axis.ADVERSARIAL else None
+    store.add_outcome(
+        PromptOutcome(
+            prompt_id, TARGET.model_name, ResponseCategory.FULL_REFUSAL, attack_succeeded=attack
+        )
+    )
+
+
+def interrupted_at_unit_one() -> FakeJournal:
+    """Return a checkpoint whose attack measurement unit was reserved when the worker stopped."""
     journal = FakeJournal()
     journal.checkpoint = {
         "case_index": 1,
@@ -291,13 +319,57 @@ async def test_a_round_interrupted_mid_way_is_not_played_again() -> None:
         "silent_rounds": 0,
         "learned": [{"axis": "OR", "round": 0, "lessons": 0, "cards": 0, "interrupted": False}],
     }
-    report = await play(service, journal)
+    return journal
+
+
+async def test_a_round_interrupted_after_storing_prompts_is_not_played_again() -> None:
+    """Verify a unit whose prompts may have reached the target is skipped and marked."""
+    store = FakeStore([])
+    store_judged_prompt(store, Axis.OVER_REFUSAL, 0)
+    store_judged_prompt(store, Axis.ADVERSARIAL, 0)
+    rounds = RecordingRounds(store)
+    service, _, _ = agentic(store, rounds)
+    report = await play(service, interrupted_at_unit_one())
     assert [(r.round_index, r.axis) for r in rounds.requests] == [
         (1, Axis.OVER_REFUSAL),
         (1, Axis.ADVERSARIAL),
     ]
     assert [entry["interrupted"] for entry in report["rounds"]] == [False, True, False, False]
     assert report["rounds"][0]["dropped"] == {}
+
+
+async def test_a_round_interrupted_before_storing_any_prompt_is_played_again() -> None:
+    """Verify a unit that sent nothing is replayed, so its measurement round is not lost."""
+    store = FakeStore([])
+    store_judged_prompt(store, Axis.OVER_REFUSAL, 0)
+    rounds = RecordingRounds(store)
+    service, _, _ = agentic(store, rounds)
+    report = await play(service, interrupted_at_unit_one())
+    assert [(r.round_index, r.axis) for r in rounds.requests] == [
+        (0, Axis.ADVERSARIAL),
+        (1, Axis.OVER_REFUSAL),
+        (1, Axis.ADVERSARIAL),
+    ]
+    assert not any(entry["interrupted"] for entry in report["rounds"])
+    assert report["axes"]["AT"]["measurement"]["total"] == 1
+
+
+class UnmeasuredRounds(RecordingRounds):
+    """Judge nothing in the measurement round and everything afterwards."""
+
+    async def execute(self, request: GenerationRequest) -> RoundReport:
+        """Score the prompt only in a discovery round."""
+        self._scored = request.round_index > 0
+        return await super().execute(request)
+
+
+async def test_a_run_without_a_judged_measurement_round_does_not_complete() -> None:
+    """Verify discovery verdicts alone cannot complete a run that has no measurement."""
+    store = FakeStore([])
+    service, _, _ = agentic(store, UnmeasuredRounds(store))
+    parameters = replace(PARAMETERS, axes=(Axis.OVER_REFUSAL,))
+    with pytest.raises(AgenticNoMeasurementError, match="agentic_no_measurement: OR"):
+        await play(service, FakeJournal(), parameters)
 
 
 async def test_rounds_that_reach_no_verdict_suspend_the_run() -> None:

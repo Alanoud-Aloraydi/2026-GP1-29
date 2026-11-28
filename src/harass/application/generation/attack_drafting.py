@@ -12,11 +12,7 @@ import asyncio
 
 from harass.application.generation.contracts import Draft, DraftDrop
 from harass.application.generation.localization import VarietyLocalizer
-from harass.application.ports.generation import (
-    AttackReviewer,
-    BriefWriter,
-    WriterTruncatedError,
-)
+from harass.application.ports.generation import AttackReviewer, BriefWriter, WriterTruncatedError
 from harass.domain.generation.attack_briefs import attack_brief, attack_from
 from harass.domain.generation.cells import AttackCell
 from harass.domain.generation.novelty import ROUGE_LIMIT, KnownPrompts

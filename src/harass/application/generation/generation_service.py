@@ -22,12 +22,7 @@ from dataclasses import dataclass, replace
 
 from harass.application.errors import ApplicationError
 from harass.application.generation.attack_drafting import AttackDraftPipeline
-from harass.application.generation.contracts import (
-    Draft,
-    DraftDrop,
-    GenerationRequest,
-    RoundReport,
-)
+from harass.application.generation.contracts import Draft, DraftDrop, GenerationRequest, RoundReport
 from harass.application.generation.librarian import Librarian, ScoredPrompt
 from harass.application.generation.over_refusal_drafting import OverRefusalDraftPipeline
 from harass.application.ports.evaluation import AttemptExecutor, SeedSource

@@ -203,7 +203,30 @@ def test_wrong_credentials_and_duplicate_registration(client: TestClient) -> Non
         headers=MUTATION,
         json={"full_name": "مستخدم آخر", "email": "FIRST@EXAMPLE.TEST", "password": PASSWORD},
     )
-    assert duplicate.status_code == 400
+    assert duplicate.status_code == 409
+    assert duplicate.json() == {"code": "email_registered"}
+
+
+@pytest.mark.parametrize(
+    ("full_name", "email", "code"),
+    [
+        ("مستخدم اختبار", "not-an-email", "invalid_email"),
+        ("مستخدم اختبار", "two@at@example.test", "invalid_email"),
+        ("  م  ", "short-name@example.test", "invalid_name"),
+        ("اسم\x01فيه رمز تحكم", "control@example.test", "invalid_name"),
+    ],
+)
+def test_each_signup_failure_has_its_own_code(
+    client: TestClient, full_name: str, email: str, code: str
+) -> None:
+    """Verify signup names why it failed with a code and no English detail."""
+    response = client.post(
+        "/auth/signup",
+        headers=MUTATION,
+        json={"full_name": full_name, "email": email, "password": PASSWORD},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"code": code}
 
 
 def test_key_rotation_canonicalizes_legacy_ids_and_rejects_expiry() -> None:

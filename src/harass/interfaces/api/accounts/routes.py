@@ -9,6 +9,9 @@ from fastapi.responses import JSONResponse
 from harass.application.accounts.authentication import ManageAuthentication
 from harass.application.accounts.errors import (
     AuthenticationError,
+    EmailRegisteredError,
+    InvalidEmailError,
+    InvalidNameError,
     PasswordRejectedError,
     RegistrationError,
 )
@@ -71,6 +74,18 @@ def install_auth(
     app.include_router(router)
 
 
+# Each signup failure has a code the page shows in Arabic; the request schema
+# already rejects a password of the wrong length. A registered email is told
+# apart on purpose, by the product's choice, so the visitor can sign in
+# instead; this reveals that the address has an account.
+SIGNUP_FAILURES: dict[type[RegistrationError], tuple[int, str]] = {
+    EmailRegisteredError: (409, "email_registered"),
+    InvalidEmailError: (400, "invalid_email"),
+    InvalidNameError: (400, "invalid_name"),
+    PasswordRejectedError: (400, "password_rejected"),
+}
+
+
 @router.post("/signup", response_model=UserResponse, status_code=201)
 async def signup(
     body: SignupRequest, request: Request, service: Service, cookies: Cookies
@@ -78,10 +93,9 @@ async def signup(
     """Create an account and set its session cookies."""
     try:
         result = await run_in_threadpool(service.signup, body.full_name, body.email, body.password)
-    except PasswordRejectedError:
-        return JSONResponse(status_code=400, content={"code": "password_rejected"})
     except RegistrationError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        status, code = SIGNUP_FAILURES.get(type(error), (400, "registration_rejected"))
+        return JSONResponse(status_code=status, content={"code": code})
     await run_in_threadpool(_logout, service, request)
     response = cookies.response(result)
     response.status_code = 201

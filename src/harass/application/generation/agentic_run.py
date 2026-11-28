@@ -5,8 +5,11 @@ plays the chosen number of rounds, each writing prompts on every chosen
 axis. Every round on one axis is a unit of work: the checkpoint is saved before a unit
 starts and after it ends, and the worker yields its slot between units, so
 a long run shares the judge with other clients and resumes where it stopped.
-A unit interrupted mid-way is not played again, since its prompts may have
-reached the target already; what it stored stays in the report.
+A unit interrupted after it stored prompts is not played again, since they
+may have reached the target already, and what it stored stays in the report;
+one interrupted before it stored any is played again, as nothing was sent.
+A run whose measurement round reached no verdict on an axis fails, since its
+rates could not be compared with the baseline's.
 """
 
 import asyncio
@@ -26,11 +29,13 @@ from harass.application.ports.runs import EvaluationSuspendedError, EvaluationYi
 from harass.application.reporting.agentic_document import agentic_document
 from harass.domain.generation.transforms import axis_transforms
 from harass.domain.target_connection import TargetConnection
+from harass.domain.taxonomy import Axis
 
 # Rounds in a row that reach no verdict suspend the run: the target is down.
 SILENT_ROUND_LIMIT = 2
-# The stored failure starts with this code so the report page can explain it.
+# The stored failures start with these codes so the report page can explain them.
 NO_VERDICT_CODE = "agentic_no_verdict"
+NO_MEASUREMENT_CODE = "agentic_no_measurement"
 # Stored prompts that failed the review or safety gates, and valid ones left unjudged.
 FAILED_GATES = "failed_gates"
 UNJUDGED = "unjudged"
@@ -47,6 +52,19 @@ class AgenticNoVerdictError(ApplicationError):
         """Format the reasons as ``code: reason=count, ...`` in a stable order."""
         counts = ", ".join(f"{reason}={count}" for reason, count in sorted(reasons.items()))
         super().__init__(f"{NO_VERDICT_CODE}: {counts}" if counts else NO_VERDICT_CODE)
+
+
+class AgenticNoMeasurementError(ApplicationError):
+    """A chosen axis has no judged request in its measurement round.
+
+    Its discovery rates may exist, but without the unbiased measurement the
+    run cannot be compared with its baseline, so it must not complete. The
+    message names only axis codes.
+    """
+
+    def __init__(self, axes: list[str]) -> None:
+        """Format the axes as ``code: AT, OR``."""
+        super().__init__(f"{NO_MEASUREMENT_CODE}: {', '.join(axes)}")
 
 
 class RunAgenticEvaluation:
@@ -79,6 +97,7 @@ class RunAgenticEvaluation:
             EvaluationYieldedError: After a unit, while units remain.
             EvaluationSuspendedError: When rounds in a row reach no verdict.
             AgenticNoVerdictError: When the whole run judged no request.
+            AgenticNoMeasurementError: When an axis's measurement round judged none.
         """
         units = parameters.rounds * len(parameters.axes)
         saved = await asyncio.to_thread(journal.initialize, _fingerprint(parameters, target), units)
@@ -110,6 +129,11 @@ class RunAgenticEvaluation:
         )
         if not _judged(document):
             raise AgenticNoVerdictError(_no_verdict_reasons(document))
+        unmeasured = [
+            axis for axis, rates in document["axes"].items() if not rates["measurement"]["total"]
+        ]
+        if unmeasured:
+            raise AgenticNoMeasurementError(unmeasured)
         return document
 
     async def _play(
@@ -132,7 +156,10 @@ class RunAgenticEvaluation:
             "dropped": {},
         }
         silent = state["silent_rounds"]
-        if state["pending"]:
+        stored = state["pending"] and await asyncio.to_thread(
+            self._unit_stored, target.model_name, axis, run_id, round_index
+        )
+        if stored:
             entry["interrupted"] = True
         else:
             await asyncio.to_thread(journal.reserve, {**state, "pending": True})
@@ -164,6 +191,18 @@ class RunAgenticEvaluation:
         }
         await asyncio.to_thread(journal.reserve, following)
         return following
+
+    def _unit_stored(self, target_model: str, axis: Axis, run_id: str, round_index: int) -> bool:
+        """Return whether a unit stored any prompt, which may have reached the target.
+
+        Prompts are stored before any request is sent, so a unit with none
+        sent nothing and can be played again. O(n) in the axis's prompts.
+        """
+        history = self._store.history(target_model, axis)
+        return any(
+            prompt.run_id == run_id and prompt.round_index == round_index
+            for prompt in history.prompts
+        )
 
     def _report(
         self,

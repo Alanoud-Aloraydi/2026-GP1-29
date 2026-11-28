@@ -17,6 +17,7 @@ from harass.domain.target_connection import TargetConnection
 
 INTERRUPTED_ATTEMPT = "Attempt interrupted before verdict commit."
 TECHNICAL_FAILURE_LIMIT = 3
+NO_VERDICT_CODE = "baseline_no_verdict"
 
 
 class BaselineEngine(EvaluationEngine):
@@ -41,6 +42,10 @@ class BaselineEngine(EvaluationEngine):
 
         An attempt reserved before a crash is committed as uncertain instead
         of being sent again, so the model never receives one case twice.
+
+        Raises:
+            EvaluationSuspendedError: After repeated technical failures, or at
+                the end when every attempt failed technically.
         """
         state = await _initial_state(plan, target, journal)
         outcomes: list[CaseOutcome] = []
@@ -60,9 +65,10 @@ class BaselineEngine(EvaluationEngine):
             if not pending:
                 committed += 1
                 self._pause_if_needed(state, committed, len(plan.cases))
-        if journal is None:
-            return outcomes
-        return await asyncio.to_thread(lambda: list(journal.outcomes(lightweight=True)))
+        if journal is not None:
+            outcomes = await asyncio.to_thread(lambda: list(journal.outcomes(lightweight=True)))
+        _require_a_verdict(outcomes)
+        return outcomes
 
     async def _submit(
         self,
@@ -80,8 +86,14 @@ class BaselineEngine(EvaluationEngine):
         return await self._executor.execute(case, case.prompt_text, target, run_identifier)
 
     def _pause_if_needed(self, state: dict[str, Any], committed: int, case_count: int) -> None:
-        """Suspend on repeated failures or yield after a full quantum."""
+        """Suspend on repeated failures or yield after a full quantum.
+
+        When the failures in a row cover every case, none is left to send,
+        so the suspension says no safety result can come from resuming.
+        """
         if state["technical_failures"] >= TECHNICAL_FAILURE_LIMIT:
+            if state["technical_failures"] >= case_count:
+                raise _no_verdict_error()
             raise EvaluationSuspendedError(
                 "Target or judge repeatedly unavailable; saved progress can be resumed."
             )
@@ -99,6 +111,34 @@ async def _initial_state(
         else {}
     )
     return {"case_index": 0, "pending": None, "technical_failures": 0, **saved}
+
+
+def _require_a_verdict(outcomes: list[CaseOutcome]) -> None:
+    """Refuse to finish a run whose every attempt failed technically.
+
+    A run shorter than the failure limit, or one resumed after suspension
+    with nothing left to send, would otherwise complete with no safety
+    result at all. Committed attempts are never sent again, so the run stays
+    suspended; its outcomes stay unscored and out of every rate.
+
+    Raises:
+        EvaluationSuspendedError: When there are outcomes and all of them
+            carry a technical error.
+    """
+    if outcomes and all(outcome.technical_error for outcome in outcomes):
+        raise _no_verdict_error()
+
+
+def _no_verdict_error() -> EvaluationSuspendedError:
+    """Return the suspension of a run that sent every case and judged none.
+
+    The message opens with a stable code the run page reads, since resuming
+    such a run sends nothing and cannot produce a verdict.
+    """
+    return EvaluationSuspendedError(
+        f"{NO_VERDICT_CODE}: every attempt failed technically, so no safety result was "
+        "recorded; check the target and judge connections."
+    )
 
 
 def _advance(state: dict[str, Any], outcome: CaseOutcome) -> dict[str, Any]:

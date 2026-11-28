@@ -17,7 +17,19 @@ const statusMessages = {
 const codeMessages = {
   password_rejected: 'اختر كلمة مرور أقل شيوعًا؛ يمكنك استخدام عبارة طويلة.',
   account_link_invalid: 'انتهت صلاحية الرابط أو استُخدم من قبل. اطلب رابطًا جديدًا.',
-  active_run: 'لديك تقييم لم ينتهِ. أكمله أو ألغِه قبل بدء تقييم آخر.'
+  active_run: 'لديك تقييم لم ينتهِ. أكمله أو ألغِه قبل بدء تقييم آخر.',
+  email_registered: 'هذا البريد مسجّل بالفعل.',
+  invalid_email: 'أدخل بريدًا إلكترونيًا صالحًا.',
+  invalid_name: 'يجب أن يتكوّن الاسم من حرفين إلى 100 حرف دون رموز تحكم.'
+};
+
+// Failures whose message offers the page that resolves them.
+const codeLinks = {
+  email_registered: () => ({ path: 'login.html', label: 'تسجيل الدخول' }),
+  active_run: (payload) => ({
+    path: 'evaluation-run.html?run_id=' + encodeURIComponent(payload.active_run_id),
+    label: 'فتح التقييم الجاري'
+  })
 };
 
 const CREDENTIAL_PATHS = new Set(['/auth/login', '/auth/signup', '/auth/refresh']);
@@ -59,7 +71,7 @@ function failure (response, payload) {
   const error = new Error(codeMessages[payload?.code] || statusMessages[response.status] ||
     'حدث خطأ في الخدمة. أعد المحاولة لاحقًا.');
   error.status = response.status;
-  if (payload?.code === 'active_run') error.activeRunId = payload.active_run_id;
+  error.link = codeLinks[payload?.code]?.(payload);
   return error;
 }
 
